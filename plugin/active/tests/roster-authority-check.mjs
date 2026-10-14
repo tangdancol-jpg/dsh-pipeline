@@ -364,7 +364,7 @@ export async function runRosterAuthorityCheck() {
   // G. B1 的判据位（静态判究：拒必须发生在**任何落盘之前**）
   // =========================================================================
   {
-    const storeSrc = readFileSync(join(HERE, '..', 'lib', 'store.js'), 'utf8')
+    const storeSrc = readFileSync(join(HERE, '..', 'lib', 'store', 'roster.js'), 'utf8')
     const iGate = storeSrc.indexOf("'ROSTER_SLOT_MISSING'")
     const iAssign = storeSrc.indexOf('task.roster = roster')
     const iAudit = storeSrc.indexOf("'roster:set'")
@@ -379,13 +379,13 @@ export async function runRosterAuthorityCheck() {
       'G 判据位',
       '★ B1 的拒绝码与点名文案在同一处（错误码可机读、文案点名缺了谁）',
       storeSrc.includes('ROSTER_SLOT_MISSING') && storeSrc.includes('没有声明四槽') && storeSrc.includes('四个平级字段'),
-      '拒绝码 ROSTER_SLOT_MISSING + 点名文案 都在 store.js 的 setRoster 里',
+      '拒绝码 ROSTER_SLOT_MISSING + 点名文案 都在 store/roster.js 的 setRoster 里',
     )
     rec.add(
       'G 判据位',
       '★ 留痕走**既有** audit 入口（没有第二套日志），动作名 roster:set 的 detail 里已带 slots_version / slots_digest / slots',
       storeSrc.includes("'roster:set'") && storeSrc.includes('slots_version: roster.slots_version') && storeSrc.includes('slots_digest: roster.slots_digest') && storeSrc.includes('slots: roster.slots'),
-      'store.js 的 roster:set 明细：tier / ai_count / roles / judged_by / slots_version / slots_digest / slots',
+      'store/roster.js 的 roster:set 明细：tier / ai_count / roles / judged_by / slots_version / slots_digest / slots',
     )
   }
 

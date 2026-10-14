@@ -29,10 +29,10 @@ if (typeof root !== 'string' || root.length === 0 || root.startsWith('--')) {
   process.exit(2)
 }
 
-/** 三处逆操作（两处在 liveness.js、一处在 store.js）。 */
+/** 三处逆操作（两处在 liveness.js、一处在 store/submit.js）。 */
 const PATCHES = [
   {
-    file: join(root, 'lib', 'store.js'),
+    file: join(root, 'lib', 'store', 'submit.js'),
     name: 'B3：澄清记录上的 from_seat（含注释块）',
     marker: 'clarification.from_seat = typeof input.actorSeat',
     find: `        clarification = this.createClarificationEntry(task, record, v.normalized)

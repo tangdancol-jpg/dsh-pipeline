@@ -1,0 +1,379 @@
+/**
+ * dsh-pipeline · 任务存储 · 交接物核对、打回、关单、制品
+ * ============================================================================
+ * 从 `lib/store.js` 拆出来的一部分（代码原样搬过来，行为未改）；
+ * 对外仍经 `lib/store.js` 转出，调用方不需要改 import。
+ *
+ * @module dsh-pipeline/lib/store/review
+ */
+
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { ST, STATE_LABEL } from '../states.js'
+import { ROLE, roleLabel } from '../roles.js'
+import { fullHash, nowIso } from '../util.js'
+
+/**
+ * 任务存储 · 交接物核对、打回、关单、制品
+ * 返回的方法由 `createTaskStore` 原位展开进同一个对象，方法里的 `this` 仍指向那个对象。
+ * @param {object} ctx - `createTaskStore` 闭包里本组用到的名字（由 `lib/store.js` 原位传入）
+ */
+export function reviewMethods(ctx) {
+  const {
+    maxRework,
+    now,
+    artifactDir,
+    audit,
+    deny,
+    loadTask,
+    persist,
+    currentArtifactVersion,
+    lastHandoff,
+    hubEnabled,
+    hubStandbyBlocks,
+    renderStandbyBlock,
+    effectiveReviewOk,
+  } = ctx
+
+  return {
+    /**
+     * ★★ **主管枢纽**下的交接物-状态判据（T-20261011-56a37e）。
+     *
+     * 它在 `checkHandoffAgainstState` **同一个方法**里、**同一个入口**上被调用 ——
+     * 不是第二套判据面，只是"枢纽启用之后这张表长这样"。
+     *
+     * @returns {object|null} `null` = 本 kind 不受枢纽分支管，交给原表；否则是判定结果
+     */
+    checkHubHandoffAgainstState(task, kind) {
+      const s = task.state
+      /**
+       * ★ **架构图前置**（用户原话：需求确认后先出架构图 → 主管确认 → 才交计划）。
+       *
+       * 枢纽任务里，架构图的合法状态面**整体前移**到计划之前；
+       * 而**编写完成之后**那几个状态（ready_test 及以后）在本拓扑里**不再**是它该出现的地方
+       * —— 这正是"同一张图不再被当成两种东西"的判据。
+       */
+      if (kind === 'architecture_diagram') {
+        if (
+          s === ST.ARCH_DRAWING ||
+          s === ST.ARCH_CONFIRM ||
+          /** ★ P0-1：②b / ②c 两个确认点上，架构图仍然是"当前这一份"，可以再交一次（重画后重交）。 */
+          s === ST.ARCH_NEED_CONFIRM ||
+          s === ST.ARCH_RECONFIRM
+        ) {
+          // ★ 与既有 `DIAGRAM_BEFORE_WRITE` **方向相反**的那一条：
+          //   枢纽里要的是"**还没有**编写产物"的设计态图 —— 有编写产物说明架构图前置已经失效。
+          if (lastHandoff(task, 'dev_to_test') !== null && s === ST.ARCH_DRAWING) {
+            return deny(
+              'HUB_DIAGRAM_AFTER_WRITE',
+              `拒绝：任务 ${task.id} 的**架构图前置站**上已经存在编写产物（dev_to_test）。\n` +
+                '★ 用户口径⑦：架构图前置是「**设计**」，安全审查是「准入」，两者不冲突；\n' +
+                '  而"编写都做完了才补一张设计态图"说明前置站被跳过了 —— 那张图不是前置图，是补的。\n' +
+                '下一步：确认是不是走错了站（编写交付之后的图属于**交付站**，不在枢纽的前置站上）。',
+            )
+          }
+          return { ok: true }
+        }
+        const need = [ST.ARCH_DRAWING, ST.ARCH_CONFIRM, ST.ARCH_NEED_CONFIRM, ST.ARCH_RECONFIRM]
+        return deny(
+          'HUB_DIAGRAM_STEP_SKIPPED',
+          `跳步（架构图前置）：枢纽任务的架构图只能在 ${need.map((x) => `${STATE_LABEL[x]}(${x})`).join(' / ')} 提交 —— ` +
+            `那是「主管同意需求结论」之后、「主管确认架构图」之前的**前置站**。\n` +
+            `任务 ${task.id} 当前是「${STATE_LABEL[s]}(${s})」。\n` +
+            '★ 用户原话：「需求ai分析将结果提交主管→同意后交给架构ai**先画架构图**→架构图完成后给主管确认是否满足要求→主管确认后**才**交给计划ai」。\n' +
+            '  「先画架构图」在表上的形状就是：`analyzing` **没有**直达 `planning` 的边，' +
+            '而架构图这一站排在它们中间。',
+        )
+      }
+
+      /**
+       * ★ **待机期不许抢跑**（安全预审阻断项 B3 的第 1 条：交接物面）。
+       *   两位待机席位各自的产物：architect → design；planner → plan / orchestration。
+       *
+       * ★ 另一半是**正例**（B3 明确要求的那条）：**到点唤醒之后，同样的动作必须放行** ——
+       *   否则这条判据就不是"待机判据"，而是"把功能一起关掉"。所以下面显式给出
+       *   枢纽下的合法状态面，而不是"拦完就完"。
+       */
+      if (kind === 'design' || kind === 'plan' || kind === 'orchestration') {
+        const role = kind === 'design' ? ROLE.ARCHITECT : ROLE.PLANNER
+        const blocked = hubStandbyBlocks(task, role)
+        if (blocked.ok !== true) {
+          return renderStandbyBlock(task, blocked.entry, blocked.wakePoint, `现在交「${kind}」就是**抢跑**`)
+        }
+        const hubNeed = {
+          // 架构位唤醒点 A 之后的两站，加上既有的几个合法站（唤醒是**解锁**，不是换轨）。
+          design: [ST.ANALYZING, ST.ARCH_DRAWING, ST.ARCH_CONFIRM, ST.ARCH_NEED_CONFIRM, ST.ARCH_RECONFIRM, ST.STANDBY_PLAN, ST.PLANNING, ST.READY_DEV, ST.DEVELOPING],
+          plan: [ST.PLANNING],
+          orchestration: [ST.PENDING, ST.PLANNING],
+        }[kind]
+        if (hubNeed.includes(s)) return { ok: true }
+        return deny(
+          'HANDOFF_STEP_SKIPPED',
+          `跳步（枢纽）：交接物「${kind}」在主管枢纽下只能在这些状态提交 —— ` +
+            `${hubNeed.map((x) => `${STATE_LABEL[x]}(${x})`).join(' / ')}；任务 ${task.id} 当前是「${STATE_LABEL[s]}(${s})」。`,
+        )
+      }
+
+      /** ★ 架构图重画指令：只在「架构图待主管确认」这一站发得出。 */
+      if (kind === 'diagram_rework') {
+        if (s !== ST.ARCH_CONFIRM) {
+          return deny(
+            'HUB_REDRAW_STEP_SKIPPED',
+            `跳步：架构图重画指令只能在「${STATE_LABEL[ST.ARCH_CONFIRM]}(${ST.ARCH_CONFIRM})」发出（那时才有"不满足"可判）。` +
+              `任务 ${task.id} 当前是「${STATE_LABEL[s]}(${s})」。`,
+          )
+        }
+      }
+
+      /** ★ 测试提前知情：预登记必须**早于编写交付**（用户口径③：不许看编写的产物）。 */
+      if (kind === 'prebrief') {
+        if (s !== ST.PLANNING) {
+          return deny(
+            'HUB_PREBRIEF_STEP_SKIPPED',
+            `跳步：任务内容预登记（prebrief）只能在「${STATE_LABEL[ST.PLANNING]}(${ST.PLANNING})」提交 —— ` +
+              `它是**计划位**在出计划时顺手交出去的那一份。任务 ${task.id} 当前是「${STATE_LABEL[s]}(${s})」。`,
+          )
+        }
+        if (lastHandoff(task, 'dev_to_test') !== null) {
+          return deny(
+            'HUB_PREBRIEF_AFTER_WRITE',
+            `拒绝：任务 ${task.id} 里**已经有编写产物**（dev_to_test）了，这时交的"预登记"不是预登记。\n` +
+              '★ 用户口径③：「测试提前收到任务内容」= **内容提前交到测试位手里**，而**不许看编写的产物**（保持独立性）。\n' +
+              '  在编写交付之后再交，等于把"事后通知"冒充成"提前知情" —— 那正是本单要改掉的现行做法。',
+          )
+        }
+      }
+      return null
+    },
+
+    /** 删掉一份刚写了又回滚的交接物文件（保持"要么全成要么全不成"）。 */
+    async removeHandoffFile(task, record) {
+      try {
+        const { unlink } = await import('node:fs/promises')
+        if (typeof record.file === 'string' && record.file.length > 0) await unlink(record.file)
+      } catch {
+        /* 回滚失败不该掩盖真正的错误；内存里已经 pop 掉了，状态是自洽的 */
+      }
+    },
+
+    /** 交接物与当前状态是否匹配（"跳步"的第二道闸）。 */
+    checkHandoffAgainstState(task, kind) {
+      const s = task.state
+      // ★★ 主管枢纽（T-20261011-56a37e）：架构图**前置**之后，各站的合法状态面变了。
+      //   ★ 只在**已启用枢纽**的任务上生效 —— 未启用的任务走下面那张原表（一个字节没动）。
+      if (hubEnabled(task)) {
+        const hub = this.checkHubHandoffAgainstState(task, kind)
+        if (hub !== null) return hub
+      }
+      const need = {
+        dev_to_test: [ST.DEVELOPING],
+        test_to_review: [ST.TESTING],
+        test_to_dev: [ST.TESTING],
+        review_verdict: [ST.REVIEWING],
+        // ★ 本轮拆分：需求分析结论只在「需求分析中」交；分配结论只在「计划中」交。
+        requirement_analysis: [ST.ANALYZING],
+        orchestration: [ST.PENDING, ST.PLANNING],
+        plan: [ST.PLANNING],
+        design: [ST.READY_DEV, ST.DEVELOPING, ST.ANALYZING, ST.READY_PLAN, ST.PLANNING],
+        /**
+         * ★ 架构图：**编写完成之后**才允许交。
+         *
+         * 状态下限是「待测试」—— 也就是说"编写还没交（还在开发中）就交图"会被这里拦下。
+         * 上面还有一个更硬的判据（必须有 dev_to_test 交接物），两道一起挡"还没写完就交图"。
+         */
+        architecture_diagram: [ST.READY_TEST, ST.TESTING, ST.READY_REVIEW, ST.REVIEWING, ST.PASSED],
+        // ★ 第一级提问：除终态外任何状态都能问（被卡住的地方哪都有可能）
+        clarification_request: Object.values(ST).filter((x) => x !== ST.CLOSED && x !== ST.CANCELLED),
+        // ★ 需求分析的裁定：只在「等待需求分析答复」时提交
+        clarification_reply: [ST.AWAITING_CLARIFICATION],
+        security_review: [ST.READY_REVIEW, ST.REVIEWING, ST.DEVELOPING, ST.READY_TEST, ST.TESTING],
+        release_plan: [ST.READY_REVIEW, ST.REVIEWING, ST.PASSED],
+        docs_note: [ST.DEVELOPING, ST.READY_TEST, ST.TESTING, ST.READY_REVIEW, ST.REVIEWING, ST.PASSED],
+        perf_report: [ST.TESTING, ST.READY_REVIEW, ST.REVIEWING],
+        arbitration: [ST.RETURNED_TO_DEV, ST.RETURNED_TO_TEST, ST.BLOCKED, ST.TESTING, ST.REVIEWING],
+        human_note: Object.values(ST),
+      }[kind]
+      if (need === undefined || need.includes(s)) {
+        // ★ 架构图额外加一条**时机**判据：必须先有编写的产物。
+        //   —— 光看状态不够：「待测试」也可能是"被回退回来"的，那时同样没有新产物。
+        if (kind === 'architecture_diagram' && lastHandoff(task, 'dev_to_test') === null) {
+          return deny(
+            'DIAGRAM_BEFORE_WRITE',
+            `时序错误：任务 ${task.id} 还没有任何编写产物（没有 dev_to_test 交接物），却要交架构图。\n` +
+              '★ 架构图是"写成了什么样"的记录 —— 没有"写成的东西"就没有可画的图。\n' +
+              '正确顺序：编写交 dev_to_test → 状态到「待测试」→ 架构图角色交 architecture_diagram。\n' +
+              '（本插件刻意不让架构图角色在编写之前动手：那会退化成 architect 的"设计草图"，' +
+              '而设计草图是 architect 的活，不是交付物。）',
+          )
+        }
+        return { ok: true }
+      }
+      return deny(
+        'HANDOFF_STEP_SKIPPED',
+        `跳步：交接物「${kind}」只能在这些状态下提交 —— ${need.map((x) => `${STATE_LABEL[x]}(${x})`).join(' / ')}；` +
+          `任务 ${task.id} 当前是「${STATE_LABEL[s]}(${s})」。\n` +
+          (kind === 'review_verdict' && s === ST.DEVELOPING
+            ? '★ 编写完成后必须先进「待测试」→「测试中」，测试通过后才进「待审核」。审核不能对着开发中的产物出结论。'
+            : '') +
+          (kind === 'architecture_diagram' && s === ST.DEVELOPING
+            ? '★ 架构图必须在**编写完成之后**交。现在还在「开发中」—— 先让编写交 dev_to_test。'
+            : ''),
+      )
+    },
+
+    /**
+     * 打回。
+     *
+     * @param {object} input
+     * @param {string} input.taskId
+     * @param {string} input.actorRole
+     * @param {'writer'|'tester'} input.target
+     * @param {string} input.reason
+     * @param {string} [input.actorAgentId]
+     */
+    async rework(input) {
+      const task = await loadTask(input.taskId)
+      if (task === null) return deny('TASK_NOT_FOUND', `找不到任务 ${input.taskId}。`)
+
+      const target = input.target === 'tester' ? 'tester' : 'writer'
+      if (target === 'writer' && ![ROLE.TESTER, ROLE.REVIEWER, ROLE.SECURITY].includes(input.actorRole)) {
+        return deny('ROLE_NOT_ALLOWED', `打回编写只能由 测试/审核/安全审计 发起，当前调用方是「${roleLabel(input.actorRole)}」。`)
+      }
+      if (target === 'tester' && input.actorRole !== ROLE.REVIEWER) {
+        return deny('ROLE_NOT_ALLOWED', `打回测试只能由 审核 发起，当前调用方是「${roleLabel(input.actorRole)}」。`)
+      }
+
+      const leg = target === 'writer' ? 'dev' : 'test'
+      const budget = task.roster?.rework_budget ?? maxRework
+      const used = task.rework[leg] ?? 0
+      if (used >= budget) {
+        return deny(
+          'REWORK_EXHAUSTED',
+          `打回次数超限：本任务「${leg === 'dev' ? '打回编写' : '打回测试'}」已用 ${used} 次，上限 ${budget} 次。\n` +
+            `按规则不能无限打回。请改用：pipeline_transition event=block（已阻塞）交人工介入，` +
+            `或让编排复核后追加仲裁角色（pipeline_roster_request → pipeline_roster_review）。`,
+        )
+      }
+
+      const event = target === 'writer' ? (input.actorRole === ROLE.TESTER ? 'test_failed' : 'review_ng_dev') : 'review_ng_test'
+      const res = await this.transition({ taskId: input.taskId, event, actorRole: input.actorRole, actorAgentId: input.actorAgentId, note: input.reason })
+      if (res.ok !== true) return res
+
+      task.rework[leg] = used + 1
+      const entry = await audit(task.id, input.actorRole, `rework:${target}`, {
+        reason: input.reason,
+        used: task.rework[leg],
+        budget,
+        agent: input.actorAgentId,
+      })
+      task.history.push(entry)
+      await persist(task)
+
+      // 打回会作废旧的审核 OK —— 这是"改完代码不能拿旧 OK 关单"的实现。
+      return {
+        ok: true,
+        task,
+        target,
+        used: task.rework[leg],
+        budget,
+        summary:
+          `已打回${target === 'writer' ? '编写' : '测试'}（第 ${task.rework[leg]}/${budget} 次）。` +
+          `任务 ${task.id} 现在处于「${STATE_LABEL[task.state]}」。` +
+          (task.rework[leg] >= budget ? ' ⚠ 打回预算已用尽，再打回会被拒绝。' : ''),
+      }
+    },
+
+    /**
+     * 关单。★ 必须存在有效的审核 OK。
+     */
+    async close(input) {
+      const task = await loadTask(input.taskId)
+      if (task === null) return deny('TASK_NOT_FOUND', `找不到任务 ${input.taskId}。`)
+      if (input.actorRole !== ROLE.MAIN) {
+        return deny('ROLE_NOT_ALLOWED', `只有主对话能关单，当前调用方是「${roleLabel(input.actorRole)}」。`)
+      }
+
+      // 守门判据 #1：有效审核 OK。
+      const okCheck = await this.checkPrecondition(task, 'review_ok_exists', {})
+      if (okCheck.ok !== true) return okCheck
+
+      const tr = await this.transition({ taskId: input.taskId, event: 'close', actorRole: ROLE.MAIN, actorAgentId: input.actorAgentId, note: input.note })
+      if (tr.ok !== true) return tr
+
+      const ok = effectiveReviewOk(task)
+      task.close_report = {
+        closed_at: nowIso(now()),
+        closed_by: ROLE.MAIN,
+        artifact_version: currentArtifactVersion(task),
+        review_ok_handoff: ok?.handoff_id ?? null,
+        risk_notes: ok?.payload?.risk_notes ?? [],
+        final_delivery_note: ok?.payload?.final_delivery_note ?? '',
+        release_approved: ok?.payload?.release_approved === true,
+      }
+      const entry = await audit(task.id, ROLE.MAIN, 'close', {
+        artifact_version: task.close_report.artifact_version,
+        review_ok: task.close_report.review_ok_handoff,
+        agent: input.actorAgentId,
+      })
+      task.history.push(entry)
+      await persist(task)
+
+      return { ok: true, task, report: task.close_report, summary: `任务 ${task.id} 已关闭。放行依据：${task.close_report.review_ok_handoff}（审核 OK，制品 ${task.close_report.artifact_version}）。` }
+    },
+
+    /**
+     * 登记一个制品版本（编写角色的动作）。制品版本化 + 可回滚。
+     */
+    async registerArtifact(input) {
+      const task = await loadTask(input.taskId)
+      if (task === null) return deny('TASK_NOT_FOUND', `找不到任务 ${input.taskId}。`)
+      if (input.actorRole !== ROLE.WRITER) {
+        return deny('ROLE_NOT_ALLOWED', `只有编写角色能登记代码制品，当前调用方是「${roleLabel(input.actorRole)}」。`)
+      }
+      const content = String(input.content ?? '')
+      task.artifact_version_counter += 1
+      const version = `v${task.artifact_version_counter}`
+      const dir = artifactDir(task.id, version)
+      await mkdir(dir, { recursive: true })
+      const file = join(dir, input.fileName ?? 'artifact.txt')
+      await writeFile(file, content, 'utf8')
+      const rec = {
+        version,
+        file,
+        bytes: Buffer.byteLength(content, 'utf8'),
+        sha256: fullHash(content),
+        created_at: nowIso(now()),
+        note: typeof input.note === 'string' ? input.note : '',
+      }
+      task.artifacts.push(rec)
+      const entry = await audit(task.id, ROLE.WRITER, 'artifact:register', { version, sha256: rec.sha256, bytes: rec.bytes, agent: input.actorAgentId })
+      task.history.push(entry)
+      await persist(task)
+      return { ok: true, task, artifact: rec, summary: `制品已登记：${version}（${rec.bytes} 字节，sha256 ${rec.sha256.slice(0, 16)}…）。` }
+    },
+
+    /**
+     * 回滚：把某个历史版本的制品重新登记为当前版本（不删旧版本）。
+     */
+    async rollbackArtifact(input) {
+      const task = await loadTask(input.taskId)
+      if (task === null) return deny('TASK_NOT_FOUND', `找不到任务 ${input.taskId}。`)
+      if (input.actorRole !== ROLE.WRITER && input.actorRole !== ROLE.HUMAN) {
+        return deny('ROLE_NOT_ALLOWED', `只有编写角色或人工能回滚制品，当前调用方是「${roleLabel(input.actorRole)}」。`)
+      }
+      const src = task.artifacts.find((a) => a.version === input.version)
+      if (src === undefined) {
+        return deny('NOT_FOUND', `没有制品版本 ${input.version}；已有版本：${task.artifacts.map((a) => a.version).join(', ') || '（无）'}`)
+      }
+      const content = await readFile(src.file, 'utf8')
+      return this.registerArtifact({
+        taskId: input.taskId,
+        actorRole: ROLE.WRITER,
+        content,
+        fileName: `${src.version}-rollback.txt`,
+        note: `回滚自 ${src.version}`,
+        actorAgentId: input.actorAgentId,
+      })
+    },
+  }
+}

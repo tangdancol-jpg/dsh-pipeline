@@ -354,12 +354,12 @@ export async function runT14FixCheck() {
   // B12｜`pipeline_help` 不再悬空：速查入口真的存在（走 pipeline_status 的 help=）
   // =========================================================================
   {
-    const src = await (await import('node:fs/promises')).readFile(new URL('../lib/tools.js', import.meta.url), 'utf8')
+    const src = await (await import('node:fs/promises')).readFile(new URL('../lib/tools/status.js', import.meta.url), 'utf8')
     rec.add(
       'B12 速查入口',
       '★ `pipeline_status` 带 `help=<主题>` 参数（速查挂在**任何角色都会调**的既有工具上）',
       src.includes("help: S('string', '★ 不查状态、改查**速查**") && src.includes('PIPELINE_HELP_TOPICS'),
-      '参数与主题表都在 lib/tools.js',
+      '参数与主题表都在 lib/tools/status.js',
     )
     rec.add(
       'B12 速查入口',
@@ -379,7 +379,7 @@ export async function runT14FixCheck() {
   // B13｜角色边界卡覆盖性在**计划那一站**就判死
   // =========================================================================
   {
-    const src = await (await import('node:fs/promises')).readFile(new URL('../lib/tools.js', import.meta.url), 'utf8')
+    const src = await (await import('node:fs/promises')).readFile(new URL('../lib/tools/plan.js', import.meta.url), 'utf8')
     rec.add(
       'B13 边界卡覆盖',
       '★ `pipeline_plan` 在**交计划之前**核对 `role_boundaries` 覆盖全部执行角色（缺一张就拒、计划不提交）',
