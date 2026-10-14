@@ -1,0 +1,1 @@
+archify: meta.locale "zh" has no built-in catalog and no meta.translations; the Viewer chrome and <html lang> fall back to English.

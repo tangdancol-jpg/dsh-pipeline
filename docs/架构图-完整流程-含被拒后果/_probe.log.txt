@@ -1,0 +1,13 @@
+STEP 1 sig=workflow/solver-budget-exhausted|e_reattach_hostmsg
+  ADVANCE e_reattach_hostmsg <- {"fromSide":"top","toSide":"top"}  => composition/proper-crossing|e_agree_need,e_x_reject_need
+STEP 2 sig=composition/proper-crossing|e_agree_need,e_x_reject_need
+  ADVANCE e_agree_need <- {"route":"drop"}  => composition/proper-crossing|e_dev_submitted,e_test_passed
+STEP 3 sig=composition/proper-crossing|e_dev_submitted,e_test_passed
+  ADVANCE e_dev_submitted <- {"fromSide":"top","toSide":"top"}  => composition/proper-crossing|e_diagram_submitted,e_r4_reject_diagram
+STEP 4 sig=composition/proper-crossing|e_diagram_submitted,e_r4_reject_diagram
+  ADVANCE e_diagram_submitted <- {"route":"up-channel"}  => composition/proper-crossing|e_agree_need,e_r4_reject_diagram
+STEP 5 sig=composition/proper-crossing|e_agree_need,e_r4_reject_diagram
+  ADVANCE e_agree_need <- {"fromSide":"left","toSide":"top"}  => composition/proper-crossing|e_agree_need,e_confirm_diagram
+STEP 6 sig=composition/proper-crossing|e_agree_need,e_confirm_diagram
+  无可前进且涉及边全为必留 —— 停止
+结果：ok=false steps=6 edges=35 validateCalls=281

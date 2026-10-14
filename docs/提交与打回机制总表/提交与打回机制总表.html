@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>提交与打回机制总表</title>
+<style>
+:root{--ink:#1b1f24;--ink2:#4a5361;--line:#e3e6ea;--bg:#f4f6f8;--card:#fff;--accent:#1f6feb;--accent-soft:#eaf1fe}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Microsoft YaHei","PingFang SC","Hiragino Sans GB","Source Han Sans SC","Noto Sans CJK SC",-apple-system,"Segoe UI",Roboto,sans-serif;font-size:15.5px;line-height:1.78;-webkit-font-smoothing:antialiased}
+.doc{max-width:1280px;margin:0 auto;padding:32px 28px 72px}
+header.hero{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:26px 28px;box-shadow:0 1px 2px rgba(16,24,40,.04)}
+h1{font-size:26px;line-height:1.38;margin:0 0 8px}
+h2{font-size:20px;margin:30px 0 12px;padding-bottom:9px;border-bottom:2px solid #eef0f3;scroll-margin-top:14px}
+h3{font-size:17px;margin:24px 0 10px;scroll-margin-top:14px}
+h4{font-size:15.5px;margin:18px 0 8px;color:var(--ink2);scroll-margin-top:14px}
+p{margin:10px 0}
+.anchor{opacity:0;margin-left:8px;font-size:13px;text-decoration:none;color:var(--accent);font-weight:400}
+h2:hover .anchor,h3:hover .anchor{opacity:.7}
+a{color:var(--accent)}
+.tw{overflow-x:auto;margin:12px 0}
+table{border-collapse:collapse;width:100%;font-size:14.5px;background:var(--card)}
+th,td{border:1px solid var(--line);padding:9px 12px;text-align:left;vertical-align:top}
+th{background:#f7f9fb;color:var(--ink2);font-weight:600}
+tbody tr:nth-child(even){background:#fbfcfd}
+code{font-family:ui-monospace,Consolas,"Courier New",monospace;background:#f3f5f7;border:1px solid var(--line);border-radius:5px;padding:1px 5px;font-size:13.5px;word-break:break-word}
+pre{border-radius:10px;padding:14px 16px;overflow-x:auto;line-height:1.55}
+pre.code{background:#0f172a;color:#e2e8f0;font-size:13px}
+pre.map{background:#fbfdff;color:#0f172a;border:1px solid #cfe0f5;font-size:12.2px;line-height:1.35;font-family:ui-monospace,Consolas,"Courier New",monospace}
+pre code{background:none;border:none;color:inherit;padding:0;font-size:inherit;white-space:pre}
+blockquote{margin:14px 0;padding:12px 18px;background:#fffdf3;border:1px solid #f0dda3;border-left:5px solid #e0b73a;border-radius:0 10px 10px 0;color:#5a4a12}
+blockquote p{margin:8px 0}
+blockquote table{background:#fff}
+blockquote code{background:#fff;border-color:#f0dda3}
+blockquote h3,blockquote h4{margin-top:10px;color:#8a6100}
+ul,ol{margin:10px 0;padding-left:22px}
+li{margin:7px 0}
+hr{border:none;border-top:1px solid var(--line);margin:26px 0}
+nav.toc{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 22px 18px;margin:22px 0}
+nav.toc h2{font-size:14px;margin:0 0 10px;color:var(--ink2);letter-spacing:.14em;font-weight:700;border:none;padding:0}
+nav.toc ol{margin:0;padding-left:0;list-style:none;display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:4px 22px}
+nav.toc a{color:var(--ink);text-decoration:none;display:block;padding:3px 0;border-bottom:1px dashed transparent}
+nav.toc a:hover{color:var(--accent);border-bottom-color:var(--accent)}
+.legend{display:flex;flex-wrap:wrap;gap:8px 16px;font-size:13.5px;color:var(--ink2);margin:14px 0 4px}
+.badge{display:inline-block;min-width:2.1em;text-align:center;padding:1px 8px;border-radius:999px;border:1px solid;font-size:13px;line-height:1.65}
+.b-ok{color:#1a7f37;background:#e8f5ec;border-color:#b7e0c2}
+.b-no{color:#b3261e;background:#fdecea;border-color:#f5c3bd}
+.b-warn{color:#8a6100;background:#fff7dc;border-color:#f0dda3}
+.b-info{color:#0b7285;background:#e2f7fa;border-color:#a5e4ee}
+footer{color:var(--ink2);font-size:13.5px;text-align:center;padding:24px 0 0}
+@media print{body{background:#fff}.doc{max-width:none;padding:0}nav.toc{display:none}blockquote{break-inside:avoid}}
+</style>
+</head>
+<body>
+<main class="doc">
+<header class="hero">
+<h1>提交与打回机制总表 —— 用户 → 主对话 → 主管 → … → 编写 → 需求+主管 → … → 主对话 → 用户</h1>
+<p style="color:#4a5361;font-size:13.5px;margin:0 0 6px">以 <b>生效副本的代码</b>为准（22 状态 · 34 条转移 · 25 种交接物 · 35 个守卫 · 31 个工具）；「代码里有」与「真跑过」分开标。</p>
+<div class="legend">
+<span><span class="badge b-ok">✓</span> / <span class="badge b-ok">✅</span> 代码里有一条真的路</span>
+<span><span class="badge b-no">✗</span> / <span class="badge b-no">❌</span> 代码里<b>没有</b>这条边</span>
+<span>★ 主管枢纽的确认站点</span>
+<span><span class="badge b-info">⏳</span> 机制在盘上、尚无真实痕迹</span>
+</div>
+</header>
+<nav class="toc"><h2>目录</h2><ol>
+<li><a href="#s-一句话读法-落盘约定">〇、一句话读法 + 落盘约定</a></li>
+<li><a href="#s-一-全部交接物类型总表">一、★ 全部交接物类型总表</a></li>
+<li><a href="#s-二-全部-打回-路径总表">二、★ 全部"打回"路径总表</a></li>
+<li><a href="#s-三-状态机全图-带-谁有权触发">三、状态机全图（带"谁有权触发"）</a></li>
+<li><a href="#s-四-主路径逐步对照-用户原话-代码动作">四、★ 主路径逐步对照（用户原话 → 代码动作）</a></li>
+<li><a href="#s-五-两条分支-同意-否掉-逐个站点列">五、★ 两条分支（同意 / 否掉）逐个站点列</a></li>
+<li><a href="#s-六-特殊通道">六、特殊通道</a></li>
+<li><a href="#s-七-主路径的-账本痕迹-真实序列-从-t-20261012-8cdee0-实读">七、主路径的<strong>账本痕迹</strong>（真实序列，从 <code>T-20261012-8cdee0</code> 实读）</a></li>
+<li><a href="#s-八-附-怎么自己复核这份表">八、附：怎么自己复核这份表</a></li>
+</ol></nav>
+<p><strong>以什么为准</strong>：<code>dsh-pipeline</code> <strong>生效副本</strong>的源码 —— <code>lib/states.js</code>（状态与边）· <code>lib/handoff.js</code>（交接物 kind 与 schema）· <code>lib/roles.js</code>（谁能产出什么）· <code>lib/store.js</code>（守卫与执法）· <code>lib/guard.js</code>（守门）· <code>lib/tools.js</code>（工具与参数）· <code>lib/tiers.js</code>（角色清单/席位）；账本 <code>.pipeline\&lt;单号&gt;\audit.jsonl</code> / <code>handoffs\</code> / <code>records\</code> / <code>artifacts\</code>。 <strong>生效副本</strong>：<code>&lt;DSH_HOME&gt;\profiles\desktop\node_modules\dsh-pipeline</code> <strong>快照时间</strong>：2026-10-14 01:1x（本地 UTC+8）。<strong>本文所有行号都是本次实读的</strong>（今晚多次改过，旧文档里的行号一律不可信）。 <strong>本次实读到的规模</strong>：<strong>22 个状态</strong> · <strong>34 条状态转移</strong> · <strong>25 种交接物 kind</strong> · <strong>35 个守卫 case</strong>（<code>lib/store.js</code> 的 <code>checkPrecondition</code>）· <strong>31 个工具</strong>。</p>
+<blockquote>
+<p>★★ <strong>两条贯穿全文的判据</strong> 1. <strong>「代码里有」≠「真跑过」</strong>。前者是源码，后者只能从账本看。本文每条都分开标：代码落点给 <code>文件:行</code>；跑没跑过给账本计数。<strong>枢纽那一整条链在账本里 0 命中</strong>（11 张单、907 行），见 §七。 2. <strong>「提交」与「打回」在代码里是两件事，但打回也走提交那条路</strong> —— 见 §〇。</p>
+</blockquote>
+<hr>
+<h2 id="s-一句话读法-落盘约定">〇、一句话读法 + 落盘约定<a class="anchor" href="#s-一句话读法-落盘约定" aria-label="锚点">#</a></h2>
+<p><strong>三行说清"东西放哪"</strong>：</p>
+<ol>
+<li><strong>每一步的产出 = 一份"交接物"</strong> ⇒ <code>.pipeline\&lt;单号&gt;\handoffs\NNN-&lt;kind&gt;.json</code>（<code>NNN</code> 是序号）。这是<strong>唯一</strong>的交付入口（<code>pipeline_handoff</code>，<code>lib/tools.js:2308</code>）。</li>
+<li><strong>席位写的叙述性记录</strong> ⇒ <code>.pipeline\&lt;单号&gt;\records\&lt;role&gt;.md</code>（<code>pipeline_record_submit</code>，<code>lib/tools.js:3453</code>）；<strong>留档位汇总</strong> ⇒ <code>requirement.md</code>（<code>pipeline_compile_requirement</code>，<code>lib/tools.js:3507</code>）。</li>
+<li><strong>代码/补丁制品</strong> ⇒ <code>.pipeline\&lt;单号&gt;\artifacts\vN\</code>（<code>pipeline_artifact</code>，<code>lib/tools.js:3311</code>，<strong>带版本号</strong>）；<strong>发生过的每一件事</strong> ⇒ <code>.pipeline\&lt;单号&gt;\audit.jsonl</code>（只追加，一行一个 action）。</li>
+</ol>
+<p><strong>「提交」在代码里对应什么</strong>：</p>
+<blockquote>
+<p><strong><code>pipeline_handoff { task_id, kind, payload, role_token }</code></strong> —— 一份<strong>结构化交接物</strong>。落盘之后，程序会<strong>再发一个状态事件</strong>把任务推走（例如 <code>dev_to_submitted</code>）。<strong>两件事分开做、都要做</strong>：交接物落盘 ≠ 状态推进。</p>
+</blockquote>
+<p><strong>「打回」在代码里对应什么</strong>：</p>
+<blockquote>
+<p><strong>打回 = 一份"方向相反"的交接物 + 一个回退状态事件</strong>。例：测试打回编写 = 交一份 <code>test_to_dev</code> 交接物（<code>lib/handoff.js</code> 的 <code>HANDOFF_SCHEMAS.test_to_dev</code>）<strong>并且</strong>发 <code>pipeline_transition { event: "test_failed" }</code>。代码里<strong>没有</strong>一个叫"打回"的独立东西 —— 打回是<strong>两种既有动作的组合</strong>。 另外有一个<strong>把两者打包</strong>的工具：<code>pipeline_rework { task_id, target, reason }</code>（<code>lib/tools.js:2748</code>，<code>target</code> 只能 <code>writer</code> / <code>tester</code>）。</p>
+</blockquote>
+<hr>
+<h2 id="s-一-全部交接物类型总表">一、★ 全部交接物类型总表<a class="anchor" href="#s-一-全部交接物类型总表" aria-label="锚点">#</a></h2>
+<p><strong>实读来源</strong>：<code>lib/handoff.js</code> 的 <code>HANDOFF_SCHEMAS</code>（<strong>25 种</strong>，本次用 node 直接 import 打印）；方向另在同一份 schema 的 <code>from</code> / <code>to</code> 字段，且与 <code>lib/guard.js:525-563</code> 的 <code>HANDOFF_DIRECTION</code> <strong>逐字重复一份</strong>（代码注释自己写着「<strong>必须逐字一致</strong> —— 自测里有一条专门比对它们」，<code>lib/guard.js:538-539</code>）。</p>
+<blockquote>
+<p><strong>读表要点</strong></p>
+<ul>
+<li><strong>「谁产出」以 <code>HANDOFF_DIRECTION</code>（守门层，<code>dispatch</code> </strong>之前<strong>就拦）为准</strong> —— 它对不上会直接返回「角色越权被拦下（交接物方向）」（<code>lib/guard.js:653-686</code>）。</li>
+<li><strong>「版本绑定」</strong>：<code>payload.artifact_version</code> 是不是必填、以及站点闸会不会拿它做绑定。</li>
+<li><strong>「必带证据」</strong>：<code>station_confirm</code> 有强制的 <code>basis_refs</code> + <code>basis_digest</code>（<code>lib/handoff.js:613-655</code> 的 <code>validateStationConfirm</code>）。</li>
+</ul>
+</blockquote>
+<h3 id="s-1-1-主路径上的-12-种">1.1 主路径上的 12 种<a class="anchor" href="#s-1-1-主路径上的-12-种" aria-label="锚点">#</a></h3>
+<div class="tw"><table>
+<thead><tr><th>kind（中文名）</th><th>谁产出</th><th><strong>提交给谁</strong></th><th>触发什么状态事件（文件:行）</th><th>版本绑定 / 必带证据</th><th>判据落在哪</th></tr></thead>
+<tbody>
+<tr><td><code>dispatch</code>（派活单）</td><td><code>main</code></td><td>各执行/顾问角色</td><td><strong>不推状态</strong>（是 <code>pipeline_dispatch</code> 的产物）</td><td>—</td><td><code>lib/handoff.js</code> 的 <code>HANDOFF_SCHEMAS.dispatch</code>；<code>lib/guard.js:526</code></td></tr>
+<tr><td><code>requirement_analysis</code>（需求分析结论）</td><td><code>orchestrator</code></td><td><code>main</code> / <code>planner</code></td><td><code>requirement_confirmed</code> → <code>ready_plan</code>（<code>lib/states.js:340</code>，guard <code>requirement_confirm_gate</code>）<strong>或</strong>（枢纽）<code>need_to_supervisor</code> → <code>supervising</code>（<code>:363</code>）</td><td>必填 8 项，含 <code>task_card</code> / <code>acceptance</code> / <code>test_points</code> / <code>boundaries</code> / <code>unclear_points</code> / <code>role_scope</code></td><td>guard <code>requirement_confirm_gate</code>（<code>lib/store.js:2175-2229</code>）</td></tr>
+<tr><td><code>plan</code>（开发计划（含自检））</td><td><code>planner</code></td><td><code>main</code></td><td><code>planned</code> → <code>ready_dev</code>（<code>lib/states.js:346</code>，guard <code>plan_ready</code>）；自检发现缺失 ⇒ <code>plan_gap</code> → <code>awaiting_clarification</code>（<code>:352</code>）</td><td>必填 9 项，含 <code>plan_steps</code> / <code>self_check</code> / <code>change_scope</code> / <code>forbidden</code> / <code>role_boundaries</code> / <code>role_scope</code></td><td>guard <code>plan_ready</code>（<code>lib/store.js:2236</code>）· <code>plan_gap_gate</code>（<code>:2265</code>）</td></tr>
+<tr><td><code>orchestration</code>（分配结论（角色清单））</td><td><code>planner</code></td><td><code>main</code></td><td>同上（随 <code>plan</code> 一起落）</td><td>必填 8 项，含 <code>tier</code> / <code>roles</code> / <code>sequence</code></td><td>同上</td></tr>
+<tr><td><code>station_confirm</code>（站点确认（主管枢纽五道确认的留痕））</td><td><code>supervisor</code> / <code>orchestrator</code></td><td><code>main</code></td><td><strong>本身不推状态</strong>；它是 <code>dispatch_reviewer</code> 与 <code>close</code> 的前置</td><td>★ <strong>必须带 <code>basis_refs</code>（≥1 条可查证据标识）+ <code>basis_digest</code>（脱敏正文，不许含代码）</strong>；<code>station</code> 必须是四道之一</td><td><code>validateStationConfirm</code>（<code>lib/handoff.js:613-655</code>）· 站点闸 <code>hubValidConfirms</code> / <code>hubStationGate</code>（<code>lib/store.js:1155-1207</code>）</td></tr>
+<tr><td><code>prebrief</code>（任务内容预登记（计划位 → 测试位））</td><td><code>planner</code></td><td><code>tester</code></td><td><strong>不推状态</strong>（投递动作在工具层，<code>lib/tools.js:2423-2441</code>）</td><td>必填 7 项，含 <code>plan_handoff_id</code> / <code>must_not_start_before</code></td><td><code>validatePrebrief</code>（<code>lib/handoff.js:664</code>）· 守门层「提前知情 ≠ 提前开工」（<code>lib/guard.js:1392-1415</code>）</td></tr>
+<tr><td><code>diagram_rework</code>（架构图重画指令（主管 → 架构位））</td><td><code>supervisor</code></td><td><code>diagrammer</code></td><td>配合 <code>supervisor_reject_diagram</code> → <code>arch_drawing</code>（<code>lib/states.js:367</code>，guard <code>hub_diagram_rework_budget</code>）</td><td>必填 4 项：<code>reason</code> / <code>round</code> / <code>escalate_after</code></td><td>guard <code>hub_diagram_rework_budget</code>（<code>lib/store.js:2403-2420</code>，<strong>限 1 次</strong>：<code>HUB_DIAGRAM_REDRAW_BUDGET = 1</code>，<code>lib/states.js:298</code>）</td></tr>
+<tr><td><code>dev_to_test</code>（编写交付给测试）</td><td><code>writer</code></td><td><code>tester</code></td><td><code>dev_submitted</code> → <code>ready_test</code>（<code>lib/states.js:372</code>，guard <code>dev_to_test</code>；<strong><code>by</code> 只允许 <code>writer</code></strong>）</td><td>必填 7 项，含 <strong><code>artifact_version</code></strong> / <code>patch_or_code</code> / <code>change_note</code> / <code>run_commands</code> / <code>selftest_result</code> / <code>known_issues</code></td><td>guard <code>dev_to_test</code>（<code>lib/store.js:2119</code>，含哈希前置闸门）</td></tr>
+<tr><td><code>test_to_review</code>（测试报告交审核）</td><td><code>tester</code></td><td><code>reviewer</code></td><td><code>test_passed</code> → <code>ready_review</code>（<code>lib/states.js:382</code>，guard <code>test_to_review</code>）</td><td>必填 8 项，含 <strong><code>artifact_version</code></strong> / <code>test_cases</code> / <code>execution_result</code> / <code>pass_evidence</code> / <code>failure_logs</code> / <code>verdict</code></td><td>guard <code>test_to_review</code>（<code>lib/store.js:2128</code>）</td></tr>
+<tr><td><code>review_verdict</code>（审核结论）</td><td><code>reviewer</code></td><td><code>main</code></td><td><code>review_ok</code> → <code>passed</code>（<code>lib/states.js:397</code>，guard <code>review_verdict_ok</code>）</td><td>必填 7 项，含 <strong><code>artifact_version</code></strong> / <code>conclusion</code>(OK/NG) / <code>security</code> / <code>release_approved</code>；打回时用 <code>reject_to</code> / <code>reject_reason</code></td><td>guard <code>review_verdict_ok</code>（<code>lib/store.js:2142</code>）· <code>review_ok_exists</code>（<code>:2153</code>）</td></tr>
+<tr><td><code>architecture_diagram</code>（架构图交付）</td><td><code>diagrammer</code></td><td><code>main</code> / <code>reviewer</code></td><td><code>diagram_submitted</code> → <code>arch_confirm</code>（<code>lib/states.js:365</code>，guard <code>hub_diagram_ready</code>）</td><td>必填 7 项，含 <code>based_on_artifact_version</code> / <code>diagram_path</code> / <code>covered_modules</code> / <strong><code>degraded</code></strong>（为 true 时必须给 <code>degraded_reason</code>，<code>lib/store.js:2389-2391</code>）</td><td>guard <code>hub_diagram_ready</code>（<code>lib/store.js:2384</code>）· 关单闸 <code>diagram_delivered</code>（<code>:2610</code>）</td></tr>
+<tr><td><code>human_request</code>（人工介入请求）</td><td>除 <code>main</code> 之外的 12 个角色中的 12 个（见 §六）</td><td><code>main</code></td><td><code>human_request</code> → <code>awaiting_human</code>（<code>lib/states.js:423</code>，guard <code>human_request_blocking</code>，<strong>只在 <code>blocking:true</code> 时推</strong>）</td><td>必填 7 项，含 <code>reason_kind</code> / <code>question_for_human</code> / <code>blocking</code> / <code>decision_kind</code> / <code>timeout_behavior</code></td><td>guard <code>human_request_blocking</code>（<code>lib/store.js:2685</code>）· <code>detectCodeInHumanText</code>（人话里不许有代码）</td></tr>
+</tbody></table></div>
+<h3 id="s-1-2-打回用的-3-种">1.2 打回用的 3 种<a class="anchor" href="#s-1-2-打回用的-3-种" aria-label="锚点">#</a></h3>
+<div class="tw"><table>
+<thead><tr><th>kind（中文名）</th><th>谁产出</th><th><strong>提交给谁</strong></th><th>触发什么状态事件（文件:行）</th><th>版本绑定 / 必带证据</th><th>判据落在哪</th></tr></thead>
+<tbody>
+<tr><td><code>test_to_dev</code>（测试打回编写）</td><td><code>tester</code></td><td><code>writer</code></td><td><code>test_failed</code> → <code>returned_to_dev</code>（<code>lib/states.js:383</code>，guard <code>rework_budget</code>）</td><td>必填 5 项：<strong><code>artifact_version</code></strong> / <code>failed_cases</code> / <code>failure_logs</code> / <code>expected</code></td><td>guard <code>rework_budget</code>（<code>lib/store.js:2669-2682</code>）</td></tr>
+<tr><td>（审核打回编写）用 <code>review_verdict</code></td><td><code>reviewer</code></td><td><code>main</code></td><td><code>review_ng_dev</code> → <code>returned_to_dev</code>（<code>lib/states.js:398</code>，<code>by: ['reviewer','security']</code>，guard <code>rework_budget</code>）</td><td>复用 <code>review_verdict</code> 的 <code>conclusion:'NG'</code> + <code>reject_to:'writer'</code> + <code>reject_reason</code></td><td>同上</td></tr>
+<tr><td>（审核打回测试）用 <code>review_verdict</code></td><td><code>reviewer</code></td><td><code>main</code></td><td><code>review_ng_test</code> → <code>returned_to_test</code>（<code>lib/states.js:399</code>，guard <code>rework_budget</code>；<strong><code>leg</code> 判成 <code>test</code></strong>，见 <code>lib/store.js:2670</code>）</td><td>同上，<code>reject_to:'tester'</code></td><td>同上</td></tr>
+</tbody></table></div>
+<p>★ <strong>注意</strong>：<strong>打回没有专属 kind</strong> —— <code>test_to_dev</code> 是唯一的"打回专用类型"；审核打回<strong>复用</strong> <code>review_verdict</code>。代码里 <code>lastReworkIndex()</code>（<code>lib/store.js:1120-1128</code>）用<strong>两种</strong>形状识别"最近一次打回"：<code>kind === 'test_to_dev'</code> 或 <code>kind === 'review_verdict' &amp;&amp; payload.conclusion === 'NG'</code>。</p>
+<h3 id="s-1-3-特殊通道与顾问类-10-种">1.3 特殊通道与顾问类（10 种）<a class="anchor" href="#s-1-3-特殊通道与顾问类-10-种" aria-label="锚点">#</a></h3>
+<div class="tw"><table>
+<thead><tr><th>kind</th><th>谁产出</th><th>提交给谁</th><th>触发状态事件</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>clarification_request</code>（请求需求分析裁定）</td><td>11 个角色（见 §六）</td><td><code>orchestrator</code></td><td><code>clarification_request</code> → <code>awaiting_clarification</code>（<code>lib/states.js:409</code>，guard <code>clarification_blocking</code>，<strong>只在 <code>blocking:true</code> 时推</strong>）</td><td>必填 7 项：<code>from_role</code> / <code>stage</code> / <code>question</code> / <code>context_digest</code> / <code>blocking</code> / <code>urgency</code></td></tr>
+<tr><td><code>clarification_reply</code>（需求分析裁定）</td><td><code>orchestrator</code></td><td><code>*</code></td><td><code>clarification_reply</code> → <strong>(previous)</strong>（<code>lib/states.js:410</code>，guard <code>clarification_reply_ok</code>）</td><td>必填 4 项：<code>answer_to</code> / <code>verdict</code>（<code>answered</code> / <code>cannot_answer</code>）/ <code>reason</code></td></tr>
+<tr><td><code>full_test_request</code>（全量测试申请）</td><td><code>tester</code></td><td><code>orchestrator</code></td><td>不推状态</td><td>四级审批链的第一级</td></tr>
+<tr><td><code>full_test_review</code>（全量测试裁定）</td><td><code>orchestrator</code> / <code>reviewer</code> / <code>planner</code></td><td><code>*</code></td><td>不推状态</td><td>必填 <code>request_id</code> / <code>stage</code> / <code>ok</code></td></tr>
+<tr><td><code>design</code>（架构/技术方案）</td><td><code>architect</code></td><td><code>writer</code> / <code>main</code></td><td>不推状态</td><td>编写之前的顾问产物</td></tr>
+<tr><td><code>security_review</code>（安全/合规审计）</td><td><code>security</code></td><td><code>main</code> / <code>writer</code> / <code>reviewer</code></td><td>不推状态</td><td>关单闸会读它的 <code>blocked</code> 段</td></tr>
+<tr><td><code>release_plan</code>（发布/运维计划）</td><td><code>release</code></td><td><code>main</code></td><td>不推状态</td><td>—</td></tr>
+<tr><td><code>docs_note</code>（文档产物）</td><td><code>docs</code></td><td><code>main</code></td><td>不推状态</td><td>—</td></tr>
+<tr><td><code>perf_report</code>（性能/压测报告）</td><td><code>performance</code></td><td><code>main</code> / <code>reviewer</code></td><td>不推状态</td><td>—</td></tr>
+<tr><td><code>arbitration</code>（仲裁裁定）</td><td><code>arbiter</code></td><td><code>main</code></td><td>不推状态</td><td>必填 <code>dispute</code> / <code>ruling</code> / <strong><code>binding</code></strong></td></tr>
+</tbody></table></div>
+<h3 id="s-1-4-其余-3-种">1.4 其余（3 种）<a class="anchor" href="#s-1-4-其余-3-种" aria-label="锚点">#</a></h3>
+<div class="tw"><table>
+<thead><tr><th>kind</th><th>谁产出</th><th>提交给谁</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>seat_handover</code>（席位交接（换班））</td><td>12 个角色</td><td><code>main</code></td><td>必填 11 项，含 <code>from_seat</code> / <code>to_seat</code> / <code>progress_done</code> / <code>next_step</code> / <code>do_not_repeat</code>。★ <strong>注意</strong>：这里的 <code>from_seat</code> 是 <strong>payload 内字段</strong>，与"记录级 <code>from_seat</code>"是两层（记录级那个根本没落，见 §五 U3）</td></tr>
+<tr><td><code>human_note</code>（人工干预记录）</td><td><code>human</code></td><td><code>main</code></td><td>必填 <code>action</code> / <code>note</code></td></tr>
+<tr><td>（<code>dispatch</code> 见 1.1）</td><td>—</td><td>—</td><td>—</td></tr>
+</tbody></table></div>
+<h3 id="s-1-5-三处必须知道的-表里写得出-实际交不出去">1.5 ★ 三处必须知道的"表里写得出、实际交不出去"<a class="anchor" href="#s-1-5-三处必须知道的-表里写得出-实际交不出去" aria-label="锚点">#</a></h3>
+<p><strong>（a）今晚新增的三种</strong>：<code>station_confirm</code> / <code>prebrief</code> / <code>diagram_rework</code> —— 位置在 <code>HANDOFF_SCHEMAS</code> 里，方向在 <code>lib/guard.js:542-546</code>（代码把这三条单独圈出来注释「★★ T-20261011-56a37e（主管枢纽）：三个新类型的<strong>方向</strong>」）。它们的 <code>roles.js</code> 白名单同步放行：<code>supervisor</code> 的 <code>handoffKinds</code> 含 <code>station_confirm</code> / <code>diagram_rework</code>，<code>orchestrator</code> 含 <code>station_confirm</code>，<code>planner</code> 含 <code>prebrief</code>。</p>
+<p><strong>（b）<code>roles.js</code> 的 <code>handoffKinds</code> 与 <code>HANDOFF_SCHEMAS[kind].from</code> 有 4 处对不上</strong>（本次用 node 逐角色交叉比对，<strong>这是我自己跑出来的，不是抄的</strong>）：</p>
+<div class="tw"><table>
+<thead><tr><th>角色</th><th>它声明能产</th><th>而 schema/守门说只能由谁产</th><th>后果</th></tr></thead>
+<tbody>
+<tr><td><code>planner</code></td><td><code>clarification_reply</code></td><td><code>from: ['orchestrator']</code>（<code>lib/guard.js:551</code>）</td><td><strong>交不出去</strong>（守门层「交接物方向」拒）</td></tr>
+<tr><td><code>supervisor</code></td><td><code>human_request</code></td><td><code>human_request.from</code> 里<strong>没有 supervisor</strong>（<code>lib/guard.js:561</code>）</td><td><strong>交不出去</strong></td></tr>
+<tr><td><code>supervisor</code></td><td><code>clarification_reply</code></td><td><code>from: ['orchestrator']</code></td><td><strong>交不出去</strong></td></tr>
+<tr><td><code>supervisor</code></td><td><code>seat_handover</code></td><td><code>seat_handover.from</code>（<code>lib/guard.js:562</code>）里<strong>没有 supervisor</strong></td><td><strong>交不出去</strong></td></tr>
+<tr><td><code>diagrammer</code></td><td><code>human_request</code></td><td><code>human_request.from</code> 里<strong>没有 diagrammer</strong></td><td><strong>交不出去</strong></td></tr>
+<tr><td><code>archivist</code></td><td><code>human_request</code> / <code>clarification_request</code> / <code>seat_handover</code></td><td>三者的 <code>from</code> 里<strong>都没有 archivist</strong></td><td><strong>三类全交不出去</strong></td></tr>
+</tbody></table></div>
+<p>⇒ <strong>净效果</strong>：<code>supervisor</code> 声明 5 类、<strong>实交得出 2 类</strong>（<code>station_confirm</code> / <code>diagram_rework</code>）；<code>archivist</code> 声明 3 类、<strong>实交 0 类</strong>；<code>diagrammer</code> 声明 4 类、<strong>实交 3 类</strong>。</p>
+<p><strong>（c）<code>supervisor</code> 的"状态事件能发、交接物交不出"</strong> —— 这是同一族里最尖的一处：</p>
+<ul>
+<li><code>lib/states.js:191</code> 的 <code>ROLES_CAN_RAISE_HUMAN</code> <strong>含 <code>supervisor</code></strong>（<code>by</code> 名单过关 ⇒ <code>human_request</code> 这个<strong>状态事件</strong>它能发）；</li>
+<li>但 <code>human_request</code> 这份<strong>交接物</strong>的方向表不含它 ⇒ 提交时先在守门层被拦。</li>
+<li>⇒ <strong>状态机说"可以"，守门说"不行"</strong>，而交接物是状态的<strong>前置</strong>（<code>human_request_blocking</code> 会拒"没有交接物"的推进，<code>lib/store.js:2685-2697</code>）⇒ <strong>主管实际上开不了人工介入</strong>。</li>
+</ul>
+<p><strong>（d）<code>ROLES_CAN_RAISE_HUMAN</code> 缺 <code>diagrammer</code> / <code>archivist</code></strong>：名单是 <code>["orchestrator","planner","supervisor","architect","security","writer","tester","reviewer","release","docs","performance","arbiter","human"]</code> —— <strong>没有 <code>diagrammer</code>、没有 <code>archivist</code></strong>，而 <code>roles.js</code> 给这两个角色都登记了 <code>human_request</code>。</p>
+<hr>
+<h2 id="s-二-全部-打回-路径总表">二、★ 全部"打回"路径总表<a class="anchor" href="#s-二-全部-打回-路径总表" aria-label="锚点">#</a></h2>
+<p><strong>代码里一共有 6 条"往回走"的边</strong>（本次从 <code>TRANSITIONS</code> 实读，共 34 条边）：</p>
+<div class="tw"><table>
+<thead><tr><th>#</th><th>谁打回给谁</th><th>打回的 kind</th><th><strong>必带什么</strong></th><th>状态怎么变</th><th>预算与计数</th><th>超预算会怎样</th></tr></thead>
+<tbody>
+<tr><td><strong>R1</strong></td><td><strong>测试 → 编写</strong></td><td><code>test_to_dev</code></td><td><code>artifact_version</code> / <code>failed_cases</code> / <code>failure_logs</code> / <code>expected</code>（必填 5 项）</td><td><code>testing</code> <strong>→</strong> <code>returned_to_dev</code>（<code>lib/states.js:383</code>，<code>by:['tester']</code>）</td><td>guard <code>rework_budget</code>，<code>leg='dev'</code>，计 <code>task.rework.dev</code>（<code>lib/store.js:2669-2682</code>）；上限 <code>task.roster.rework_budget</code> 或配置 <code>maxReworkPerLeg</code>（<strong>默认 2</strong>）</td><td>拒并给出原文：「打回次数超限…请改用 <code>pipeline_transition event=block</code> 交人工介入，或让编排复核后追加仲裁/架构角色（<code>pipeline_roster_request</code> → <code>pipeline_roster_review</code>）」</td></tr>
+<tr><td><strong>R2</strong></td><td><strong>审核 → 编写</strong></td><td><code>review_verdict</code>（<code>conclusion:'NG'</code> + <code>reject_to:'writer'</code>）</td><td><code>artifact_version</code> / <code>conclusion</code> / <code>reject_reason</code></td><td><code>reviewing</code> <strong>→</strong> <code>returned_to_dev</code>（<code>lib/states.js:398</code>，<code>by:['reviewer','security']</code>）</td><td>同 R1（<code>leg='dev'</code>）</td><td>同上</td></tr>
+<tr><td><strong>R3</strong></td><td><strong>审核 → 测试</strong></td><td><code>review_verdict</code>（<code>reject_to:'tester'</code>）</td><td>同上</td><td><code>reviewing</code> <strong>→</strong> <code>returned_to_test</code>（<code>lib/states.js:399</code>，<code>by:['reviewer']</code>）</td><td><code>leg='test'</code>（判据：<code>input.event === 'review_ng_test'</code>，<code>lib/store.js:2670</code>），计 <code>task.rework.test</code></td><td>同上</td></tr>
+<tr><td><strong>R4</strong></td><td><strong>主管 → 架构位</strong>（架构图重画）</td><td><code>diagram_rework</code></td><td><code>reason</code> / <code>round</code> / <code>escalate_after</code>（必填 4 项）</td><td><code>arch_confirm</code> <strong>→</strong> <code>arch_drawing</code>（<code>lib/states.js:367</code>，<code>by:['supervisor']</code>，guard <code>hub_diagram_rework_budget</code>）</td><td><strong>★ 限 1 次</strong>：<code>HUB_DIAGRAM_REDRAW_BUDGET = 1</code>（<code>lib/states.js:298</code>），计 <code>task.hub.diagram_redraws</code>（<code>lib/store.js:2404</code>）</td><td>拒（<code>HUB_DIAGRAM_REDRAW_EXHAUSTED</code>），原文给<strong>唯一出路</strong>：「主管调 <code>pipeline_supervise action=escalate_user</code> 走既有的两级梯（<code>human_request</code> → 主对话转告 → 用户答复）」</td></tr>
+<tr><td><strong>R5</strong></td><td><strong>主对话 → 需求分析</strong>（用户不认可 / 需求变了）</td><td>无专属 kind（<strong>纯状态回退</strong>）</td><td><code>pipeline_transition { event: "dispatch_orchestrator" }</code></td><td><code>ready_plan</code> <strong>→</strong> <code>analyzing</code>（<code>lib/states.js:342</code>，<code>by:['main']</code>，<strong>无 guard</strong>）</td><td><strong>无预算</strong>（可无限次）</td><td>不适用</td></tr>
+<tr><td><strong>R6</strong></td><td><strong>计划位 → 需求分析</strong>（计划自检发现缺失）</td><td>复用第一级澄清梯（<code>clarification_request</code>）</td><td><code>pipeline_transition { event: "plan_gap" }</code>，会推到 <code>awaiting_clarification</code></td><td><code>planning</code> <strong>→</strong> <code>awaiting_clarification</code>（<code>lib/states.js:352</code>，<code>by:['planner']</code>，guard <code>plan_gap_gate</code>）</td><td>无预算</td><td>不适用（需求分析答复后回 <code>planning</code>）</td></tr>
+</tbody></table></div>
+<h3 id="s-否掉-和-打回-不是同一件事-代码里是两回事">★★「否掉」和「打回」<strong>不是同一件事</strong>（代码里是两回事）<a class="anchor" href="#s-否掉-和-打回-不是同一件事-代码里是两回事" aria-label="锚点">#</a></h3>
+<div class="tw"><table>
+<thead><tr><th></th><th><strong>打回（rework）</strong></th><th><strong>否掉（站点不确认）</strong></th></tr></thead>
+<tbody>
+<tr><td>代码里是什么</td><td>一条<strong>状态回退边</strong> + 一份方向相反的交接物</td><td><strong>什么都不发生</strong> —— 只是"该站的 <code>station_confirm</code> 没交/不是 <code>ok</code>"</td></tr>
+<tr><td>谁发起</td><td><code>tester</code> / <code>reviewer</code> / <code>supervisor</code>（各自 <code>by</code> 名单）</td><td>确认方<strong>不作为</strong>（不交那份 <code>station_confirm</code>）</td></tr>
+<tr><td>状态会变吗</td><td><strong>会</strong>（→ <code>returned_to_dev</code> / <code>returned_to_test</code> / <code>arch_drawing</code>）</td><td><strong>不会</strong>（停在原地）</td></tr>
+<tr><td>有预算吗</td><td><strong>有</strong>（<code>rework_budget</code>，默认 2；架构图 1）</td><td><strong>没有</strong></td></tr>
+<tr><td>后果</td><td>可预期、可计数、超限有出路</td><td><strong>卡住</strong>，只能靠 <code>block</code> / <code>cancel</code> 这两条通配边逃离（见 §五）</td></tr>
+</tbody></table></div>
+<p>★ <strong><code>station_confirm</code> 的 <code>decision</code> 字段只有 <code>'ok'</code> 会被当真</strong>：<code>hubValidConfirms</code> 用 <code>h.payload?.decision !== 'ok'</code> 直接跳过（<code>lib/store.js:1164</code>）。而<strong>唯一能产出 <code>station_confirm</code> 的工具</strong>（<code>pipeline_supervise action=confirm_station</code>）<strong>把 <code>decision</code> 硬编码成 <code>'ok'</code></strong>（<code>lib/tools.js:2672</code>）⇒ <strong>通过工具</strong>交不出"否掉"。理论上可以走通用 <code>pipeline_handoff</code> 手写 <code>decision:'ng'</code>（<code>validateStationConfirm</code> <strong>不校验</strong>这个字段的取值），但<strong>没有任何状态事件消化它</strong>。</p>
+<hr>
+<h2 id="s-三-状态机全图-带-谁有权触发">三、状态机全图（带"谁有权触发"）<a class="anchor" href="#s-三-状态机全图-带-谁有权触发" aria-label="锚点">#</a></h2>
+<p><strong>实读</strong>：<code>lib/states.js</code> 的 <code>ST</code>（<strong>22 个状态</strong>，<code>:42-118</code> 区段）与 <code>TRANSITIONS</code>（<strong>34 条</strong>，起于 <code>lib/states.js:318</code>）。</p>
+<h3 id="s-3-0-一眼看懂的路线图-横版主路径-五道站点-三条打回">3.0 一眼看懂的路线图（横版主路径 + 五道站点 + 三条打回）<a class="anchor" href="#s-3-0-一眼看懂的路线图-横版主路径-五道站点-三条打回" aria-label="锚点">#</a></h3>
+<pre class="map" data-lang=""><code> 用户
+  │  pipeline_task_open
+  ▼
+┌────────┐  ①主管发起        ┌──────────┐  交结论   ┌────────────┐ ★第①道 ┌──────────────┐
+│ 主对话 │ ───────────────▶ │ 需求分析 │ ────────▶ │  主管受理  │ 同意  │  架构图绘制  │
+│  main  │  dispatch_orch.  │orchestrat│  need_to_ │ supervising│ ────▶ │ arch_drawing │
+└───┬────┘  或 supervise    └──────────┘ supervisor└─────┬──────┘       └──────┬───────┘
+    │                            ▲                       │ 否掉：✗ 无回边        │ diagram_submitted
+    │                            │ R5 退回（无预算）      │                      ▼
+    │                            └───────────────────────┤              ┌──────────────┐
+    │                                                    │              │ 架构图待确认  │
+    │  ┌──────────────┐  dispatch_planner  ┌───────────┐ │  ★第②道     │ arch_confirm │
+    │  │ 计划位待唤醒  │ ◀──── 唤醒点 B ──── │ 主管受理  │ │  同意 ─────▶ └──────┬───────┘
+    │  │ standby_plan │                    └───────────┘ │                     │ 否掉：✓ 有回边
+    │  └──────┬───────┘                                  │        supervisor_reject_diagram
+    │         │ dispatch_planner                         │        （重画限 1 次 ⇒ escalate_user）
+    │         ▼                                          │                     │
+    │  ┌───────────┐  planned   ┌───────────┐            │                     ▼
+    │  │  计划中   │ ─────────▶ │  待开发   │            │            回到 arch_drawing
+    │  │ planning  │            │ ready_dev │
+    │  └─────┬─────┘            └─────┬─────┘
+    │        │ plan_gap（R6）         │ dispatch_writer
+    │        ▼                        ▼
+    │  awaiting_clarification   ┌───────────┐  dev_to_test  ┌───────────┐
+    │        │                  │  开发中   │ ────────────▶ │  待测试   │
+    │        │ clarification_   │ developing│  dev_submitted│ ready_test│
+    │        │ reply ▶(previous)└─────▲─────┘               └─────┬─────┘
+    │        │                        │ dispatch_writer           │ dispatch_tester
+    │        │                  ┌─────┴──────┐                    ▼
+    │        │                  │ 已打回编写 │ ◀── R1 ─── ┌───────────┐
+    │        │                  │returned_to │  test_failed│  测试中   │
+    │        │                  │   _dev     │  (预算 2)   │  testing  │
+    │        │                  └─────▲──────┘             └─────┬─────┘
+    │        │                        │                          │ test_passed
+    │        │                        │ R2 review_ng_dev         ▼
+    │        │                  ┌─────┴──────┐            ┌────────────┐ ★第③道 ┌───────────┐
+    │        │                  │ 已打回测试 │            │  待审核    │ 双确认  │  审核中   │
+    │        │                  │returned_to │            │ready_review│ ──────▶ │ reviewing │
+    │        │                  │   _test    │            └────────────┘ ✗无回边 └─────┬─────┘
+    │        │                  └─────▲──────┘                                         │ review_ok
+    │        │                        │ R3 review_ng_test                              ▼
+    │        │                        └────────────────────────────────────────── ┌───────────┐
+    │        │                                                                   │  已通过   │
+    │        │                                                                   │  passed   │
+    │        │                                                                   └─────┬─────┘
+    │        │                                                          ★第④道 双确认 ✗无回边
+    │        │                                                                         │ close
+    │        │                                                                         ▼
+    └────────┴─────────────────────── 回投用户 ◀───────────────────────────── ┌───────────┐
+                                                                             │  已关闭   │
+   图例：─▶ 同意路径   ▲ 打回/退回   ✗ 没有回边（会卡住）   ★ 主管枢纽的确认站点  终态      └───────────┘</code></pre>
+<h3 id="s-3-1-完整路线图-缩进树-谁-by-名单-guard-判据">3.1 完整路线图（缩进树；<code>[谁]</code> = <code>by</code> 名单；<code>(guard)</code> = 判据）<a class="anchor" href="#s-3-1-完整路线图-缩进树-谁-by-名单-guard-判据" aria-label="锚点">#</a></h3>
+<pre class="map" data-lang=""><code>⑀ open: (new) ──open──▶ pending                                   [main]
+
+┌─ 起点：两种发起 ─────────────────────────────────────────────────────────┐
+│ pending ──dispatch_orchestrator──▶ analyzing        [main]  (hub_initiate_required)
+│ pending ──supervisor_initiate────▶ analyzing        [supervisor]  (hub_initiate)   ★枢纽
+│ pending ──orchestrated───────────▶ ready_dev        [planner/rule-engine]  (L0 自批)
+└──────────────────────────────────────────────────────────────────────────┘
+
+【需求分析中 analyzing】  拥有者=orchestrator
+  ├─ requirement_confirmed ▶ ready_plan   [main]  (requirement_confirm_gate)   ★主对话也能发
+  └─ need_to_supervisor    ▶ supervising  [orchestrator]  (hub_analysis_ready)   ★枢纽
+
+【主管受理中 supervising】 拥有者=supervisor   ★★ 出边只有 1 条（见 §五 M1）
+  └─ supervisor_agree_need ▶ arch_drawing [supervisor]  (hub_station_need_agree)
+
+【架构图绘制中 arch_drawing】 拥有者=architect
+  └─ diagram_submitted     ▶ arch_confirm [diagrammer]  (hub_diagram_ready)
+
+【架构图待确认 arch_confirm】 拥有者=supervisor   ★★ 唯一有"否掉"回边的站点
+  ├─ supervisor_confirm_diagram ▶ standby_plan [supervisor]  (hub_station_diagram_confirm)  唤醒点 B
+  └─ supervisor_reject_diagram  ▶ arch_drawing [supervisor]  (hub_diagram_rework_budget)   ★限 1 次
+
+【计划位待唤醒 standby_plan】 拥有者=main
+  └─ dispatch_planner      ▶ planning     [main]  (hub_plan_woken)   ★未唤醒过不去
+
+【待计划 ready_plan】 拥有者=main
+  ├─ dispatch_planner      ▶ planning     [main]
+  └─ dispatch_orchestrator ▶ analyzing    [main]        ◀── R5 退回需求分析（无 guard、无预算）
+
+【计划中 planning】 拥有者=planner
+  ├─ planned               ▶ ready_dev    [planner]  (plan_ready)
+  └─ plan_gap              ▶ awaiting_clarification [planner] (plan_gap_gate)   ◀── R6
+
+【待开发 ready_dev】 拥有者=main
+  └─ dispatch_writer       ▶ developing   [main]
+
+【开发中 developing】 拥有者=writer
+  └─ dev_submitted         ▶ ready_test   [writer]  (dev_to_test)     ★只允许 writer（见 3.2）
+
+【待测试 ready_test】 拥有者=main
+  └─ dispatch_tester       ▶ testing      [main]
+
+【测试中 testing】 拥有者=tester
+  ├─ test_passed           ▶ ready_review [tester]  (test_to_review)
+  └─ test_failed           ▶ returned_to_dev [tester] (rework_budget)   ◀── R1 打回
+
+【待审核 ready_review】 拥有者=main   ★★ 出边只有 1 条（见 §五 M2）
+  └─ dispatch_reviewer     ▶ reviewing    [main]  (dispatch_reviewer_gate ← 第③道双确认)
+
+【审核中 reviewing】 拥有者=reviewer
+  ├─ review_ok             ▶ passed       [reviewer]  (review_verdict_ok)
+  ├─ review_ng_dev         ▶ returned_to_dev [reviewer/security] (rework_budget)  ◀── R2
+  └─ review_ng_test        ▶ returned_to_test [reviewer] (rework_budget)          ◀── R3
+
+【已通过 passed】 拥有者=main   ★★ 出边只有 1 条（见 §五 M3）
+  └─ close                 ▶ closed       [main]  (close_gates ← 含第④道双确认)
+
+【打回态】 均只有"重新派活"一条出边，且**打回时已经扣过预算、重派不再扣**
+  returned_to_dev  ──dispatch_writer──▶ developing [main]
+  returned_to_test ──dispatch_tester──▶ testing    [main]
+
+【终态 terminal】closed / cancelled —— 出边 0 条
+
+【通配边 *（任意非终态都能走）】
+  ├─ clarification_request ▶ awaiting_clarification [11 个角色]  (clarification_blocking)
+  ├─ human_request         ▶ awaiting_human         [13 个角色]  (human_request_blocking)
+  ├─ block                 ▶ blocked                [main / human]
+  └─ cancel                ▶ cancelled              [main / human]
+
+【等待态：都是"回到被打断前的状态"】
+  awaiting_clarification ──clarification_reply──▶ (previous)   [orchestrator]
+  awaiting_human         ──human_reply────────▶ (previous)   [main]
+  blocked                ──unblock────────────▶ (previous)   [main / human]</code></pre>
+<h3 id="s-3-2-哪些事件-主对话也能发-今晚踩过的那两个坑-本次实读复核">3.2 ★ 哪些事件"主对话也能发"（今晚踩过的那两个坑，本次实读复核）<a class="anchor" href="#s-3-2-哪些事件-主对话也能发-今晚踩过的那两个坑-本次实读复核" aria-label="锚点">#</a></h3>
+<div class="tw"><table>
+<thead><tr><th>事件</th><th><code>by</code> 名单（<code>lib/states.js</code>）</th><th>主对话能发吗</th><th>备注</th></tr></thead>
+<tbody>
+<tr><td><code>requirement_confirmed</code></td><td><code>['main']</code>（<code>:340</code>）</td><td><span class="badge b-ok">✅</span> <strong>能</strong>（而且<strong>只有</strong> main 能）</td><td>★ 原话「主对话也能发」<strong>属实</strong>。但它在枢纽任务上会被 <code>requirement_confirm_gate</code> 拒（<code>lib/store.js:2189-2197</code>）</td></tr>
+<tr><td><code>dev_submitted</code></td><td><code>['writer']</code>（<code>:372</code>）</td><td><span class="badge b-no">❌</span> <strong>不能</strong></td><td>★ 原话「只允许 writer」<strong>属实</strong></td></tr>
+<tr><td><code>test_passed</code> / <code>test_failed</code></td><td><code>['tester']</code>（<code>:382</code> / <code>:383</code>）</td><td><span class="badge b-no">❌</span> 都不能</td><td>两条都只允许 tester</td></tr>
+<tr><td><code>review_ok</code></td><td><code>['reviewer']</code>（<code>:397</code>）</td><td><span class="badge b-no">❌</span></td><td>—</td></tr>
+<tr><td><code>review_ng_dev</code></td><td><code>['reviewer','security']</code>（<code>:398</code>）</td><td><span class="badge b-no">❌</span></td><td>★ <strong>security 也能打回编写</strong></td></tr>
+<tr><td><code>review_ng_test</code></td><td><code>['reviewer']</code>（<code>:399</code>）</td><td><span class="badge b-no">❌</span></td><td>—</td></tr>
+<tr><td><code>planned</code></td><td><code>['planner']</code>（<code>:346</code>）</td><td><span class="badge b-no">❌</span></td><td>—</td></tr>
+<tr><td><code>supervisor_initiate</code> / <code>supervisor_agree_need</code> / <code>supervisor_confirm_diagram</code> / <code>supervisor_reject_diagram</code></td><td>均 <code>[supervisor]</code>（<code>:362</code>/<code>:364</code>/<code>:366</code>/<code>:367</code>）</td><td><span class="badge b-no">❌</span></td><td>守门层还有第二道（<code>PIPELINE_TOOL_ROLES.pipeline_supervise</code>）</td></tr>
+<tr><td><code>dispatch_orchestrator</code> / <code>dispatch_planner</code> / <code>dispatch_writer</code> / <code>dispatch_tester</code> / <code>dispatch_reviewer</code> / <code>close</code></td><td>均 <code>['main']</code></td><td><span class="badge b-ok">✅</span></td><td>这 6 条是主对话的"派活/路由"专权</td></tr>
+<tr><td><code>open</code></td><td><code>['main']</code>（<code>:320</code>）</td><td><span class="badge b-ok">✅</span></td><td>—</td></tr>
+<tr><td><code>block</code> / <code>unblock</code> / <code>cancel</code></td><td><code>['main','human']</code>（<code>:427</code>/<code>:428</code>/<code>:429</code>）</td><td><span class="badge b-ok">✅</span></td><td>异常出口</td></tr>
+<tr><td><code>clarification_request</code></td><td>11 个角色（<code>lib/states.js:135</code>）</td><td><span class="badge b-no">❌</span>（main 不在名单里）</td><td>—</td></tr>
+<tr><td><code>human_request</code></td><td>13 个（<code>:191</code>）</td><td><span class="badge b-no">❌</span>（main 不在名单里）</td><td>★ <code>pipeline_human_request</code> 工具层还会指名拒 main（<code>lib/tools.js:4181-4191</code>）</td></tr>
+<tr><td><code>clarification_reply</code> / <code>human_reply</code></td><td><code>['orchestrator']</code> / <code>['main']</code></td><td>各一条</td><td>回复侧</td></tr>
+</tbody></table></div>
+<h3 id="s-3-3-终态与可取消范围">3.3 终态与可取消范围<a class="anchor" href="#s-3-3-终态与可取消范围" aria-label="锚点">#</a></h3>
+<ul>
+<li><strong>终态 2 个</strong>：<code>closed</code>（已关闭）、<code>cancelled</code>（已取消）—— <code>TERMINAL_STATES</code>，出边 0 条。</li>
+<li><strong>等待态 2 个</strong>：<code>awaiting_clarification</code>、<code>awaiting_human</code> —— <code>WAITING_STATES</code>，出边各 1 条（回到 <code>(previous)</code>）。</li>
+<li><strong>可取消范围</strong>：<code>cancel</code> 挂在 <code>*</code> 上，注释原文「<strong>任意非终态可取消</strong>」（<code>lib/states.js:429</code>）；<code>block</code> 同（<code>:427</code>）。</li>
+<li>★ <strong><code>(previous)</code> 的实现细节</strong>：等待态<strong>刻意不覆盖</strong> <code>previous_state</code>，所以"提问 → 升级 → 答复"整条链能恢复到最初被打断的那个状态。</li>
+</ul>
+<hr>
+<h2 id="s-四-主路径逐步对照-用户原话-代码动作">四、★ 主路径逐步对照（用户原话 → 代码动作）<a class="anchor" href="#s-四-主路径逐步对照-用户原话-代码动作" aria-label="锚点">#</a></h2>
+<p><strong>用户原话</strong>（<code>T-20261011-56a37e</code> 的 requirement，照抄）：</p>
+<blockquote>
+<p>「用户下达任务→主对话转发→主管发起（需求分析/计划/架构ai）对话→主管将主对话转发内容交给需求ai分析同时计划和架构ai待机→需求ai分析将结果提交主管→同意后交给架构ai先画架构图→架构图完成后给主管确认是否满足要求→主管确认后交给计划ai并由计划ai安排其他ai干活→编程ai干活完成后提交给测试ai（测试ai提前收到计划ai安排任务内容）→测试无问题后提交给主管和需求ai确认→无问题后交给审核验收→无问题提交给主管和需求，确认后提交主对话→用户收到结果」</p>
+</blockquote>
+<div class="tw"><table>
+<thead><tr><th>第 N 步</th><th>用户原话怎么说</th><th>谁做</th><th>用哪个工具（含必填参数）</th><th>产出什么交接物</th><th>状态怎么变</th><th>被否掉时回到哪</th></tr></thead>
+<tbody>
+<tr><td><strong>0</strong></td><td>「用户下达任务」</td><td>用户 → 主对话</td><td><code>pipeline_task_open { requirement, constraints, acceptance, deadline, deliverable_format }</code>（<code>lib/tools.js:706</code>）</td><td>无（建单）</td><td><code>(new)</code> → <strong><code>pending</code></strong></td><td>—</td></tr>
+<tr><td><strong>1</strong></td><td>「主对话转发」</td><td>主对话</td><td>转发 = 把上面那份原文放进 <code>requirement</code>（无独立工具）</td><td>无</td><td>不变</td><td>—</td></tr>
+<tr><td><strong>2</strong></td><td>「主管发起（需求分析/计划/架构ai）对话」</td><td><strong>主管</strong>（<code>supervisor</code>）</td><td><code>pipeline_supervise { task_id, action: "initiate", reason }</code>（<code>lib/tools.js:2510</code>）</td><td>无（但会把 planner/diagrammer/architect 登记为<strong>已登记待机</strong>，可在 <code>pipeline_status</code> 的 <code>hub.standby</code> 读回）</td><td><code>pending</code> → <strong><code>analyzing</code></strong></td><td>非枢纽任务走主对话 <code>pipeline_transition { event:"dispatch_orchestrator" }</code>；<strong>名单里登记了 supervisor 时这条路会被拒</strong>（<code>HUB_INITIATE_REQUIRED</code>，<code>lib/store.js:2329-2342</code>）</td></tr>
+<tr><td><strong>3</strong></td><td>「计划和架构ai待机」</td><td>机制</td><td>无（<code>hub_initiate</code> 的返回值里登记）</td><td>无</td><td>不变</td><td>待机期交产物会被拦（守门 <code>hubStandbyBlocksWrite</code>，<code>lib/guard.js:1705</code> 定义 / <code>:809</code> 唯一调用点）</td></tr>
+<tr><td><strong>4</strong></td><td>「交给需求ai分析」</td><td>需求分析（<code>orchestrator</code>）</td><td><code>pipeline_orchestrate { task_id, requirement, acceptance, test_points, boundaries, unclear_points, role_scope, analysis_reason, task_card }</code>（<code>lib/tools.js:840</code>）</td><td><strong><code>requirement_analysis</code></strong></td><td>（已在此状态）</td><td>—</td></tr>
+<tr><td><strong>5</strong></td><td>（用户确认 —— 用户原话里没写，但代码是硬判据）</td><td>需求分析发起 → 主对话转告 → 用户答复</td><td>①<code>pipeline_human_request { reason_kind:"requirement_confirmation", question_for_human, blocking:true, blocked_stage, urgency:"blocking", decision_kind, timeout_behavior }</code> ②<code>pipeline_human_relay { task_id, request_id }</code> ③<code>pipeline_human_reply { task_id, request_id, user_quote, attribution, answer / chosen_option / answer_text }</code></td><td><strong><code>human_request</code></strong></td><td><code>analyzing</code> → <code>awaiting_human</code> → <strong><code>analyzing</code></strong></td><td>没确认过 ⇒ 下一步过不去（<code>REQUIREMENT_NOT_CONFIRMED</code>，<code>lib/store.js:2215-2226</code>）</td></tr>
+<tr><td><strong>6</strong></td><td>「需求ai分析将结果提交主管」</td><td>需求分析</td><td><code>pipeline_transition { event: "need_to_supervisor" }</code>（<code>by: [orchestrator]</code>）</td><td><code>requirement_analysis</code>（已交）</td><td><code>analyzing</code> → <strong><code>supervising</code></strong></td><td>—</td></tr>
+<tr><td><strong>7</strong></td><td>「<strong>同意后</strong>交给架构ai先画架构图」——<strong>第①道</strong></td><td><strong>主管 + 用户</strong></td><td>①<code>pipeline_supervise { task_id, action:"agree_need", reason }</code> ②<code>pipeline_supervise { task_id, action:"confirm_station", station:"need_agree", basis_refs:[…], basis_digest:"…", reason }</code></td><td><strong><code>station_confirm</code></strong>（<code>station:"need_agree"</code>）</td><td><code>supervising</code> → <strong><code>arch_drawing</code></strong>（<strong>唤醒点 A</strong>：架构位到点开工）</td><td><span class="badge b-no">❌</span> <strong>没有"否掉"的路</strong>（见 §五 M1）</td></tr>
+<tr><td><strong>8</strong></td><td>「架构ai先画架构图」</td><td>架构图位（<code>diagrammer</code>）</td><td><code>pipeline_handoff { task_id, kind:"architecture_diagram", payload:{ based_on_artifact_version, diagram_path, produced_by, covered_modules, degraded } }</code></td><td><strong><code>architecture_diagram</code></strong></td><td><code>arch_drawing</code> → <strong><code>arch_confirm</code></strong></td><td>—</td></tr>
+<tr><td><strong>9</strong></td><td>「架构图完成后给主管确认是否满足要求」——<strong>第②道</strong></td><td>主管</td><td>满足：<code>pipeline_supervise { action:"confirm_diagram", reason }</code>（+ <code>action:"confirm_station", station:"diagram_confirm"</code>）；不满足：<code>pipeline_supervise { action:"reject_diagram", reason }</code>（先交 <code>pipeline_handoff { kind:"diagram_rework", payload:{ reason, round, escalate_after } }</code>）</td><td><strong><code>station_confirm</code></strong> / <strong><code>diagram_rework</code></strong></td><td>满足：<code>arch_confirm</code> → <strong><code>standby_plan</code></strong>（<strong>唤醒点 B</strong>）；不满足：<code>arch_confirm</code> → <strong><code>arch_drawing</code></strong>（<strong>限 1 次</strong>）</td><td><span class="badge b-ok">✅</span> <strong>有回边</strong>，且超预算有出路（<code>action:"escalate_user"</code>）</td></tr>
+<tr><td><strong>10</strong></td><td>「主管确认后交给计划ai」</td><td>主对话</td><td><code>pipeline_transition { event: "dispatch_planner" }</code>（guard <code>hub_plan_woken</code>）</td><td>无</td><td><code>standby_plan</code> → <strong><code>planning</code></strong></td><td>计划位没唤醒 ⇒ 拒（<code>HUB_PLAN_NOT_WOKEN</code>，<code>lib/store.js:2430-2437</code>）</td></tr>
+<tr><td><strong>11</strong></td><td>「由计划ai安排其他ai干活」</td><td>计划位（<code>planner</code>）</td><td><code>pipeline_plan { task_id, plan_steps, layers, self_check_verdict, plan_reason, change_scope, forbidden, role_boundaries, role_scope, tier, roles, sequence, slots }</code>（<code>lib/tools.js:1101</code>）</td><td><strong><code>plan</code></strong> + <strong><code>orchestration</code></strong></td><td><code>planning</code> → <strong><code>ready_dev</code></strong></td><td>计划自检发现缺失 ⇒ <code>plan_gap</code> → <code>awaiting_clarification</code>（R6）</td></tr>
+<tr><td><strong>12</strong></td><td>「测试ai提前收到计划ai安排任务内容」</td><td>计划位</td><td><code>pipeline_handoff { task_id, kind:"prebrief", payload:{ plan_handoff_id, assigned_scope, acceptance_refs, artifact_under_test, not_yet_available, must_not_start_before } }</code>（工具层还会真的投到测试位会话，<code>lib/tools.js:2423-2441</code>）</td><td><strong><code>prebrief</code></strong></td><td>不变（登记性质）</td><td>—</td></tr>
+<tr><td><strong>13</strong></td><td>（留档 —— 用户原话没写，代码里有）</td><td>留档位（<code>archivist</code>）</td><td><code>pipeline_record_submit { task_id, markdown, sections, source }</code> → 各席位；<code>pipeline_compile_requirement { task_id, entries, conflicts, notes }</code> → 汇总 <code>requirement.md</code></td><td><code>records\&lt;role&gt;.md</code> / <code>requirement.md</code></td><td>不变</td><td>—</td></tr>
+<tr><td><strong>14</strong></td><td>「编程ai干活」</td><td>主对话派活 → 编写席</td><td><code>pipeline_dispatch { task_id, role:"writer", permission, mode, model, reasoning }</code> 或 <code>pipeline_transition { event:"dispatch_writer" }</code></td><td><strong><code>dispatch</code></strong></td><td><code>ready_dev</code> → <strong><code>developing</code></strong></td><td>—</td></tr>
+<tr><td><strong>15</strong></td><td>「编程ai干活完成后提交给测试ai」</td><td>编写席（<code>writer</code>）</td><td><code>pipeline_artifact { task_id, content, file_name, note }</code> → <code>pipeline_handoff { task_id, kind:"dev_to_test", payload:{ artifact_version, patch_or_code, change_note, run_commands, selftest_result, known_issues } }</code> → <code>pipeline_transition { event:"dev_submitted" }</code></td><td><strong><code>dev_to_test</code></strong></td><td><code>developing</code> → <strong><code>ready_test</code></strong></td><td>★ <strong><code>by</code> 只允许 writer</strong>；哈希前置闸门会先判"足迹 vs 授权面"</td></tr>
+<tr><td><strong>16</strong></td><td>（派测试）</td><td>主对话</td><td><code>pipeline_transition { event:"dispatch_tester" }</code></td><td>无</td><td><code>ready_test</code> → <strong><code>testing</code></strong></td><td>—</td></tr>
+<tr><td><strong>17a</strong></td><td>「测试无问题」</td><td>测试席（<code>tester</code>）</td><td><code>pipeline_handoff { kind:"test_to_review", payload:{ artifact_version, test_cases, execution_result, failure_logs, pass_evidence, risk_notes, verdict } }</code> + <code>pipeline_transition { event:"test_passed" }</code></td><td><strong><code>test_to_review</code></strong></td><td><code>testing</code> → <strong><code>ready_review</code></strong></td><td>—</td></tr>
+<tr><td><strong>17b</strong></td><td>（测试有问题）</td><td>测试席</td><td><code>pipeline_handoff { kind:"test_to_dev", payload:{ artifact_version, failed_cases, failure_logs, expected } }</code> + <code>pipeline_transition { event:"test_failed" }</code>（或 <code>pipeline_rework { target:"writer", reason }</code>）</td><td><strong><code>test_to_dev</code></strong></td><td><code>testing</code> → <strong><code>returned_to_dev</code></strong> ◀ <strong>R1</strong></td><td>打回计数 +1（上限 2）</td></tr>
+<tr><td><strong>18</strong></td><td>「提交给主管和需求ai确认」——<strong>第③道</strong></td><td><strong>主管 + 需求位</strong>（各交一份）</td><td>主管：<code>pipeline_supervise { action:"confirm_station", station:"test_confirm", basis_refs, basis_digest, reason }</code>；需求位：<code>pipeline_handoff { kind:"station_confirm", payload:{ station:"test_confirm", artifact_version, decision:"ok", basis_refs, basis_kind, basis_digest, reason } }</code></td><td><strong><code>station_confirm</code> ×2</strong></td><td>不变（<strong>双确认本身不推状态</strong>）</td><td><span class="badge b-no">❌</span> <strong>没有"否掉"的路</strong>（见 §五 M2）</td></tr>
+<tr><td><strong>19</strong></td><td>「无问题后交给审核验收」</td><td>主对话</td><td><code>pipeline_transition { event:"dispatch_reviewer" }</code></td><td>无</td><td><code>ready_review</code> → <strong><code>reviewing</code></strong></td><td>guard <code>dispatch_reviewer_gate</code> 要求第③道双确认<strong>齐备</strong>（<code>lib/store.js:2444-2449</code>）</td></tr>
+<tr><td><strong>20</strong></td><td>「审核验收」</td><td>审核席（<code>reviewer</code>）</td><td><code>pipeline_handoff { kind:"review_verdict", payload:{ artifact_version, conclusion:"OK", risk_notes, security, release_approved, final_delivery_note } }</code> + <code>pipeline_transition { event:"review_ok" }</code></td><td><strong><code>review_verdict</code></strong></td><td><code>reviewing</code> → <strong><code>passed</code></strong></td><td>NG ⇒ <code>review_ng_dev</code> / <code>review_ng_test</code>（R2 / R3）</td></tr>
+<tr><td><strong>21</strong></td><td>「无问题提交给主管和需求，确认后提交主对话」——<strong>第④道</strong></td><td><strong>主管 + 需求位</strong></td><td>同第 18 步，<code>station:"review_confirm"</code></td><td><strong><code>station_confirm</code> ×2</strong></td><td>不变</td><td><span class="badge b-no">❌</span> <strong>没有"否掉"的路</strong>（见 §五 M3）</td></tr>
+<tr><td><strong>22</strong></td><td>「提交主对话」</td><td>主对话</td><td><code>pipeline_close { task_id, note }</code>（<code>lib/tools.js:2789</code>）</td><td>无</td><td><code>passed</code> → <strong><code>closed</code></strong></td><td>guard <code>close_gates</code> 依序判 <strong>6 道</strong>子闸（<code>lib/store.js:2491-2496</code>）：<code>review_ok_exists</code> → <code>security_not_blocked</code> → <code>security_attested</code> → <code>diagram_delivered</code> → <code>role_products_delivered</code> → <code>hub_station_review_confirm</code></td></tr>
+<tr><td><strong>23</strong></td><td>「用户收到结果」</td><td>主对话</td><td>无专用工具（把 <code>close</code> 的摘要给用户）★ <strong>这一步没有任何代码判据</strong></td><td>无</td><td>不变</td><td>—</td></tr>
+</tbody></table></div>
+<hr>
+<h2 id="s-五-两条分支-同意-否掉-逐个站点列">五、★ 两条分支（同意 / 否掉）逐个站点列<a class="anchor" href="#s-五-两条分支-同意-否掉-逐个站点列" aria-label="锚点">#</a></h2>
+<p><strong>站点定义</strong>：<code>lib/states.js:269-288</code>。★ <strong>表里有 5 项，但确认方只有 4 项</strong> —— 看清这张表：</p>
+<div class="tw"><table>
+<thead><tr><th>站点</th><th>常量</th><th>确认方（<code>HUB_STATION_CONFIRMERS</code>）</th><th>双确认？</th></tr></thead>
+<tbody>
+<tr><td>① 需求结论</td><td><code>need_agree</code></td><td><code>['supervisor']</code></td><td>单</td></tr>
+<tr><td>② 架构图</td><td><code>diagram_confirm</code></td><td><code>['supervisor']</code></td><td>单</td></tr>
+<tr><td>③ 测试通过</td><td><code>test_confirm</code></td><td><code>['supervisor','orchestrator']</code></td><td><strong>双</strong></td></tr>
+<tr><td>④ 审核通过</td><td><code>review_confirm</code></td><td><code>['supervisor','orchestrator']</code></td><td><strong>双</strong></td></tr>
+<tr><td>⑤ 交主对话</td><td><code>closeout</code></td><td>⚠️ <strong>没有登记</strong>（<code>HUB_STATION_CONFIRMERS</code> 里没有这一项）</td><td>—</td></tr>
+</tbody></table></div>
+<h3 id="s-5-1-逐个站点-同意-否掉">5.1 逐个站点：同意 / 否掉<a class="anchor" href="#s-5-1-逐个站点-同意-否掉" aria-label="锚点">#</a></h3>
+<div class="tw"><table>
+<thead><tr><th>站点</th><th><strong>同意</strong> ⇒ 下一步（事件 / 状态）</th><th><strong>否掉</strong> ⇒ 代码里有路吗</th><th>超时 / 无人应答</th></tr></thead>
+<tbody>
+<tr><td><strong>① 需求结论</strong>（<code>need_agree</code>）</td><td>主管 <code>action:"agree_need"</code> ⇒ <code>supervisor_agree_need</code> ⇒ <code>supervising</code> → <strong><code>arch_drawing</code></strong>，<strong>唤醒点 A</strong> 触发（<code>lib/states.js:364</code>，guard <code>hub_station_need_agree</code>，<code>lib/store.js:2375-2381</code>）。★ 该 guard <strong>还会再调一次 <code>requirement_confirm_gate</code></strong> ⇒ 第①道 = <strong>用户确认 + 主管同意</strong>，缺一不可</td><td><span class="badge b-no">❌</span> <strong>没有</strong>。<code>pipeline_supervise</code> 的 6 个 action 里<strong>只有 <code>agree_need</code>，没有 <code>reject_need</code></strong>（<code>lib/tools.js:2523</code> 的 enum 逐字：<code>initiate / agree_need / confirm_diagram / reject_diagram / confirm_station / escalate_user</code>）；<code>TRANSITIONS</code> 里<strong>没有 <code>supervisor_reject_need</code></strong>。⇒ 主管若不同意，<strong>没有任何合法的状态迁移</strong>，任务停在 <code>supervising</code></td><td><strong>没有超时</strong>。<code>supervising</code> 的出边只有 1 条（<code>supervisor_agree_need</code>）⇒ 只能靠 <code>block</code> / <code>cancel</code>（通配边）逃离</td></tr>
+<tr><td><strong>② 架构图</strong>（<code>diagram_confirm</code>）</td><td>主管 <code>action:"confirm_diagram"</code> ⇒ <code>supervisor_confirm_diagram</code> ⇒ <code>arch_confirm</code> → <strong><code>standby_plan</code></strong>，<strong>唤醒点 B</strong> 触发（<code>lib/states.js:366</code>）</td><td><span class="badge b-ok">✅</span> <strong>有，而且是五个站点里唯一有的一条</strong>。主管 <code>action:"reject_diagram"</code> ⇒ <code>supervisor_reject_diagram</code> ⇒ <code>arch_confirm</code> → <strong><code>arch_drawing</code></strong>（<code>lib/states.js:367</code>，guard <code>hub_diagram_rework_budget</code>，<code>lib/store.js:2403-2420</code>）。<strong>限 1 次</strong>：<code>HUB_DIAGRAM_REDRAW_BUDGET = 1</code>（<code>lib/states.js:298</code>），计 <code>task.hub.diagram_redraws</code>；<strong>第 2 次被判"不满足"时直接拒</strong>（<code>HUB_DIAGRAM_REDRAW_EXHAUSTED</code>），拒绝原文给唯一出路：<code>action:"escalate_user"</code> ⇒ 交一份 <code>human_request</code> ⇒ 走既有两级梯升给用户</td><td><strong>没有超时</strong>。停在 <code>arch_confirm</code></td></tr>
+<tr><td><strong>③ 测试通过</strong>（<code>test_confirm</code>）</td><td>主管 + 需求位<strong>各交一份</strong> <code>station_confirm{station:"test_confirm", decision:"ok"}</code> ⇒ 主对话 <code>pipeline_transition { event:"dispatch_reviewer" }</code> 才过得了 <code>dispatch_reviewer_gate</code>（<code>lib/store.js:2444-2449</code>）⇒ <code>ready_review</code> → <strong><code>reviewing</code></strong></td><td><span class="badge b-no">❌</span> <strong>没有</strong>。<code>ready_review</code> 的出边<strong>只有 <code>dispatch_reviewer</code> 一条</strong>（<code>lib/states.js:396</code>）⇒ 双确认不齐 ⇒ 拒（<code>HUB_STATION_NOT_CONFIRMED</code> / <code>HUB_DUAL_CONFIRM_INCOMPLETE</code>，<code>lib/store.js:1194-1207</code>）⇒ <strong>任务停在 <code>ready_review</code></strong>。★ 更要紧：<strong>此时 tester 已经发不出 <code>test_failed</code> 了</strong>（那条边的 <code>from</code> 是 <code>testing</code>，不是 <code>ready_review</code>）⇒ <strong>想打回编写也没有路</strong></td><td><strong>没有超时</strong></td></tr>
+<tr><td><strong>④ 审核通过</strong>（<code>review_confirm</code>）</td><td>同③，<code>station:"review_confirm"</code> ⇒ 主对话 <code>pipeline_close</code> 才过得了 <code>close_gates</code> 的最后一道子闸（<code>lib/store.js:2496</code>）⇒ <code>passed</code> → <strong><code>closed</code></strong></td><td><span class="badge b-no">❌</span> <strong>没有</strong>。<code>passed</code> 的出边<strong>只有 <code>close</code> 一条</strong>（<code>lib/states.js:402</code>）⇒ 双确认不齐 ⇒ 停在 <code>passed</code>。★ <strong>审核已经发过 <code>review_ok</code> 了</strong>，回退边 <code>review_ng_dev</code> / <code>review_ng_test</code> 的 <code>from</code> 是 <code>reviewing</code>，不是 <code>passed</code> ⇒ <strong>也退不回去</strong></td><td><strong>没有超时</strong></td></tr>
+<tr><td><strong>⑤ 交主对话</strong>（<code>closeout</code>）</td><td><strong>它不是一个真闸门</strong>。代码注释原文（<code>lib/states.js:278</code>）：「⑤ 主对话关单并交付用户（<strong>不需要额外确认记录</strong> —— 它本身就是关单那一刻）」</td><td>⚠️ <strong>连确认记录都交不了</strong>：<code>validateStationConfirm</code> 对不在 <code>HUB_STATION_CONFIRMERS</code> 里的站点<strong>直接报错</strong>——<code>station=「closeout」不在五道站点表里。</code>（<code>lib/handoff.js:616-620</code>）</td><td>不适用</td></tr>
+</tbody></table></div>
+<h3 id="s-5-2-本表最重要的一句-五个站点里-只有第-道真的有-否掉-回边">5.2 ★★ 本表最重要的一句：<strong>五个站点里，只有第②道真的有"否掉"回边</strong><a class="anchor" href="#s-5-2-本表最重要的一句-五个站点里-只有第-道真的有-否掉-回边" aria-label="锚点">#</a></h3>
+<ul>
+<li><strong>有回边</strong>：②（<code>supervisor_reject_diagram</code>）</li>
+<li><strong>没有回边</strong>：①③④（只能靠 <code>block</code> / <code>cancel</code> 通配边逃离）</li>
+<li><strong>根本不是闸门</strong>：⑤（无确认方、确认记录都交不进去）</li>
+</ul>
+<p><strong>三条死路状态的出边数（本次实读）</strong>：<code>supervising</code> <strong>1 条</strong> · <code>ready_review</code> <strong>1 条</strong> · <code>passed</code> <strong>1 条</strong> —— 而这三条唯一的出边<strong>都依赖"确认方愿意点头"</strong>。</p>
+<hr>
+<h2 id="s-六-特殊通道">六、特殊通道<a class="anchor" href="#s-六-特殊通道" aria-label="锚点">#</a></h2>
+<h3 id="s-6-1-澄清梯-第一级-让需求分析裁定">6.1 澄清梯（第一级：让需求分析裁定）<a class="anchor" href="#s-6-1-澄清梯-第一级-让需求分析裁定" aria-label="锚点">#</a></h3>
+<ul>
+<li><strong>谁能问</strong>：<code>ROLES_CAN_ASK_CLARIFICATION</code>（<code>lib/states.js:135</code>）= <code>["architect","security","writer","tester","reviewer","release","docs","performance","arbiter","diagrammer","planner"]</code> —— <strong>11 个角色</strong>，<strong>不含 <code>main</code> / <code>orchestrator</code> / <code>human</code> / <code>supervisor</code> / <code>archivist</code></strong>。</li>
+<li><strong>谁答</strong>：<strong>只有 <code>orchestrator</code></strong>（<code>lib/states.js:551</code> 的 <code>clarification_reply: ['orchestrator']</code>）。</li>
+<li><strong>工具</strong>：<code>pipeline_clarify_request { task_id, stage, question, context_digest, blocking, urgency }</code>（<code>lib/tools.js:3961</code>）→ <code>pipeline_clarify_reply { task_id, request_id, verdict, answer, reason }</code>（<code>lib/tools.js:4042</code>）。</li>
+<li><strong><code>blocking</code> 的区别</strong>（★ 实读判据在守卫里，不在状态机）：<ul><li><code>blocking:true</code> ⇒ 状态推到 <code>awaiting_clarification</code>，但 guard <code>clarification_blocking</code> 会<strong>先检查"最近一份 <code>clarification_request</code> 的 <code>blocking</code> 是不是 true"</strong>，不是就拒（<code>NOT_BLOCKING</code>，<code>lib/store.js:2465-2467</code>）。</li><li><code>blocking:false</code> ⇒ <strong>不推状态</strong>（问完继续干活，答复在账本里等它）。此时若有人硬发 <code>clarification_request</code> 事件，会被上面那条拒。</li></ul></li>
+<li><strong>答复后</strong>：<code>clarification_reply</code> → <strong><code>(previous)</code></strong> —— 回到被打断前的状态（guard <code>clarification_reply_ok</code> 要求这条请求必须 <code>status === 'answered'</code>，<code>lib/store.js:2470-2483</code>）。</li>
+<li><strong>裁定有两种</strong>：<code>verdict = "answered"</code>（给结论）或 <code>"cannot_answer"</code>（<strong>升级理由</strong>）—— 后者是通往第二级人工介入的入口。</li>
+</ul>
+<h3 id="s-6-2-人工介入三件套">6.2 人工介入三件套<a class="anchor" href="#s-6-2-人工介入三件套" aria-label="锚点">#</a></h3>
+<div class="tw"><table>
+<thead><tr><th>步</th><th>工具</th><th>谁能用</th><th>必填参数</th></tr></thead>
+<tbody>
+<tr><td>发起</td><td><code>pipeline_human_request</code>（<code>lib/tools.js:4144</code>）</td><td><strong>除 <code>main</code> 之外的 13 个在册角色</strong>（<code>ROLES_CAN_RAISE_HUMAN</code>，<code>lib/states.js:191</code>）</td><td><code>task_id</code> / <code>reason_kind</code>（11 种，见下）/ <code>question_for_human</code> / <code>decision_kind</code> / <code>timeout_behavior</code>；<code>blocking:true</code> 时还要 <code>blocked_stage</code></td></tr>
+<tr><td>转告</td><td><code>pipeline_human_relay</code>（<code>lib/tools.js:4273</code>）</td><td><strong>只主对话</strong></td><td><code>task_id</code> + <code>request_id</code>（<strong><code>request_id</code> 留空 = 收件箱模式</strong>，列出本任务全部请求，<strong>不转告</strong>）</td></tr>
+<tr><td>答复</td><td><code>pipeline_human_reply</code>（<code>lib/tools.js:4353</code>）</td><td><strong>只主对话</strong></td><td><code>task_id</code> / <code>user_quote</code>（<code>answer_source=user</code> 时必填）/ <code>attribution</code>；<strong>按 <code>decision_kind</code> 三选一</strong>：<code>answer</code>（布尔）/ <code>chosen_option</code>（选项 label）/ <code>answer_text</code>（文本）</td></tr>
+</tbody></table></div>
+<p><strong>★ 两种（其实是四种）<code>decision_kind</code></strong>（<code>HUMAN_DECISION_KINDS</code>，<code>lib/handoff.js</code>）：</p>
+<div class="tw"><table>
+<thead><tr><th><code>decision_kind</code></th><th>中文</th><th>答复时必须给</th></tr></thead>
+<tbody>
+<tr><td><code>yes_no</code></td><td>是 / 否</td><td><strong><code>answer</code>（布尔）</strong></td></tr>
+<tr><td><code>approve_reject</code></td><td>批准 / 驳回</td><td><strong><code>answer</code>（布尔）</strong></td></tr>
+<tr><td><code>choose_option</code></td><td>从给定方案里选一个</td><td><strong><code>chosen_option</code></strong>（必须是 <code>options</code> 里某个 label；且请求侧至少给 2 个选项）</td></tr>
+<tr><td><code>free_text</code></td><td>给一段说明</td><td><strong><code>answer_text</code></strong> ← ★ <strong>实测踩过的坑</strong>：说明题不给 <code>answer_text</code> 会被拒</td></tr>
+</tbody></table></div>
+<p><strong>其它必填</strong>：<code>reason_kind</code> 11 种（打回次数用尽 / 结论冲突 / 需要审批 / 环境缺失 / 安全否决 / 需求歧义 / 需求确认 / 范围变更 / 全量测试审批 / 哈希闸门连败 / 其它）；<code>timeout_behavior</code> 3 种（<code>stay_blocked</code> / <code>proceed_with_default</code>（必须给 <code>default_option</code>）/ <code>cancel</code>）。</p>
+<p><strong>两条硬前置</strong>（守卫，<code>lib/store.js</code>）：<code>human_request_blocking</code>（要进 <code>awaiting_human</code> 必须已有 <code>human_request</code> 且 <code>blocking:true</code>，<code>:2685-2697</code>）；<code>human_reply_has_source</code>（要从 <code>awaiting_human</code> 出来必须<strong>已有这条请求</strong>且<strong>已经 <code>relay</code> 过</strong>——<code>relayed_at</code> 不能为空，<code>:2698-2713</code>）。</p>
+<h3 id="s-6-3-阻塞-解冻-认领-传话">6.3 阻塞 / 解冻 / 认领 / 传话<a class="anchor" href="#s-6-3-阻塞-解冻-认领-传话" aria-label="锚点">#</a></h3>
+<div class="tw"><table>
+<thead><tr><th>动作</th><th>工具 / 事件</th><th>什么时候用</th><th>谁能发</th><th>落点</th></tr></thead>
+<tbody>
+<tr><td><strong>阻塞</strong></td><td><code>pipeline_transition { event:"block", note }</code></td><td>人工叫停、合流挂起、机制误冻（<strong>机制自己也会发</strong>）</td><td><code>main</code> / <code>human</code></td><td><code>*</code> → <code>blocked</code>（<code>lib/states.js:427</code>）</td></tr>
+<tr><td><strong>解冻</strong></td><td><code>pipeline_transition { event:"unblock" }</code></td><td>解除阻塞</td><td><code>main</code> / <code>human</code></td><td><code>blocked</code> → <strong><code>(previous)</code></strong>（<code>:428</code>，恢复点由 <code>resolveUnblockRecovery</code> 算）</td></tr>
+<tr><td><strong>重派</strong></td><td><code>pipeline_dispatch { task_id, role, reassign:true }</code></td><td>席位没了、要换一个新的</td><td>主对话</td><td>新会话 + 新令牌；旧的立即失效（<code>succeeds</code> 继任关系）</td></tr>
+<tr><td><strong>传话（不建会话、不改状态）</strong></td><td><code>pipeline_dispatch { task_id, role, seat, notify_only:true, message / note }</code></td><td>催办 / 叫醒 / 停手；<strong>孤儿单重投也复用这一份实现</strong></td><td>主对话</td><td>内核 <code>createSeatNotifier</code>（<code>lib/tools.js:483</code>），席位侧留痕 <code>seat:wake-delivered</code> / <code>seat:wake-failed</code></td></tr>
+<tr><td><strong>认领（重启后）</strong></td><td>主对话侧：<code>pipeline_task_open { task_id, reattach:true }</code>（<strong>手动</strong>）· 席位侧：<strong>自动</strong>（<code>index.js</code> 的 A27(b) 段）</td><td>DSH 重启后令牌表（进程内存态）全空</td><td>—</td><td>★ <strong>本轮新变化</strong>：<code>lib/reattach.js</code>（548 行，<strong>2026-10-14 01:04 新建</strong>）新增了<strong>主对话侧的自动认领</strong> <code>autoReattachMain()</code>，接线在 <code>index.js:91 / :427-451</code>，判据是纯函数 <code>judgeMainClaim()</code>（要求 <code>contacts.main.agent_id</code> 与调用方会话 id <strong>逐字相等</strong>，比手动路径<strong>更严</strong>）。<strong>它没有任何真实运行痕迹</strong>（新落盘，且未重启）</td></tr>
+</tbody></table></div>
+<h3 id="s-6-4-唤醒与投递-一次交付之后谁会收到通知">6.4 唤醒与投递：一次交付之后谁会收到通知<a class="anchor" href="#s-6-4-唤醒与投递-一次交付之后谁会收到通知" aria-label="锚点">#</a></h3>
+<ul>
+<li><strong>机制 → 主对话</strong>：交付落盘后，<code>wakeup.js</code> 把"席位交付 / 状态推进 / 席位失联"变成一条面向正确收件人的消息，经宿主消息通道注入<strong>下一轮上下文</strong>（是 runtime-context，<strong>不是用户消息</strong>）。</li>
+<li><strong>机制 → 发起席</strong>（席位侧反向投递）：澄清裁定 / 人工答复落地后，<code>wakeResumedSeat</code> 去叫那个"停手等答复"的席位（<code>lib/tools.js:4408-4414</code>）；留痕 <code>seat:wake-delivered</code> / <code>seat:wake-failed</code>。</li>
+<li><strong>幂等键</strong> = 任务 + 事件类别 + 执行者 + <strong>稳定交付身份</strong>；取不到稳定身份时<strong>不播报</strong>（留痕 <code>wake:skipped</code>），<strong>绝不用递增计数器代替</strong>。</li>
+<li><strong>"叫不醒"时会怎样</strong>（三条，都在代码里）：<ul><li><strong>报出看得见的失败</strong> —— 失败原文照原样拼进工具返回的 <code>summary</code>，并给等价可达路径；</li><li><strong>不静默降级</strong> —— 例如预登记投不出去时，返回里直接写「等价可达路径是主对话用 <code>pipeline_dispatch { notify_only: true, role: "tester", message: … }</code> 手动转达」（<code>lib/tools.js:2439-2440</code>）；</li><li><strong>升级叫醒</strong> —— <code>wake:escalated</code>（未被消费的投递不得永久静默）；巡检那条 <code>patrol:unconsumed</code> 也会把它广播出来。</li></ul></li>
+</ul>
+<hr>
+<h2 id="s-七-主路径的-账本痕迹-真实序列-从-t-20261012-8cdee0-实读">七、主路径的<strong>账本痕迹</strong>（真实序列，从 <code>T-20261012-8cdee0</code> 实读）<a class="anchor" href="#s-七-主路径的-账本痕迹-真实序列-从-t-20261012-8cdee0-实读" aria-label="锚点">#</a></h2>
+<p><strong>这张单不是枢纽任务</strong>（全程没有 <code>supervisor_initiate</code> / 没有 <code>station_confirm</code>），所以它演示的是<strong>既有链</strong>的完整走路。145 行里挑出主路径（带时间戳与 <code>handoff_id</code>）：</p>
+<pre class="map" data-lang=""><code>[建单]
+  1 2026-10-12T15:33:07Z  open                            actor=main
+  3 2026-10-12T15:33:15Z  transition:dispatch_orchestrator actor=main          (pending→analyzing)
+
+[需求分析 + 4 轮人工确认]
+  7 2026-10-12T15:36:33Z  handoff:requirement_analysis    actor=orchestrator  h=H-88ff0a1c40c61dc9
+  9 2026-10-12T15:37:07Z  handoff:human_request           actor=orchestrator  h=H-47d3637b41168c20
+ 10 2026-10-12T15:37:07Z  human:request                   actor=orchestrator  h=H-47d3637b41168c20
+ 11 2026-10-12T15:37:07Z  transition:human_request        actor=orchestrator  (analyzing→awaiting_human)
+ 13 2026-10-12T15:37:10Z  human:relay                     actor=main
+ 14 2026-10-12T15:38:24Z  human:reply                     actor=main
+ 15 2026-10-12T15:38:24Z  transition:human_reply          actor=main          (awaiting_human→analyzing)
+ 16 2026-10-12T15:38:24Z  human:resume                    actor=main          (awaiting_human→analyzing)
+  …（15:39–15:57 又来了 3 轮：requirement_analysis → human_request → relay → reply → 回到 analyzing）
+
+[跨重启]
+ 56 2026-10-13T09:50:11Z  reattach                        actor=main
+ 58 2026-10-13T10:04:09Z  transition:block                actor=main          (analyzing→blocked)
+ 60 2026-10-13T10:04:32Z  transition:unblock              actor=main          (blocked→analyzing)
+
+[需求确认 → 计划]
+ 62 2026-10-13T10:07:16Z  handoff:requirement_analysis    actor=orchestrator  h=H-163e655e60d9e0aa
+ 64 2026-10-13T10:07:30Z  transition:requirement_confirmed actor=main         (analyzing→ready_plan)
+ 65 2026-10-13T10:07:44Z  transition:dispatch_planner     actor=main          (ready_plan→planning)
+ 67 2026-10-13T10:12:39Z  handoff:plan                    actor=planner       h=H-103776cfa351608e
+ 68 2026-10-13T10:13:38Z  handoff:plan                    actor=planner       h=H-8e8119a536e6c6fa
+ 69 2026-10-13T10:14:59Z  handoff:plan                    actor=planner       h=H-0a84116847180391
+ 71 2026-10-13T10:14:59Z  transition:planned              actor=planner       (planning→ready_dev)
+ 73 2026-10-13T10:15:05Z  baseline:take                   actor=planner
+ 75 2026-10-13T10:28:33Z  record:compile                  actor=archivist
+
+[编写 v1]
+ 76 2026-10-13T10:29:42Z  transition:dispatch_writer      actor=main          (ready_dev→developing)
+ 78 2026-10-13T10:31:33Z  handoff:clarification_request   actor=writer        h=H-3a0ef6c78ee90b3d
+ 80 2026-10-13T10:31:33Z  transition:clarification_request actor=writer       (developing→awaiting_clarification)
+ 83 2026-10-13T10:34:51Z  clarify:reply                   actor=orchestrator
+ 84 2026-10-13T10:34:51Z  transition:clarification_reply  actor=orchestrator  (awaiting_clarification→developing)
+ 90 2026-10-13T10:55:56Z  artifact:register               actor=writer        （制品 v1）
+ 94 2026-10-13T10:56:17Z  handoff:dev_to_test             actor=writer        h=H-697315034e016459 av=v1
+ 95 2026-10-13T10:56:17Z  seat:submit                     actor=writer        h=H-697315034e016459
+ 96 2026-10-13T10:56:17Z  transition:dev_submitted        actor=writer        (developing→ready_test)
+ 98 2026-10-13T10:56:29Z  transition:dispatch_tester      actor=main          (ready_test→testing)
+
+[★ 打回一次：测试打回编写]
+103 2026-10-13T11:08:49Z  handoff:test_to_dev             actor=tester        h=H-1a2bdf9874450791 av=v1
+104 2026-10-13T11:08:49Z  transition:test_failed          actor=tester        (testing→returned_to_dev)
+107 2026-10-13T11:09:03Z  transition:dispatch_writer      actor=main          (returned_to_dev→developing)
+
+[编写 v2 → 测试通过]
+110 2026-10-13T11:21:17Z  artifact:register               actor=writer        （制品 v2）
+116 2026-10-13T11:22:13Z  handoff:dev_to_test             actor=writer        h=H-315f1310aa5b70b5 av=v2
+118 2026-10-13T11:22:13Z  transition:dev_submitted        actor=writer        (developing→ready_test)
+121 2026-10-13T11:22:32Z  transition:dispatch_tester      actor=main          (ready_test→testing)
+126 2026-10-13T11:34:43Z  handoff:test_to_review          actor=tester        h=H-17c1fbedb7092e13 av=v2
+127 2026-10-13T11:34:43Z  transition:test_passed          actor=tester        (testing→ready_review)
+
+[审核]
+129 2026-10-13T11:34:55Z  transition:dispatch_reviewer    actor=main          (ready_review→reviewing)
+133 2026-10-13T11:38:24Z  handoff:review_verdict          actor=reviewer      h=H-4aefdb680f839fb9 av=v2
+134 2026-10-13T11:38:24Z  transition:review_ok            actor=reviewer      (reviewing→passed)
+
+[架构图 + 关单]
+140 2026-10-13T11:47:17Z  handoff:architecture_diagram    actor=diagrammer    h=H-dd74a3d7218630e0
+145 2026-10-13T11:48:54Z  transition:close                actor=main          (passed→closed)</code></pre>
+<p><strong>这张单还顺带演示了两件事</strong>：① <strong>8 次 <code>transition:block</code> + 8 次 <code>unblock</code></strong> 全部由 <code>main</code> 发（机制误冻 → 主对话逐次解除）；② <strong><code>transition:*</code> 是唯一能看出"状态怎么走"的 action</strong> —— <code>handoff:*</code> 只说"交了什么"，<code>transition:*</code> 才说"走到哪"。</p>
+<p><strong>★ 照着 grep 自己那单走到哪了</strong>：</p>
+<pre class="code" data-lang="powershell"><code>$T = "&lt;DSH_HOME&gt;\profiles\desktop\.pipeline\&lt;单号&gt;"
+# ① 状态怎么走的（只追加，一行一个事件）
+Select-String -Path "$T\audit.jsonl" -Pattern 'transition:' | ForEach-Object { $_.Line }
+# ② 交了什么、交给谁
+Get-ChildItem "$T\handoffs" | Select-Object Name,Length
+# ③ 现在停在哪、钱花到哪
+(Get-Content "$T\task.json" -Raw | ConvertFrom-Json) | Select-Object state,previous_state,artifact_version_counter,rework</code></pre>
+<p><strong>★ "尚无真实痕迹"的清单（账本 11 张单、907 行、最晚 <code>2026-10-13T15:24:59Z</code>）</strong>：</p>
+<ul>
+<li><strong>枢纽整条链 9 个串全部 0 命中</strong>：<code>supervisor_initiate</code> / <code>need_to_supervisor</code> / <code>supervisor_agree_need</code> / <code>supervisor_confirm_diagram</code> / <code>pipeline_supervise</code> / <code>station_confirm</code> / <code>prebrief</code> / <code>diagram_rework</code> / <code>hub</code>。</li>
+<li><strong>25 种 kind 里只有 12 种在账本里出现过</strong>（<code>requirement_analysis</code> 18 · <code>human_request</code> 28 · <code>plan</code> 24 · <code>orchestration</code> 6 · <code>design</code> 5 · <code>clarification_request</code> 23 · <code>dev_to_test</code> 5 · <code>security_review</code> 1 · <code>test_to_dev</code> 2 · <code>test_to_review</code> 1 · <code>review_verdict</code> 1 · <code>architecture_diagram</code> 1）。</li>
+<li><strong>从未出现过的 13 种</strong>：<code>dispatch</code> · <code>station_confirm</code> · <code>prebrief</code> · <code>diagram_rework</code> · <code>release_plan</code> · <code>docs_note</code> · <code>perf_report</code> · <code>arbitration</code> · <code>human_note</code> · <code>seat_handover</code> · <code>clarification_reply</code> · <code>full_test_request</code> · <code>full_test_review</code>。</li>
+<li>⇒ <strong>"代码里有"与"真跑过"在这张表上差得很远</strong>；上面 §一–§六 写的路径，<strong>枢纽相关的那几条一条都没有真实痕迹</strong>。</li>
+</ul>
+<hr>
+<h2 id="s-八-附-怎么自己复核这份表">八、附：怎么自己复核这份表<a class="anchor" href="#s-八-附-怎么自己复核这份表" aria-label="锚点">#</a></h2>
+<pre class="code" data-lang="powershell"><code>$P = "&lt;DSH_HOME&gt;\profiles\desktop\node_modules\dsh-pipeline"
+
+# ① 25 种交接物 kind 与它们的方向
+node -e "import('file:///&lt;DSH_HOME&gt;/profiles/desktop/node_modules/dsh-pipeline/lib/handoff.js').then(m=&gt;{for(const[k,v]of Object.entries(m.HANDOFF_SCHEMAS))console.log(k,'|',v.zh,'| from=',JSON.stringify(v.from),'| to=',v.to)})"
+# ② 守门层的方向表（与上面必须逐字一致）
+Select-String -Path "$P\lib\guard.js" -Pattern 'HANDOFF_DIRECTION' -Context 0,40
+# ③ 全部状态与全部转移
+node -e "import('file:///&lt;DSH_HOME&gt;/profiles/desktop/node_modules/dsh-pipeline/lib/states.js').then(m=&gt;{console.log('状态',Object.keys(m.ST).length,'转移',m.TRANSITIONS.length);m.TRANSITIONS.forEach(t=&gt;console.log(t.from,'--'+t.event+'--&gt;',t.to,'by='+JSON.stringify(t.by),'guard='+t.guard))})"
+# ④ 五道站点与它们的确认方（★ 注意 5 项 vs 4 项）
+node -e "import('file:///&lt;DSH_HOME&gt;/profiles/desktop/node_modules/dsh-pipeline/lib/states.js').then(m=&gt;{console.log('STATIONS',JSON.stringify(m.HUB_STATIONS));console.log('CONFIRMERS',JSON.stringify(m.HUB_STATION_CONFIRMERS));console.log('重画预算',m.HUB_DIAGRAM_REDRAW_BUDGET)})"
+# ⑤ 主管的 6 个 action（★ 注意这里没有 reject_need）
+Select-String -Path "$P\lib\tools.js" -Pattern "enum: \['initiate'" -Context 2,2
+# ⑥ 全部守卫名
+node -e "const s=require('fs').readFileSync('&lt;DSH_HOME&gt;/profiles/desktop/node_modules/dsh-pipeline/lib/store.js','utf8');console.log([...s.matchAll(/case '([a-z_]+)':/g)].map(m=&gt;m[1]).join('\n'))"
+# ⑦ 账本：枢纽到底跑过没有
+Select-String -Path "&lt;DSH_HOME&gt;\profiles\desktop\.pipeline\*\audit.jsonl" -Pattern 'supervisor_initiate|station_confirm|pipeline_supervise' | Measure-Object
+# ⑧ 跑测试（只读，临时目录）
+cd $P; node tests/gate-states-check.mjs        # 期望 55/55（覆盖"发起面只认主管 / 主管两站 / 两次确认"）
+cd $P; node tests/dispatch-channel-check.mjs   # 期望 47/47（覆盖"main 代发被拒 / 主管发起且待机可读回 / 架构图重画"）
+cd $P; node tests/supervisor-check.mjs         # 期望 21/21（★ 未注册进 run-all，跑不跑由你）</code></pre>
+<p><strong>要读的账本字段</strong>：</p>
+<div class="tw"><table>
+<thead><tr><th>想验的事</th><th>读哪</th><th>字段 / 行</th></tr></thead>
+<tbody>
+<tr><td>现在走到哪</td><td><code>.pipeline\&lt;单号&gt;\task.json</code></td><td><code>state</code> / <code>previous_state</code></td></tr>
+<tr><td>每一步怎么走的</td><td><code>&lt;单号&gt;\audit.jsonl</code></td><td><code>action = "transition:&lt;事件名&gt;"</code>，<code>from</code> / <code>to</code></td></tr>
+<tr><td>交了什么</td><td><code>&lt;单号&gt;\handoffs\NNN-&lt;kind&gt;.json</code></td><td>文件名里的 kind + <code>payload</code></td></tr>
+<tr><td>制品版本</td><td><code>&lt;单号&gt;\task.json</code></td><td><code>artifact_version_counter</code> / <code>handoffs[].artifact_version</code></td></tr>
+<tr><td>打回计数</td><td><code>&lt;单号&gt;\task.json</code></td><td><code>rework.dev</code> / <code>rework.test</code>（对 <code>roster.rework_budget</code>）</td></tr>
+<tr><td>重画计数</td><td><code>&lt;单号&gt;\task.json</code></td><td><code>hub.diagram_redraws</code>（对 <code>HUB_DIAGRAM_REDRAW_BUDGET = 1</code>）</td></tr>
+<tr><td>站点确认齐没齐</td><td><code>&lt;单号&gt;\task.json</code></td><td><code>handoffs[]</code> 里 <code>kind === 'station_confirm'</code> 的 <code>payload.station</code> / <code>decision</code> / <code>artifact_version</code></td></tr>
+<tr><td>待机名册</td><td><code>&lt;单号&gt;\task.json</code></td><td><code>hub.standby[]</code>（<code>role</code> / <code>wake_point</code> / <code>status</code>）</td></tr>
+</tbody></table></div>
+<p><strong>本文没有做的事</strong>（如实标注）：没有改插件、没有改 <code>.pipeline\</code>、没有改任何其它报告与文档；没有重启 DSH（因此<strong>没有做活体验证</strong>）；<code>lib/reattach.js</code> 是<strong>本轮之前几分钟刚落盘的新模块</strong>（<code>2026-10-14 01:04</code>），我<strong>只读了源码</strong>，它<strong>没有任何运行痕迹</strong>。</p>
+<footer>提交与打回机制总表 · 快照 2026-10-14（本地 UTC+8）· 单文件，外链 0</footer>
+</main>
+</body>
+</html>

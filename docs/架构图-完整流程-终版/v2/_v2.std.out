@@ -1,0 +1,1093 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "validate",
+  "type": "workflow",
+  "input": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\v2\\main-path-v2.workflow.json",
+  "candidate": {
+    "path": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\v2\\main-path-v2.workflow.json",
+    "sha256": "20c688c39001685e3804c450078e670047fe68f1f1caf3cbde4ee65822cdff08",
+    "bytes": 25098
+  },
+  "candidateFrozen": true,
+  "nextAction": {
+    "command": "finalize",
+    "arguments": [
+      "workflow",
+      "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\v2\\main-path-v2.workflow.json",
+      "<output.html>",
+      "--quality",
+      "standard",
+      "--candidate-sha256",
+      "20c688c39001685e3804c450078e670047fe68f1f1caf3cbde4ee65822cdff08",
+      "--json"
+    ]
+  },
+  "checks": [
+    {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+        "found 1 <svg> block(s)"
+      ]
+    },
+    {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+    },
+    {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+    },
+    {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+    },
+    {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": [
+        "[composition/proper-crossing] standard relationship id \"e_dispatch_orchestrator\" (\"n_supervision\" -> \"n_requirement\") crosses relationship id \"ex_30_n_closeout_x_block\" (\"n_closeout\" -> \"x_block\") at [20, 868]",
+        "[composition/proper-crossing] standard relationship id \"e_rework\" (\"n_test\" -> \"x_ret_dev\") crosses relationship id \"ex_32_x_ret_test_x_block\" (\"x_ret_test\" -> \"x_block\") at [1101, 868]",
+        "[composition/proper-crossing] standard relationship id \"ex_22_n_supervision_x_ret_need\" (\"n_supervision\" -> \"x_ret_need\") crosses relationship id \"ex_35_x_ret_review_x_block\" (\"x_ret_review\" -> \"x_block\") at [309.2, 688]",
+        "[composition/proper-crossing] standard relationship id \"ex_23_n_supervision_x_ret_arch\" (\"n_supervision\" -> \"x_ret_arch\") crosses relationship id \"ex_35_x_ret_review_x_block\" (\"x_ret_review\" -> \"x_block\") at [692.4, 688]",
+        "[composition/proper-crossing] standard relationship id \"ex_25_n_supervision_x_ret_review\" (\"n_supervision\" -> \"x_ret_review\") crosses relationship id \"ex_34_x_ret_arch_x_block\" (\"x_ret_arch\" -> \"x_block\") at [605, 738]",
+        "[composition/proper-crossing] standard relationship id \"ex_25_n_supervision_x_ret_review\" (\"n_supervision\" -> \"x_ret_review\") crosses relationship id \"ex_35_x_ret_review_x_block\" (\"x_ret_review\" -> \"x_block\") at [605, 688]",
+        "[composition/proper-crossing] standard relationship id \"ex_26_n_review_x_ret_dev\" (\"n_review\" -> \"x_ret_dev\") crosses relationship id \"ex_32_x_ret_test_x_block\" (\"x_ret_test\" -> \"x_block\") at [1101, 868]",
+        "[composition/proper-crossing] standard relationship id \"ex_27_n_review_x_ret_test\" (\"n_review\" -> \"x_ret_test\") crosses relationship id \"ex_31_x_ret_dev_x_block\" (\"x_ret_dev\" -> \"x_block\") at [1016.8, 868]",
+        "[composition/proper-crossing] standard relationship id \"ex_27_n_review_x_ret_test\" (\"n_review\" -> \"x_ret_test\") crosses relationship id \"ex_32_x_ret_test_x_block\" (\"x_ret_test\" -> \"x_block\") at [1016.8, 868]",
+        "[composition/proper-crossing] standard relationship id \"ex_28_n_execution_x_clarify\" (\"n_execution\" -> \"x_clarify\") crosses relationship id \"ex_31_x_ret_dev_x_block\" (\"x_ret_dev\" -> \"x_block\") at [888.8, 868]",
+        "[composition/proper-crossing] standard relationship id \"ex_28_n_execution_x_clarify\" (\"n_execution\" -> \"x_clarify\") crosses relationship id \"ex_32_x_ret_test_x_block\" (\"x_ret_test\" -> \"x_block\") at [888.8, 868]"
+      ]
+    },
+    {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": [
+        "[composition/ambiguous-corridor] standard relationship id \"e_requirement_confirmed\" (\"n_requirement\" -> \"n_planning\") shares a 191.6px corridor with relationship id \"e_wake_seat\" (\"n_hostmsg\" -> \"n_execution\") at [309.2, 995] -> [500.8, 995]",
+        "[composition/ambiguous-corridor] standard relationship id \"e_rework\" (\"n_test\" -> \"x_ret_dev\") shares a 80px corridor with relationship id \"ex_24_n_supervision_x_ret_test\" (\"n_supervision\" -> \"x_ret_test\") at [1101, 738] -> [1101, 818]",
+        "[composition/ambiguous-corridor] standard relationship id \"e_rework\" (\"n_test\" -> \"x_ret_dev\") shares a 392px corridor with relationship id \"ex_26_n_review_x_ret_dev\" (\"n_review\" -> \"x_ret_dev\") at [1101, 752] -> [1101, 1144]",
+        "[composition/ambiguous-corridor] standard relationship id \"e_rework\" (\"n_test\" -> \"x_ret_dev\") shares a 244px corridor with relationship id \"ex_27_n_review_x_ret_test\" (\"n_review\" -> \"x_ret_test\") at [1101, 900] -> [1101, 1144]",
+        "[composition/ambiguous-corridor] standard relationship id \"e_rework\" (\"n_test\" -> \"x_ret_dev\") shares a 130px corridor with relationship id \"ex_31_x_ret_dev_x_block\" (\"x_ret_dev\" -> \"x_block\") at [1101, 738] -> [1101, 868]",
+        "[composition/ambiguous-corridor] standard relationship id \"e_wake_seat\" (\"n_hostmsg\" -> \"n_execution\") shares a 127px corridor with relationship id \"ex_30_n_closeout_x_block\" (\"n_closeout\" -> \"x_block\") at [4, 868] -> [4, 995]",
+        "[composition/ambiguous-corridor] standard relationship id \"ex_24_n_supervision_x_ret_test\" (\"n_supervision\" -> \"x_ret_test\") shares a 66px corridor with relationship id \"ex_26_n_review_x_ret_dev\" (\"n_review\" -> \"x_ret_dev\") at [1101, 752] -> [1101, 818]",
+        "[composition/ambiguous-corridor] standard relationship id \"ex_24_n_supervision_x_ret_test\" (\"n_supervision\" -> \"x_ret_test\") shares a 94px corridor with relationship id \"ex_31_x_ret_dev_x_block\" (\"x_ret_dev\" -> \"x_block\") at [1101, 724] -> [1101, 818]",
+        "[composition/ambiguous-corridor] standard relationship id \"ex_26_n_review_x_ret_dev\" (\"n_review\" -> \"x_ret_dev\") shares a 317px corridor with relationship id \"ex_27_n_review_x_ret_test\" (\"n_review\" -> \"x_ret_test\") at [1101, 900] -> [1101, 1217]",
+        "[composition/ambiguous-corridor] standard relationship id \"ex_26_n_review_x_ret_dev\" (\"n_review\" -> \"x_ret_dev\") shares a 116px corridor with relationship id \"ex_31_x_ret_dev_x_block\" (\"x_ret_dev\" -> \"x_block\") at [1101, 752] -> [1101, 868]",
+        "[composition/ambiguous-corridor] standard relationship id \"ex_29_x_clarify_n_requirement\" (\"x_clarify\" -> \"n_requirement\") shares a 49px corridor with relationship id \"ex_30_n_closeout_x_block\" (\"n_closeout\" -> \"x_block\") at [52, 868] -> [101, 868]",
+        "[composition/ambiguous-corridor] standard relationship id \"ex_29_x_clarify_n_requirement\" (\"x_clarify\" -> \"n_requirement\") shares a 385.8px corridor with relationship id \"ex_31_x_ret_dev_x_block\" (\"x_ret_dev\" -> \"x_block\") at [115, 868] -> [500.8, 868]",
+        "[composition/ambiguous-corridor] standard relationship id \"ex_29_x_clarify_n_requirement\" (\"x_clarify\" -> \"n_requirement\") shares a 368.8px corridor with relationship id \"ex_32_x_ret_test_x_block\" (\"x_ret_test\" -> \"x_block\") at [132, 868] -> [500.8, 868]",
+        "[composition/ambiguous-corridor] standard relationship id \"ex_31_x_ret_dev_x_block\" (\"x_ret_dev\" -> \"x_block\") shares a 969px corridor with relationship id \"ex_32_x_ret_test_x_block\" (\"x_ret_test\" -> \"x_block\") at [132, 868] -> [1101, 868]"
+      ]
+    },
+    {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+    },
+    {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+    },
+    {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+    }
+  ],
+  "composition": {
+    "schemaVersion": 1,
+    "profile": "standard",
+    "status": "pass",
+    "summary": {
+      "errors": 0,
+      "warnings": 26
+    },
+    "metrics": {
+      "properCrossings": 11,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 14,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 6,
+      "desktopReadabilityIssues": 1,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 5.5784716516023005,
+      "maxBends": 4,
+      "routesOverSuggestedBends": 10,
+      "maxStretch": 21.57,
+      "routesOverSuggestedStretch": 7,
+      "minSegmentPx": 12,
+      "minInteriorSegmentPx": 62,
+      "shortSegmentCount": 1,
+      "shortEndpointSegmentCount": 1,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+    },
+    "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+    },
+    "routeReview": {
+      "crossings": [],
+      "detours": [
+        {
+          "relationship": {
+            "id": "e_d_reattach",
+            "from": "n_reattach",
+            "to": "n_hostmsg",
+            "label": "认不出 ⇒ 留痕",
+            "collectionIndex": 4,
+            "artifactIndex": 5
+          },
+          "bends": 2,
+          "stretch": 4.821
+        },
+        {
+          "relationship": {
+            "id": "e_dispatch_orchestrator",
+            "from": "n_supervision",
+            "to": "n_requirement",
+            "label": "答不了 ⇒ 升级用户",
+            "collectionIndex": 6,
+            "artifactIndex": 7
+          },
+          "bends": 2,
+          "stretch": 2.198,
+          "directCorridorBlockers": [
+            {
+              "id": "x_ret_need",
+              "label": "退回需求补析",
+              "box": [
+                249.2,
+                704,
+                120,
+                68
+              ]
+            }
+          ]
+        },
+        {
+          "relationship": {
+            "id": "e_test_to_review",
+            "from": "n_test",
+            "to": "n_review",
+            "label": "审核不过 ⇒ 退回",
+            "collectionIndex": 19,
+            "artifactIndex": 20
+          },
+          "bends": 2,
+          "stretch": 21.57
+        },
+        {
+          "relationship": {
+            "id": "e_wake_main",
+            "from": "n_wakeup",
+            "to": "n_intake",
+            "label": "叫不醒 ⇒ 转孤儿单",
+            "collectionIndex": 20,
+            "artifactIndex": 21
+          },
+          "bends": 3,
+          "stretch": 1.147
+        },
+        {
+          "relationship": {
+            "id": "e_wake_seat",
+            "from": "n_hostmsg",
+            "to": "n_execution",
+            "label": "投不进 ⇒ 判失联",
+            "collectionIndex": 21,
+            "artifactIndex": 22
+          },
+          "bends": 4,
+          "stretch": 3.193,
+          "directCorridorBlockers": [
+            {
+              "id": "n_reattach",
+              "label": "重启认领",
+              "box": [
+                842.8,
+                246,
+                92,
+                68
+              ]
+            },
+            {
+              "id": "x_ret_review",
+              "label": "退回审核重审",
+              "box": [
+                828.8,
+                704,
+                120,
+                68
+              ]
+            }
+          ]
+        },
+        {
+          "relationship": {
+            "id": "ex_24_n_supervision_x_ret_test",
+            "from": "n_supervision",
+            "to": "x_ret_test",
+            "label": "③否掉 ⇒ 退回重跑",
+            "collectionIndex": 24,
+            "artifactIndex": 25
+          },
+          "bends": 3,
+          "stretch": 1.075
+        },
+        {
+          "relationship": {
+            "id": "ex_25_n_supervision_x_ret_review",
+            "from": "n_supervision",
+            "to": "x_ret_review",
+            "label": "④否掉 ⇒ 退回重审",
+            "collectionIndex": 25,
+            "artifactIndex": 26
+          },
+          "bends": 4,
+          "stretch": 1.041
+        },
+        {
+          "relationship": {
+            "id": "ex_27_n_review_x_ret_test",
+            "from": "n_review",
+            "to": "x_ret_test",
+            "label": "审核 NG ⇒ 打回测试",
+            "collectionIndex": 27,
+            "artifactIndex": 28
+          },
+          "bends": 4,
+          "stretch": 1.379
+        },
+        {
+          "relationship": {
+            "id": "ex_29_x_clarify_n_requirement",
+            "from": "x_clarify",
+            "to": "n_requirement",
+            "label": "裁定 ⇒ 投回原席",
+            "collectionIndex": 29,
+            "artifactIndex": 30
+          },
+          "bends": 3,
+          "stretch": 2.326
+        },
+        {
+          "relationship": {
+            "id": "ex_30_n_closeout_x_block",
+            "from": "n_closeout",
+            "to": "x_block",
+            "label": "无 OK 关单被拒",
+            "collectionIndex": 30,
+            "artifactIndex": 31
+          },
+          "bends": 3,
+          "stretch": 1.13
+        },
+        {
+          "relationship": {
+            "id": "ex_31_x_ret_dev_x_block",
+            "from": "x_ret_dev",
+            "to": "x_block",
+            "label": "再打回 ⇒ 超限",
+            "collectionIndex": 31,
+            "artifactIndex": 32
+          },
+          "bends": 3,
+          "stretch": 1.074
+        },
+        {
+          "relationship": {
+            "id": "ex_32_x_ret_test_x_block",
+            "from": "x_ret_test",
+            "to": "x_block",
+            "label": "也计预算",
+            "collectionIndex": 32,
+            "artifactIndex": 33
+          },
+          "bends": 3,
+          "stretch": 1.419,
+          "directCorridorBlockers": [
+            {
+              "id": "x_clarify",
+              "label": "澄清停等",
+              "box": [
+                440.79999999999995,
+                784,
+                120,
+                68
+              ]
+            }
+          ]
+        },
+        {
+          "relationship": {
+            "id": "ex_35_x_ret_review_x_block",
+            "from": "x_ret_review",
+            "to": "x_block",
+            "label": "站点否掉限 1 次",
+            "collectionIndex": 35,
+            "artifactIndex": 36
+          },
+          "bends": 3,
+          "stretch": 1.059
+        }
+      ]
+    },
+    "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+    },
+    "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": false,
+      "minimumOwner": {
+        "kind": "node",
+        "id": "n_intake"
+      },
+      "minimumSourceTextPx": 7.3,
+      "minimumProjectedTextPx": 5.5784716516023005,
+      "semanticTextCount": 92
+    },
+    "issues": [
+      {
+        "severity": "warning",
+        "code": "composition/proper-crossing",
+        "relationship": {
+          "id": "e_dispatch_orchestrator",
+          "from": "n_supervision",
+          "to": "n_requirement",
+          "label": "答不了 ⇒ 升级用户",
+          "collectionIndex": 6,
+          "artifactIndex": 7
+        },
+        "otherRelationship": {
+          "id": "ex_30_n_closeout_x_block",
+          "from": "n_closeout",
+          "to": "x_block",
+          "label": "无 OK 关单被拒",
+          "collectionIndex": 30,
+          "artifactIndex": 31
+        },
+        "point": [
+          20,
+          868
+        ]
+      },
+      {
+        "severity": "warning",
+        "code": "composition/proper-crossing",
+        "relationship": {
+          "id": "e_rework",
+          "from": "n_test",
+          "to": "x_ret_dev",
+          "label": "测试不过 ⇒ 打回编写",
+          "collectionIndex": 17,
+          "artifactIndex": 18
+        },
+        "otherRelationship": {
+          "id": "ex_32_x_ret_test_x_block",
+          "from": "x_ret_test",
+          "to": "x_block",
+          "label": "也计预算",
+          "collectionIndex": 32,
+          "artifactIndex": 33
+        },
+        "point": [
+          1101,
+          868
+        ]
+      },
+      {
+        "severity": "warning",
+        "code": "composition/proper-crossing",
+        "relationship": {
+          "id": "ex_22_n_supervision_x_ret_need",
+          "from": "n_supervision",
+          "to": "x_ret_need",
+          "label": "①否掉 ⇒ 退回补析",
+          "collectionIndex": 22,
+          "artifactIndex": 23
+        },
+        "otherRelationship": {
+          "id": "ex_35_x_ret_review_x_block",
+          "from": "x_ret_review",
+          "to": "x_block",
+          "label": "站点否掉限 1 次",
+          "collectionIndex": 35,
+          "artifactIndex": 36
+        },
+        "point": [
+          309.2,
+          688
+        ]
+      },
+      {
+        "severity": "warning",
+        "code": "composition/proper-crossing",
+        "relationship": {
+          "id": "ex_23_n_supervision_x_ret_arch",
+          "from": "n_supervision",
+          "to": "x_ret_arch",
+          "label": "②否掉 ⇒ 退回重画",
+          "collectionIndex": 23,
+          "artifactIndex": 24
+        },
+        "otherRelationship": {
+          "id": "ex_35_x_ret_review_x_block",
+          "from": "x_ret_review",
+          "to": "x_block",
+          "label": "站点否掉限 1 次",
+          "collectionIndex": 35,
+          "artifactIndex": 36
+        },
+        "point": [
+          692.4,
+          688
+        ]
+      },
+      {
+        "severity": "warning",
+        "code": "composition/proper-crossing",
+        "relationship": {
+          "id": "ex_25_n_supervision_x_ret_review",
+          "from": "n_supervision",
+          "to": "x_ret_review",
+          "label": "④否掉 ⇒ 退回重审",
+          "collectionIndex": 25,
+          "artifactIndex": 26
+        },
+        "otherRelationship": {
+          "id": "ex_34_x_ret_arch_x_block",
+          "from": "x_ret_arch",
+          "to": "x_block",
+          "label": "重画限 1 次",
+          "collectionIndex": 34,
+          "artifactIndex": 35
+        },
+        "point": [
+          605,
+          738
+        ]
+      },
+      {
+        "severity": "warning",
+        "code": "composition/proper-crossing",
+        "relationship": {
+          "id": "ex_25_n_supervision_x_ret_review",
+          "from": "n_supervision",
+          "to": "x_ret_review",
+          "label": "④否掉 ⇒ 退回重审",
+          "collectionIndex": 25,
+          "artifactIndex": 26
+        },
+        "otherRelationship": {
+          "id": "ex_35_x_ret_review_x_block",
+          "from": "x_ret_review",
+          "to": "x_block",
+          "label": "站点否掉限 1 次",
+          "collectionIndex": 35,
+          "artifactIndex": 36
+        },
+        "point": [
+          605,
+          688
+        ]
+      },
+      {
+        "severity": "warning",
+        "code": "composition/proper-crossing",
+        "relationship": {
+          "id": "ex_26_n_review_x_ret_dev",
+          "from": "n_review",
+          "to": "x_ret_dev",
+          "label": "审核 NG ⇒ 打回编写",
+          "collectionIndex": 26,
+          "artifactIndex": 27
+        },
+        "otherRelationship": {
+          "id": "ex_32_x_ret_test_x_block",
+          "from": "x_ret_test",
+          "to": "x_block",
+          "label": "也计预算",
+          "collectionIndex": 32,
+          "artifactIndex": 33
+        },
+        "point": [
+          1101,
+          868
+        ]
+      },
+      {
+        "severity": "warning",
+        "code": "composition/proper-crossing",
+        "relationship": {
+          "id": "ex_27_n_review_x_ret_test",
+          "from": "n_review",
+          "to": "x_ret_test",
+          "label": "审核 NG ⇒ 打回测试",
+          "collectionIndex": 27,
+          "artifactIndex": 28
+        },
+        "otherRelationship": {
+          "id": "ex_31_x_ret_dev_x_block",
+          "from": "x_ret_dev",
+          "to": "x_block",
+          "label": "再打回 ⇒ 超限",
+          "collectionIndex": 31,
+          "artifactIndex": 32
+        },
+        "point": [
+          1016.8,
+          868
+        ]
+      },
+      {
+        "severity": "warning",
+        "code": "composition/proper-crossing",
+        "relationship": {
+          "id": "ex_27_n_review_x_ret_test",
+          "from": "n_review",
+          "to": "x_ret_test",
+          "label": "审核 NG ⇒ 打回测试",
+          "collectionIndex": 27,
+          "artifactIndex": 28
+        },
+        "otherRelationship": {
+          "id": "ex_32_x_ret_test_x_block",
+          "from": "x_ret_test",
+          "to": "x_block",
+          "label": "也计预算",
+          "collectionIndex": 32,
+          "artifactIndex": 33
+        },
+        "point": [
+          1016.8,
+          868
+        ]
+      },
+      {
+        "severity": "warning",
+        "code": "composition/proper-crossing",
+        "relationship": {
+          "id": "ex_28_n_execution_x_clarify",
+          "from": "n_execution",
+          "to": "x_clarify",
+          "label": "澄清 ⇒ 发起席停等",
+          "collectionIndex": 28,
+          "artifactIndex": 29
+        },
+        "otherRelationship": {
+          "id": "ex_31_x_ret_dev_x_block",
+          "from": "x_ret_dev",
+          "to": "x_block",
+          "label": "再打回 ⇒ 超限",
+          "collectionIndex": 31,
+          "artifactIndex": 32
+        },
+        "point": [
+          888.8,
+          868
+        ]
+      },
+      {
+        "severity": "warning",
+        "code": "composition/proper-crossing",
+        "relationship": {
+          "id": "ex_28_n_execution_x_clarify",
+          "from": "n_execution",
+          "to": "x_clarify",
+          "label": "澄清 ⇒ 发起席停等",
+          "collectionIndex": 28,
+          "artifactIndex": 29
+        },
+        "otherRelationship": {
+          "id": "ex_32_x_ret_test_x_block",
+          "from": "x_ret_test",
+          "to": "x_block",
+          "label": "也计预算",
+          "collectionIndex": 32,
+          "artifactIndex": 33
+        },
+        "point": [
+          888.8,
+          868
+        ]
+      },
+      {
+        "severity": "warning",
+        "code": "composition/ambiguous-corridor",
+        "relationship": {
+          "id": "e_requirement_confirmed",
+          "from": "n_requirement",
+          "to": "n_planning",
+          "label": "否掉 ⇒ 退回补析",
+          "collectionIndex": 15,
+          "artifactIndex": 16
+        },
+        "otherRelationship": {
+          "id": "e_wake_seat",
+          "from": "n_hostmsg",
+          "to": "n_execution",
+          "label": "投不进 ⇒ 判失联",
+          "collectionIndex": 21,
+          "artifactIndex": 22
+        },
+        "segmentIndex": 1,
+        "otherSegmentIndex": 3,
+        "overlapLength": 191.6,
+        "from": [
+          309.2,
+          995
+        ],
+        "to": [
+          500.8,
+          995
+        ]
+      },
+      {
+        "severity": "warning",
+        "code": "composition/ambiguous-corridor",
+        "relationship": {
+          "id": "e_rework",
+          "from": "n_test",
+          "to": "x_ret_dev",
+          "label": "测试不过 ⇒ 打回编写",
+          "collectionIndex": 17,
+          "artifactIndex": 18
+        },
+        "otherRelationship": {
+          "id": "ex_24_n_supervision_x_ret_test",
+          "from": "n_supervision",
+          "to": "x_ret_test",
+          "label": "③否掉 ⇒ 退回重跑",
+          "collectionIndex": 24,
+          "artifactIndex": 25
+        },
+        "segmentIndex": 1,
+        "otherSegmentIndex": 2,
+        "overlapLength": 80,
+        "from": [
+          1101,
+          738
+        ],
+        "to": [
+          1101,
+          818
+        ]
+      },
+      {
+        "severity": "warning",
+        "code": "composition/ambiguous-corridor",
+        "relationship": {
+          "id": "e_rework",
+          "from": "n_test",
+          "to": "x_ret_dev",
+          "label": "测试不过 ⇒ 打回编写",
+          "collectionIndex": 17,
+          "artifactIndex": 18
+        },
+        "otherRelationship": {
+          "id": "ex_26_n_review_x_ret_dev",
+          "from": "n_review",
+          "to": "x_ret_dev",
+          "label": "审核 NG ⇒ 打回编写",
+          "collectionIndex": 26,
+          "artifactIndex": 27
+        },
+        "segmentIndex": 1,
+        "otherSegmentIndex": 1,
+        "overlapLength": 392,
+        "from": [
+          1101,
+          752
+        ],
+        "to": [
+          1101,
+          1144
+        ]
+      },
+      {
+        "severity": "warning",
+        "code": "composition/ambiguous-corridor",
+        "relationship": {
+          "id": "e_rework",
+          "from": "n_test",
+          "to": "x_ret_dev",
+          "label": "测试不过 ⇒ 打回编写",
+          "collectionIndex": 17,
+          "artifactIndex": 18
+        },
+        "otherRelationship": {
+          "id": "ex_27_n_review_x_ret_test",
+          "from": "n_review",
+          "to": "x_ret_test",
+          "label": "审核 NG ⇒ 打回测试",
+          "collectionIndex": 27,
+          "artifactIndex": 28
+        },
+        "segmentIndex": 1,
+        "otherSegmentIndex": 2,
+        "overlapLength": 244,
+        "from": [
+          1101,
+          900
+        ],
+        "to": [
+          1101,
+          1144
+        ]
+      },
+      {
+        "severity": "warning",
+        "code": "composition/ambiguous-corridor",
+        "relationship": {
+          "id": "e_rework",
+          "from": "n_test",
+          "to": "x_ret_dev",
+          "label": "测试不过 ⇒ 打回编写",
+          "collectionIndex": 17,
+          "artifactIndex": 18
+        },
+        "otherRelationship": {
+          "id": "ex_31_x_ret_dev_x_block",
+          "from": "x_ret_dev",
+          "to": "x_block",
+          "label": "再打回 ⇒ 超限",
+          "collectionIndex": 31,
+          "artifactIndex": 32
+        },
+        "segmentIndex": 1,
+        "otherSegmentIndex": 1,
+        "overlapLength": 130,
+        "from": [
+          1101,
+          738
+        ],
+        "to": [
+          1101,
+          868
+        ]
+      },
+      {
+        "severity": "warning",
+        "code": "composition/ambiguous-corridor",
+        "relationship": {
+          "id": "e_wake_seat",
+          "from": "n_hostmsg",
+          "to": "n_execution",
+          "label": "投不进 ⇒ 判失联",
+          "collectionIndex": 21,
+          "artifactIndex": 22
+        },
+        "otherRelationship": {
+          "id": "ex_30_n_closeout_x_block",
+          "from": "n_closeout",
+          "to": "x_block",
+          "label": "无 OK 关单被拒",
+          "collectionIndex": 30,
+          "artifactIndex": 31
+        },
+        "segmentIndex": 2,
+        "otherSegmentIndex": 1,
+        "overlapLength": 127,
+        "from": [
+          4,
+          868
+        ],
+        "to": [
+          4,
+          995
+        ]
+      },
+      {
+        "severity": "warning",
+        "code": "composition/ambiguous-corridor",
+        "relationship": {
+          "id": "ex_24_n_supervision_x_ret_test",
+          "from": "n_supervision",
+          "to": "x_ret_test",
+          "label": "③否掉 ⇒ 退回重跑",
+          "collectionIndex": 24,
+          "artifactIndex": 25
+        },
+        "otherRelationship": {
+          "id": "ex_26_n_review_x_ret_dev",
+          "from": "n_review",
+          "to": "x_ret_dev",
+          "label": "审核 NG ⇒ 打回编写",
+          "collectionIndex": 26,
+          "artifactIndex": 27
+        },
+        "segmentIndex": 2,
+        "otherSegmentIndex": 1,
+        "overlapLength": 66,
+        "from": [
+          1101,
+          752
+        ],
+        "to": [
+          1101,
+          818
+        ]
+      },
+      {
+        "severity": "warning",
+        "code": "composition/ambiguous-corridor",
+        "relationship": {
+          "id": "ex_24_n_supervision_x_ret_test",
+          "from": "n_supervision",
+          "to": "x_ret_test",
+          "label": "③否掉 ⇒ 退回重跑",
+          "collectionIndex": 24,
+          "artifactIndex": 25
+        },
+        "otherRelationship": {
+          "id": "ex_31_x_ret_dev_x_block",
+          "from": "x_ret_dev",
+          "to": "x_block",
+          "label": "再打回 ⇒ 超限",
+          "collectionIndex": 31,
+          "artifactIndex": 32
+        },
+        "segmentIndex": 2,
+        "otherSegmentIndex": 1,
+        "overlapLength": 94,
+        "from": [
+          1101,
+          724
+        ],
+        "to": [
+          1101,
+          818
+        ]
+      },
+      {
+        "severity": "warning",
+        "code": "composition/ambiguous-corridor",
+        "relationship": {
+          "id": "ex_26_n_review_x_ret_dev",
+          "from": "n_review",
+          "to": "x_ret_dev",
+          "label": "审核 NG ⇒ 打回编写",
+          "collectionIndex": 26,
+          "artifactIndex": 27
+        },
+        "otherRelationship": {
+          "id": "ex_27_n_review_x_ret_test",
+          "from": "n_review",
+          "to": "x_ret_test",
+          "label": "审核 NG ⇒ 打回测试",
+          "collectionIndex": 27,
+          "artifactIndex": 28
+        },
+        "segmentIndex": 1,
+        "otherSegmentIndex": 2,
+        "overlapLength": 317,
+        "from": [
+          1101,
+          900
+        ],
+        "to": [
+          1101,
+          1217
+        ]
+      },
+      {
+        "severity": "warning",
+        "code": "composition/ambiguous-corridor",
+        "relationship": {
+          "id": "ex_26_n_review_x_ret_dev",
+          "from": "n_review",
+          "to": "x_ret_dev",
+          "label": "审核 NG ⇒ 打回编写",
+          "collectionIndex": 26,
+          "artifactIndex": 27
+        },
+        "otherRelationship": {
+          "id": "ex_31_x_ret_dev_x_block",
+          "from": "x_ret_dev",
+          "to": "x_block",
+          "label": "再打回 ⇒ 超限",
+          "collectionIndex": 31,
+          "artifactIndex": 32
+        },
+        "segmentIndex": 1,
+        "otherSegmentIndex": 1,
+        "overlapLength": 116,
+        "from": [
+          1101,
+          752
+        ],
+        "to": [
+          1101,
+          868
+        ]
+      },
+      {
+        "severity": "warning",
+        "code": "composition/ambiguous-corridor",
+        "relationship": {
+          "id": "ex_29_x_clarify_n_requirement",
+          "from": "x_clarify",
+          "to": "n_requirement",
+          "label": "裁定 ⇒ 投回原席",
+          "collectionIndex": 29,
+          "artifactIndex": 30
+        },
+        "otherRelationship": {
+          "id": "ex_30_n_closeout_x_block",
+          "from": "n_closeout",
+          "to": "x_block",
+          "label": "无 OK 关单被拒",
+          "collectionIndex": 30,
+          "artifactIndex": 31
+        },
+        "segmentIndex": 1,
+        "otherSegmentIndex": 2,
+        "overlapLength": 49,
+        "from": [
+          52,
+          868
+        ],
+        "to": [
+          101,
+          868
+        ]
+      },
+      {
+        "severity": "warning",
+        "code": "composition/ambiguous-corridor",
+        "relationship": {
+          "id": "ex_29_x_clarify_n_requirement",
+          "from": "x_clarify",
+          "to": "n_requirement",
+          "label": "裁定 ⇒ 投回原席",
+          "collectionIndex": 29,
+          "artifactIndex": 30
+        },
+        "otherRelationship": {
+          "id": "ex_31_x_ret_dev_x_block",
+          "from": "x_ret_dev",
+          "to": "x_block",
+          "label": "再打回 ⇒ 超限",
+          "collectionIndex": 31,
+          "artifactIndex": 32
+        },
+        "segmentIndex": 1,
+        "otherSegmentIndex": 2,
+        "overlapLength": 385.8,
+        "from": [
+          115,
+          868
+        ],
+        "to": [
+          500.8,
+          868
+        ]
+      },
+      {
+        "severity": "warning",
+        "code": "composition/ambiguous-corridor",
+        "relationship": {
+          "id": "ex_29_x_clarify_n_requirement",
+          "from": "x_clarify",
+          "to": "n_requirement",
+          "label": "裁定 ⇒ 投回原席",
+          "collectionIndex": 29,
+          "artifactIndex": 30
+        },
+        "otherRelationship": {
+          "id": "ex_32_x_ret_test_x_block",
+          "from": "x_ret_test",
+          "to": "x_block",
+          "label": "也计预算",
+          "collectionIndex": 32,
+          "artifactIndex": 33
+        },
+        "segmentIndex": 1,
+        "otherSegmentIndex": 2,
+        "overlapLength": 368.8,
+        "from": [
+          132,
+          868
+        ],
+        "to": [
+          500.8,
+          868
+        ]
+      },
+      {
+        "severity": "warning",
+        "code": "composition/ambiguous-corridor",
+        "relationship": {
+          "id": "ex_31_x_ret_dev_x_block",
+          "from": "x_ret_dev",
+          "to": "x_block",
+          "label": "再打回 ⇒ 超限",
+          "collectionIndex": 31,
+          "artifactIndex": 32
+        },
+        "otherRelationship": {
+          "id": "ex_32_x_ret_test_x_block",
+          "from": "x_ret_test",
+          "to": "x_block",
+          "label": "也计预算",
+          "collectionIndex": 32,
+          "artifactIndex": 33
+        },
+        "segmentIndex": 2,
+        "otherSegmentIndex": 2,
+        "overlapLength": 969,
+        "from": [
+          132,
+          868
+        ],
+        "to": [
+          1101,
+          868
+        ]
+      },
+      {
+        "severity": "warning",
+        "code": "composition/<redacted>",
+        "nodeId": "n_intake",
+        "owner": {
+          "kind": "node",
+          "id": "n_intake"
+        },
+        "viewportWidth": 1440,
+        "viewportHeight": 900,
+        "availableDiagramWidth": 930,
+        "budgetBasis": "legacy-930",
+        "readerContract": "declared-wide-v1",
+        "requestedTargetPx": null,
+        "requestedTargetMet": null,
+        "budgetLimit": "legacy",
+        "viewBoxWidth": 1217,
+        "scale": 0.7641741988496302,
+        "text": "用户下达 → 登记建单",
+        "detail": "context",
+        "sourceFontPx": 7.3,
+        "projectedFontPx": 5.5784716516023005,
+        "minimumProjectedFontPx": 6
+      }
+    ]
+  }
+}

@@ -1,0 +1,767 @@
+{
+  "schemaVersion": 1,
+  "ok": false,
+  "command": "validate",
+  "stage": "render",
+  "type": "workflow",
+  "input": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\v2\\L4.workflow.json",
+  "error": "Workflow layout validation failed:\n- [composition/proper-crossing] showcase workflow edges[6] id \"e_dispatch_orchestrator\" \"n_supervision\" -> \"n_requirement\" crosses edges[30] id \"ex_30_n_closeout_x_block\" \"n_closeout\" -> \"x_block\" at [20, 868] (segments 1 and 2) — adjust route/via, bias, or channel coordinates so the edges use separate lane corridors.\n- [composition/proper-crossing] showcase workflow edges[17] id \"e_rework\" \"n_test\" -> \"x_ret_dev\" crosses edges[32] id \"ex_32_x_ret_test_x_block\" \"x_ret_test\" -> \"x_block\" at [1101, 868] (segments 1 and 1) — adjust route/via, bias, or channel coordinates so the edges use separate lane corridors.\n- [composition/proper-crossing] showcase workflow edges[26] id \"ex_26_n_review_x_ret_dev\" \"n_review\" -> \"x_ret_dev\" crosses edges[32] id \"ex_32_x_ret_test_x_block\" \"x_ret_test\" -> \"x_block\" at [1101, 868] (segments 1 and 1) — adjust route/via, bias, or channel coordinates so the edges use separate lane corridors.\n- [composition/proper-crossing] showcase workflow edges[27] id \"ex_27_n_review_x_ret_test\" \"n_review\" -> \"x_ret_test\" crosses edges[31] id \"ex_31_x_ret_dev_x_block\" \"x_ret_dev\" -> \"x_block\" at [1016.8, 868] (segments 4 and 2) — adjust route/via, bias, or channel coordinates so the edges use separate lane corridors.\n- [composition/proper-crossing] showcase workflow edges[27] id \"ex_27_n_review_x_ret_test\" \"n_review\" -> \"x_ret_test\" crosses edges[32] id \"ex_32_x_ret_test_x_block\" \"x_ret_test\" -> \"x_block\" at [1016.8, 868] (segments 4 and 2) — adjust route/via, bias, or channel coordinates so the edges use separate lane corridors.\n- [composition/proper-crossing] showcase workflow edges[28] id \"ex_28_n_execution_x_clarify\" \"n_execution\" -> \"x_clarify\" crosses edges[31] id \"ex_31_x_ret_dev_x_block\" \"x_ret_dev\" -> \"x_block\" at [888.8, 868] (segments 0 and 2) — adjust route/via, bias, or channel coordinates so the edges use separate lane corridors.\n- [composition/proper-crossing] showcase workflow edges[28] id \"ex_28_n_execution_x_clarify\" \"n_execution\" -> \"x_clarify\" crosses edges[32] id \"ex_32_x_ret_test_x_block\" \"x_ret_test\" -> \"x_block\" at [888.8, 868] (segments 0 and 2) — adjust route/via, bias, or channel coordinates so the edges use separate lane corridors.\n- [composition/ambiguous-corridor] showcase workflow edges[15] id \"e_requirement_confirmed\" \"n_requirement\" -> \"n_planning\" shares a 191.6px corridor with edges[21] id \"e_wake_seat\" \"n_hostmsg\" -> \"n_execution\" at [309.2, 995] -> [500.8, 995] (segments 1 and 3; minimum 8px) — adjust route/via, bias, or channel coordinates so unrelated edges do not visually merge.\n- [composition/ambiguous-corridor] showcase workflow edges[17] id \"e_rework\" \"n_test\" -> \"x_ret_dev\" shares a 80px corridor with edges[24] id \"ex_24_n_supervision_x_ret_test\" \"n_supervision\" -> \"x_ret_test\" at [1101, 738] -> [1101, 818] (segments 1 and 2; minimum 8px) — adjust route/via, bias, or channel coordinates so unrelated edges do not visually merge.\n- [composition/ambiguous-corridor] showcase workflow edges[17] id \"e_rework\" \"n_test\" -> \"x_ret_dev\" shares a 392px corridor with edges[26] id \"ex_26_n_review_x_ret_dev\" \"n_review\" -> \"x_ret_dev\" at [1101, 752] -> [1101, 1144] (segments 1 and 1; minimum 8px) — adjust route/via, bias, or channel coordinates so unrelated edges do not visually merge.\n- [composition/ambiguous-corridor] showcase workflow edges[17] id \"e_rework\" \"n_test\" -> \"x_ret_dev\" shares a 244px corridor with edges[27] id \"ex_27_n_review_x_ret_test\" \"n_review\" -> \"x_ret_test\" at [1101, 900] -> [1101, 1144] (segments 1 and 2; minimum 8px) — adjust route/via, bias, or channel coordinates so unrelated edges do not visually merge.\n- [composition/ambiguous-corridor] showcase workflow edges[17] id \"e_rework\" \"n_test\" -> \"x_ret_dev\" shares a 130px corridor with edges[31] id \"ex_31_x_ret_dev_x_block\" \"x_ret_dev\" -> \"x_block\" at [1101, 738] -> [1101, 868] (segments 1 and 1; minimum 8px) — adjust route/via, bias, or channel coordinates so unrelated edges do not visually merge.\n- [composition/ambiguous-corridor] showcase workflow edges[21] id \"e_wake_seat\" \"n_hostmsg\" -> \"n_execution\" shares a 127px corridor with edges[30] id \"ex_30_n_closeout_x_block\" \"n_closeout\" -> \"x_block\" at [4, 868] -> [4, 995] (segments 2 and 1; minimum 8px) — adjust route/via, bias, or channel coordinates so unrelated edges do not visually merge.\n- [composition/ambiguous-corridor] showcase workflow edges[24] id \"ex_24_n_supervision_x_ret_test\" \"n_supervision\" -> \"x_ret_test\" shares a 66px corridor with edges[26] id \"ex_26_n_review_x_ret_dev\" \"n_review\" -> \"x_ret_dev\" at [1101, 752] -> [1101, 818] (segments 2 and 1; minimum 8px) — adjust route/via, bias, or channel coordinates so unrelated edges do not visually merge.\n- [composition/ambiguous-corridor] showcase workflow edges[24] id \"ex_24_n_supervision_x_ret_test\" \"n_supervision\" -> \"x_ret_test\" shares a 94px corridor with edges[31] id \"ex_31_x_ret_dev_x_block\" \"x_ret_dev\" -> \"x_block\" at [1101, 724] -> [1101, 818] (segments 2 and 1; minimum 8px) — adjust route/via, bias, or channel coordinates so unrelated edges do not visually merge.\n- [composition/ambiguous-corridor] showcase workflow edges[26] id \"ex_26_n_review_x_ret_dev\" \"n_review\" -> \"x_ret_dev\" shares a 317px corridor with edges[27] id \"ex_27_n_review_x_ret_test\" \"n_review\" -> \"x_ret_test\" at [1101, 900] -> [1101, 1217] (segments 1 and 2; minimum 8px) — adjust route/via, bias, or channel coordinates so unrelated edges do not visually merge.\n- [composition/ambiguous-corridor] showcase workflow edges[26] id \"ex_26_n_review_x_ret_dev\" \"n_review\" -> \"x_ret_dev\" shares a 116px corridor with edges[31] id \"ex_31_x_ret_dev_x_block\" \"x_ret_dev\" -> \"x_block\" at [1101, 752] -> [1101, 868] (segments 1 and 1; minimum 8px) — adjust route/via, bias, or channel coordinates so unrelated edges do not visually merge.\n- [composition/ambiguous-corridor] showcase workflow edges[29] id \"ex_29_x_clarify_n_requirement\" \"x_clarify\" -> \"n_requirement\" shares a 49px corridor with edges[30] id \"ex_30_n_closeout_x_block\" \"n_closeout\" -> \"x_block\" at [52, 868] -> [101, 868] (segments 1 and 2; minimum 8px) — adjust route/via, bias, or channel coordinates so unrelated edges do not visually merge.\n- [composition/ambiguous-corridor] showcase workflow edges[29] id \"ex_29_x_clarify_n_requirement\" \"x_clarify\" -> \"n_requirement\" shares a 385.8px corridor with edges[31] id \"ex_31_x_ret_dev_x_block\" \"x_ret_dev\" -> \"x_block\" at [115, 868] -> [500.8, 868] (segments 1 and 2; minimum 8px) — adjust route/via, bias, or channel coordinates so unrelated edges do not visually merge.\n- [composition/ambiguous-corridor] showcase workflow edges[29] id \"ex_29_x_clarify_n_requirement\" \"x_clarify\" -> \"n_requirement\" shares a 368.8px corridor with edges[32] id \"ex_32_x_ret_test_x_block\" \"x_ret_test\" -> \"x_block\" at [132, 868] -> [500.8, 868] (segments 1 and 2; minimum 8px) — adjust route/via, bias, or channel coordinates so unrelated edges do not visually merge.\n- [composition/ambiguous-corridor] showcase workflow edges[31] id \"ex_31_x_ret_dev_x_block\" \"x_ret_dev\" -> \"x_block\" shares a 969px corridor with edges[32] id \"ex_32_x_ret_test_x_block\" \"x_ret_test\" -> \"x_block\" at [132, 868] -> [1101, 868] (segments 2 and 2; minimum 8px) — adjust route/via, bias, or channel coordinates so unrelated edges do not visually merge.",
+  "diagnostics": [
+    {
+      "code": "composition/proper-crossing",
+      "severity": "error",
+      "message": "[composition/proper-crossing] showcase workflow edges[6] id \"e_dispatch_orchestrator\" \"n_supervision\" -> \"n_requirement\" crosses edges[30] id \"ex_30_n_closeout_x_block\" \"n_closeout\" -> \"x_block\" at [20, 868] (segments 1 and 2) — adjust route/via, bias, or channel coordinates so the edges use separate lane corridors.",
+      "subject": {
+        "diagramType": "workflow",
+        "collection": "edges",
+        "index": 6,
+        "id": "e_dispatch_orchestrator",
+        "from": "n_supervision",
+        "to": "n_requirement"
+      },
+      "evidence": {
+        "otherRelationship": {
+          "diagramType": "workflow",
+          "collection": "edges",
+          "index": 30,
+          "id": "ex_30_n_closeout_x_block",
+          "from": "n_closeout",
+          "to": "x_block"
+        },
+        "point": [
+          20,
+          868
+        ],
+        "segmentIndex": 1,
+        "otherSegmentIndex": 2
+      },
+      "supportedFixes": [
+        "adjust route/via, bias, or channel coordinates so the edges use separate lane corridors"
+      ]
+    },
+    {
+      "code": "composition/proper-crossing",
+      "severity": "error",
+      "message": "[composition/proper-crossing] showcase workflow edges[17] id \"e_rework\" \"n_test\" -> \"x_ret_dev\" crosses edges[32] id \"ex_32_x_ret_test_x_block\" \"x_ret_test\" -> \"x_block\" at [1101, 868] (segments 1 and 1) — adjust route/via, bias, or channel coordinates so the edges use separate lane corridors.",
+      "subject": {
+        "diagramType": "workflow",
+        "collection": "edges",
+        "index": 17,
+        "id": "e_rework",
+        "from": "n_test",
+        "to": "x_ret_dev"
+      },
+      "evidence": {
+        "otherRelationship": {
+          "diagramType": "workflow",
+          "collection": "edges",
+          "index": 32,
+          "id": "ex_32_x_ret_test_x_block",
+          "from": "x_ret_test",
+          "to": "x_block"
+        },
+        "point": [
+          1101,
+          868
+        ],
+        "segmentIndex": 1,
+        "otherSegmentIndex": 1
+      },
+      "supportedFixes": [
+        "adjust route/via, bias, or channel coordinates so the edges use separate lane corridors"
+      ]
+    },
+    {
+      "code": "composition/proper-crossing",
+      "severity": "error",
+      "message": "[composition/proper-crossing] showcase workflow edges[26] id \"ex_26_n_review_x_ret_dev\" \"n_review\" -> \"x_ret_dev\" crosses edges[32] id \"ex_32_x_ret_test_x_block\" \"x_ret_test\" -> \"x_block\" at [1101, 868] (segments 1 and 1) — adjust route/via, bias, or channel coordinates so the edges use separate lane corridors.",
+      "subject": {
+        "diagramType": "workflow",
+        "collection": "edges",
+        "index": 26,
+        "id": "ex_26_n_review_x_ret_dev",
+        "from": "n_review",
+        "to": "x_ret_dev"
+      },
+      "evidence": {
+        "otherRelationship": {
+          "diagramType": "workflow",
+          "collection": "edges",
+          "index": 32,
+          "id": "ex_32_x_ret_test_x_block",
+          "from": "x_ret_test",
+          "to": "x_block"
+        },
+        "point": [
+          1101,
+          868
+        ],
+        "segmentIndex": 1,
+        "otherSegmentIndex": 1
+      },
+      "supportedFixes": [
+        "adjust route/via, bias, or channel coordinates so the edges use separate lane corridors"
+      ]
+    },
+    {
+      "code": "composition/proper-crossing",
+      "severity": "error",
+      "message": "[composition/proper-crossing] showcase workflow edges[27] id \"ex_27_n_review_x_ret_test\" \"n_review\" -> \"x_ret_test\" crosses edges[31] id \"ex_31_x_ret_dev_x_block\" \"x_ret_dev\" -> \"x_block\" at [1016.8, 868] (segments 4 and 2) — adjust route/via, bias, or channel coordinates so the edges use separate lane corridors.",
+      "subject": {
+        "diagramType": "workflow",
+        "collection": "edges",
+        "index": 27,
+        "id": "ex_27_n_review_x_ret_test",
+        "from": "n_review",
+        "to": "x_ret_test"
+      },
+      "evidence": {
+        "otherRelationship": {
+          "diagramType": "workflow",
+          "collection": "edges",
+          "index": 31,
+          "id": "ex_31_x_ret_dev_x_block",
+          "from": "x_ret_dev",
+          "to": "x_block"
+        },
+        "point": [
+          1016.8000000000004,
+          868
+        ],
+        "segmentIndex": 4,
+        "otherSegmentIndex": 2
+      },
+      "supportedFixes": [
+        "adjust route/via, bias, or channel coordinates so the edges use separate lane corridors"
+      ]
+    },
+    {
+      "code": "composition/proper-crossing",
+      "severity": "error",
+      "message": "[composition/proper-crossing] showcase workflow edges[27] id \"ex_27_n_review_x_ret_test\" \"n_review\" -> \"x_ret_test\" crosses edges[32] id \"ex_32_x_ret_test_x_block\" \"x_ret_test\" -> \"x_block\" at [1016.8, 868] (segments 4 and 2) — adjust route/via, bias, or channel coordinates so the edges use separate lane corridors.",
+      "subject": {
+        "diagramType": "workflow",
+        "collection": "edges",
+        "index": 27,
+        "id": "ex_27_n_review_x_ret_test",
+        "from": "n_review",
+        "to": "x_ret_test"
+      },
+      "evidence": {
+        "otherRelationship": {
+          "diagramType": "workflow",
+          "collection": "edges",
+          "index": 32,
+          "id": "ex_32_x_ret_test_x_block",
+          "from": "x_ret_test",
+          "to": "x_block"
+        },
+        "point": [
+          1016.8000000000005,
+          868
+        ],
+        "segmentIndex": 4,
+        "otherSegmentIndex": 2
+      },
+      "supportedFixes": [
+        "adjust route/via, bias, or channel coordinates so the edges use separate lane corridors"
+      ]
+    },
+    {
+      "code": "composition/proper-crossing",
+      "severity": "error",
+      "message": "[composition/proper-crossing] showcase workflow edges[28] id \"ex_28_n_execution_x_clarify\" \"n_execution\" -> \"x_clarify\" crosses edges[31] id \"ex_31_x_ret_dev_x_block\" \"x_ret_dev\" -> \"x_block\" at [888.8, 868] (segments 0 and 2) — adjust route/via, bias, or channel coordinates so the edges use separate lane corridors.",
+      "subject": {
+        "diagramType": "workflow",
+        "collection": "edges",
+        "index": 28,
+        "id": "ex_28_n_execution_x_clarify",
+        "from": "n_execution",
+        "to": "x_clarify"
+      },
+      "evidence": {
+        "otherRelationship": {
+          "diagramType": "workflow",
+          "collection": "edges",
+          "index": 31,
+          "id": "ex_31_x_ret_dev_x_block",
+          "from": "x_ret_dev",
+          "to": "x_block"
+        },
+        "point": [
+          888.8000000000002,
+          868
+        ],
+        "segmentIndex": 0,
+        "otherSegmentIndex": 2
+      },
+      "supportedFixes": [
+        "adjust route/via, bias, or channel coordinates so the edges use separate lane corridors"
+      ]
+    },
+    {
+      "code": "composition/proper-crossing",
+      "severity": "error",
+      "message": "[composition/proper-crossing] showcase workflow edges[28] id \"ex_28_n_execution_x_clarify\" \"n_execution\" -> \"x_clarify\" crosses edges[32] id \"ex_32_x_ret_test_x_block\" \"x_ret_test\" -> \"x_block\" at [888.8, 868] (segments 0 and 2) — adjust route/via, bias, or channel coordinates so the edges use separate lane corridors.",
+      "subject": {
+        "diagramType": "workflow",
+        "collection": "edges",
+        "index": 28,
+        "id": "ex_28_n_execution_x_clarify",
+        "from": "n_execution",
+        "to": "x_clarify"
+      },
+      "evidence": {
+        "otherRelationship": {
+          "diagramType": "workflow",
+          "collection": "edges",
+          "index": 32,
+          "id": "ex_32_x_ret_test_x_block",
+          "from": "x_ret_test",
+          "to": "x_block"
+        },
+        "point": [
+          888.8000000000002,
+          867.9999999999999
+        ],
+        "segmentIndex": 0,
+        "otherSegmentIndex": 2
+      },
+      "supportedFixes": [
+        "adjust route/via, bias, or channel coordinates so the edges use separate lane corridors"
+      ]
+    },
+    {
+      "code": "composition/ambiguous-corridor",
+      "severity": "error",
+      "message": "[composition/ambiguous-corridor] showcase workflow edges[15] id \"e_requirement_confirmed\" \"n_requirement\" -> \"n_planning\" shares a 191.6px corridor with edges[21] id \"e_wake_seat\" \"n_hostmsg\" -> \"n_execution\" at [309.2, 995] -> [500.8, 995] (segments 1 and 3; minimum 8px) — adjust route/via, bias, or channel coordinates so unrelated edges do not visually merge.",
+      "subject": {
+        "diagramType": "workflow",
+        "collection": "edges",
+        "index": 15,
+        "id": "e_requirement_confirmed",
+        "from": "n_requirement",
+        "to": "n_planning"
+      },
+      "evidence": {
+        "otherRelationship": {
+          "diagramType": "workflow",
+          "collection": "edges",
+          "index": 21,
+          "id": "e_wake_seat",
+          "from": "n_hostmsg",
+          "to": "n_execution"
+        },
+        "overlapLengthPx": 191.6,
+        "minimumPx": 8,
+        "from": [
+          309.2,
+          995
+        ],
+        "to": [
+          500.79999999999995,
+          995
+        ],
+        "segmentIndex": 1,
+        "otherSegmentIndex": 3
+      },
+      "supportedFixes": [
+        "adjust route/via, bias, or channel coordinates so unrelated edges do not visually merge"
+      ]
+    },
+    {
+      "code": "composition/ambiguous-corridor",
+      "severity": "error",
+      "message": "[composition/ambiguous-corridor] showcase workflow edges[17] id \"e_rework\" \"n_test\" -> \"x_ret_dev\" shares a 80px corridor with edges[24] id \"ex_24_n_supervision_x_ret_test\" \"n_supervision\" -> \"x_ret_test\" at [1101, 738] -> [1101, 818] (segments 1 and 2; minimum 8px) — adjust route/via, bias, or channel coordinates so unrelated edges do not visually merge.",
+      "subject": {
+        "diagramType": "workflow",
+        "collection": "edges",
+        "index": 17,
+        "id": "e_rework",
+        "from": "n_test",
+        "to": "x_ret_dev"
+      },
+      "evidence": {
+        "otherRelationship": {
+          "diagramType": "workflow",
+          "collection": "edges",
+          "index": 24,
+          "id": "ex_24_n_supervision_x_ret_test",
+          "from": "n_supervision",
+          "to": "x_ret_test"
+        },
+        "overlapLengthPx": 80,
+        "minimumPx": 8,
+        "from": [
+          1101,
+          738
+        ],
+        "to": [
+          1101,
+          818
+        ],
+        "segmentIndex": 1,
+        "otherSegmentIndex": 2
+      },
+      "supportedFixes": [
+        "adjust route/via, bias, or channel coordinates so unrelated edges do not visually merge"
+      ]
+    },
+    {
+      "code": "composition/ambiguous-corridor",
+      "severity": "error",
+      "message": "[composition/ambiguous-corridor] showcase workflow edges[17] id \"e_rework\" \"n_test\" -> \"x_ret_dev\" shares a 392px corridor with edges[26] id \"ex_26_n_review_x_ret_dev\" \"n_review\" -> \"x_ret_dev\" at [1101, 752] -> [1101, 1144] (segments 1 and 1; minimum 8px) — adjust route/via, bias, or channel coordinates so unrelated edges do not visually merge.",
+      "subject": {
+        "diagramType": "workflow",
+        "collection": "edges",
+        "index": 17,
+        "id": "e_rework",
+        "from": "n_test",
+        "to": "x_ret_dev"
+      },
+      "evidence": {
+        "otherRelationship": {
+          "diagramType": "workflow",
+          "collection": "edges",
+          "index": 26,
+          "id": "ex_26_n_review_x_ret_dev",
+          "from": "n_review",
+          "to": "x_ret_dev"
+        },
+        "overlapLengthPx": 392,
+        "minimumPx": 8,
+        "from": [
+          1101,
+          752
+        ],
+        "to": [
+          1101,
+          1144
+        ],
+        "segmentIndex": 1,
+        "otherSegmentIndex": 1
+      },
+      "supportedFixes": [
+        "adjust route/via, bias, or channel coordinates so unrelated edges do not visually merge"
+      ]
+    },
+    {
+      "code": "composition/ambiguous-corridor",
+      "severity": "error",
+      "message": "[composition/ambiguous-corridor] showcase workflow edges[17] id \"e_rework\" \"n_test\" -> \"x_ret_dev\" shares a 244px corridor with edges[27] id \"ex_27_n_review_x_ret_test\" \"n_review\" -> \"x_ret_test\" at [1101, 900] -> [1101, 1144] (segments 1 and 2; minimum 8px) — adjust route/via, bias, or channel coordinates so unrelated edges do not visually merge.",
+      "subject": {
+        "diagramType": "workflow",
+        "collection": "edges",
+        "index": 17,
+        "id": "e_rework",
+        "from": "n_test",
+        "to": "x_ret_dev"
+      },
+      "evidence": {
+        "otherRelationship": {
+          "diagramType": "workflow",
+          "collection": "edges",
+          "index": 27,
+          "id": "ex_27_n_review_x_ret_test",
+          "from": "n_review",
+          "to": "x_ret_test"
+        },
+        "overlapLengthPx": 244,
+        "minimumPx": 8,
+        "from": [
+          1101,
+          900
+        ],
+        "to": [
+          1101,
+          1144
+        ],
+        "segmentIndex": 1,
+        "otherSegmentIndex": 2
+      },
+      "supportedFixes": [
+        "adjust route/via, bias, or channel coordinates so unrelated edges do not visually merge"
+      ]
+    },
+    {
+      "code": "composition/ambiguous-corridor",
+      "severity": "error",
+      "message": "[composition/ambiguous-corridor] showcase workflow edges[17] id \"e_rework\" \"n_test\" -> \"x_ret_dev\" shares a 130px corridor with edges[31] id \"ex_31_x_ret_dev_x_block\" \"x_ret_dev\" -> \"x_block\" at [1101, 738] -> [1101, 868] (segments 1 and 1; minimum 8px) — adjust route/via, bias, or channel coordinates so unrelated edges do not visually merge.",
+      "subject": {
+        "diagramType": "workflow",
+        "collection": "edges",
+        "index": 17,
+        "id": "e_rework",
+        "from": "n_test",
+        "to": "x_ret_dev"
+      },
+      "evidence": {
+        "otherRelationship": {
+          "diagramType": "workflow",
+          "collection": "edges",
+          "index": 31,
+          "id": "ex_31_x_ret_dev_x_block",
+          "from": "x_ret_dev",
+          "to": "x_block"
+        },
+        "overlapLengthPx": 130,
+        "minimumPx": 8,
+        "from": [
+          1101,
+          738
+        ],
+        "to": [
+          1101,
+          868
+        ],
+        "segmentIndex": 1,
+        "otherSegmentIndex": 1
+      },
+      "supportedFixes": [
+        "adjust route/via, bias, or channel coordinates so unrelated edges do not visually merge"
+      ]
+    },
+    {
+      "code": "composition/ambiguous-corridor",
+      "severity": "error",
+      "message": "[composition/ambiguous-corridor] showcase workflow edges[21] id \"e_wake_seat\" \"n_hostmsg\" -> \"n_execution\" shares a 127px corridor with edges[30] id \"ex_30_n_closeout_x_block\" \"n_closeout\" -> \"x_block\" at [4, 868] -> [4, 995] (segments 2 and 1; minimum 8px) — adjust route/via, bias, or channel coordinates so unrelated edges do not visually merge.",
+      "subject": {
+        "diagramType": "workflow",
+        "collection": "edges",
+        "index": 21,
+        "id": "e_wake_seat",
+        "from": "n_hostmsg",
+        "to": "n_execution"
+      },
+      "evidence": {
+        "otherRelationship": {
+          "diagramType": "workflow",
+          "collection": "edges",
+          "index": 30,
+          "id": "ex_30_n_closeout_x_block",
+          "from": "n_closeout",
+          "to": "x_block"
+        },
+        "overlapLengthPx": 127,
+        "minimumPx": 8,
+        "from": [
+          4,
+          868
+        ],
+        "to": [
+          4,
+          995
+        ],
+        "segmentIndex": 2,
+        "otherSegmentIndex": 1
+      },
+      "supportedFixes": [
+        "adjust route/via, bias, or channel coordinates so unrelated edges do not visually merge"
+      ]
+    },
+    {
+      "code": "composition/ambiguous-corridor",
+      "severity": "error",
+      "message": "[composition/ambiguous-corridor] showcase workflow edges[24] id \"ex_24_n_supervision_x_ret_test\" \"n_supervision\" -> \"x_ret_test\" shares a 66px corridor with edges[26] id \"ex_26_n_review_x_ret_dev\" \"n_review\" -> \"x_ret_dev\" at [1101, 752] -> [1101, 818] (segments 2 and 1; minimum 8px) — adjust route/via, bias, or channel coordinates so unrelated edges do not visually merge.",
+      "subject": {
+        "diagramType": "workflow",
+        "collection": "edges",
+        "index": 24,
+        "id": "ex_24_n_supervision_x_ret_test",
+        "from": "n_supervision",
+        "to": "x_ret_test"
+      },
+      "evidence": {
+        "otherRelationship": {
+          "diagramType": "workflow",
+          "collection": "edges",
+          "index": 26,
+          "id": "ex_26_n_review_x_ret_dev",
+          "from": "n_review",
+          "to": "x_ret_dev"
+        },
+        "overlapLengthPx": 66,
+        "minimumPx": 8,
+        "from": [
+          1101,
+          752
+        ],
+        "to": [
+          1101,
+          818
+        ],
+        "segmentIndex": 2,
+        "otherSegmentIndex": 1
+      },
+      "supportedFixes": [
+        "adjust route/via, bias, or channel coordinates so unrelated edges do not visually merge"
+      ]
+    },
+    {
+      "code": "composition/ambiguous-corridor",
+      "severity": "error",
+      "message": "[composition/ambiguous-corridor] showcase workflow edges[24] id \"ex_24_n_supervision_x_ret_test\" \"n_supervision\" -> \"x_ret_test\" shares a 94px corridor with edges[31] id \"ex_31_x_ret_dev_x_block\" \"x_ret_dev\" -> \"x_block\" at [1101, 724] -> [1101, 818] (segments 2 and 1; minimum 8px) — adjust route/via, bias, or channel coordinates so unrelated edges do not visually merge.",
+      "subject": {
+        "diagramType": "workflow",
+        "collection": "edges",
+        "index": 24,
+        "id": "ex_24_n_supervision_x_ret_test",
+        "from": "n_supervision",
+        "to": "x_ret_test"
+      },
+      "evidence": {
+        "otherRelationship": {
+          "diagramType": "workflow",
+          "collection": "edges",
+          "index": 31,
+          "id": "ex_31_x_ret_dev_x_block",
+          "from": "x_ret_dev",
+          "to": "x_block"
+        },
+        "overlapLengthPx": 94,
+        "minimumPx": 8,
+        "from": [
+          1101,
+          724
+        ],
+        "to": [
+          1101,
+          818
+        ],
+        "segmentIndex": 2,
+        "otherSegmentIndex": 1
+      },
+      "supportedFixes": [
+        "adjust route/via, bias, or channel coordinates so unrelated edges do not visually merge"
+      ]
+    },
+    {
+      "code": "composition/ambiguous-corridor",
+      "severity": "error",
+      "message": "[composition/ambiguous-corridor] showcase workflow edges[26] id \"ex_26_n_review_x_ret_dev\" \"n_review\" -> \"x_ret_dev\" shares a 317px corridor with edges[27] id \"ex_27_n_review_x_ret_test\" \"n_review\" -> \"x_ret_test\" at [1101, 900] -> [1101, 1217] (segments 1 and 2; minimum 8px) — adjust route/via, bias, or channel coordinates so unrelated edges do not visually merge.",
+      "subject": {
+        "diagramType": "workflow",
+        "collection": "edges",
+        "index": 26,
+        "id": "ex_26_n_review_x_ret_dev",
+        "from": "n_review",
+        "to": "x_ret_dev"
+      },
+      "evidence": {
+        "otherRelationship": {
+          "diagramType": "workflow",
+          "collection": "edges",
+          "index": 27,
+          "id": "ex_27_n_review_x_ret_test",
+          "from": "n_review",
+          "to": "x_ret_test"
+        },
+        "overlapLengthPx": 317,
+        "minimumPx": 8,
+        "from": [
+          1101,
+          900
+        ],
+        "to": [
+          1101,
+          1217
+        ],
+        "segmentIndex": 1,
+        "otherSegmentIndex": 2
+      },
+      "supportedFixes": [
+        "adjust route/via, bias, or channel coordinates so unrelated edges do not visually merge"
+      ]
+    },
+    {
+      "code": "composition/ambiguous-corridor",
+      "severity": "error",
+      "message": "[composition/ambiguous-corridor] showcase workflow edges[26] id \"ex_26_n_review_x_ret_dev\" \"n_review\" -> \"x_ret_dev\" shares a 116px corridor with edges[31] id \"ex_31_x_ret_dev_x_block\" \"x_ret_dev\" -> \"x_block\" at [1101, 752] -> [1101, 868] (segments 1 and 1; minimum 8px) — adjust route/via, bias, or channel coordinates so unrelated edges do not visually merge.",
+      "subject": {
+        "diagramType": "workflow",
+        "collection": "edges",
+        "index": 26,
+        "id": "ex_26_n_review_x_ret_dev",
+        "from": "n_review",
+        "to": "x_ret_dev"
+      },
+      "evidence": {
+        "otherRelationship": {
+          "diagramType": "workflow",
+          "collection": "edges",
+          "index": 31,
+          "id": "ex_31_x_ret_dev_x_block",
+          "from": "x_ret_dev",
+          "to": "x_block"
+        },
+        "overlapLengthPx": 116,
+        "minimumPx": 8,
+        "from": [
+          1101,
+          752
+        ],
+        "to": [
+          1101,
+          868
+        ],
+        "segmentIndex": 1,
+        "otherSegmentIndex": 1
+      },
+      "supportedFixes": [
+        "adjust route/via, bias, or channel coordinates so unrelated edges do not visually merge"
+      ]
+    },
+    {
+      "code": "composition/ambiguous-corridor",
+      "severity": "error",
+      "message": "[composition/ambiguous-corridor] showcase workflow edges[29] id \"ex_29_x_clarify_n_requirement\" \"x_clarify\" -> \"n_requirement\" shares a 49px corridor with edges[30] id \"ex_30_n_closeout_x_block\" \"n_closeout\" -> \"x_block\" at [52, 868] -> [101, 868] (segments 1 and 2; minimum 8px) — adjust route/via, bias, or channel coordinates so unrelated edges do not visually merge.",
+      "subject": {
+        "diagramType": "workflow",
+        "collection": "edges",
+        "index": 29,
+        "id": "ex_29_x_clarify_n_requirement",
+        "from": "x_clarify",
+        "to": "n_requirement"
+      },
+      "evidence": {
+        "otherRelationship": {
+          "diagramType": "workflow",
+          "collection": "edges",
+          "index": 30,
+          "id": "ex_30_n_closeout_x_block",
+          "from": "n_closeout",
+          "to": "x_block"
+        },
+        "overlapLengthPx": 49,
+        "minimumPx": 8,
+        "from": [
+          52,
+          868
+        ],
+        "to": [
+          101,
+          868
+        ],
+        "segmentIndex": 1,
+        "otherSegmentIndex": 2
+      },
+      "supportedFixes": [
+        "adjust route/via, bias, or channel coordinates so unrelated edges do not visually merge"
+      ]
+    },
+    {
+      "code": "composition/ambiguous-corridor",
+      "severity": "error",
+      "message": "[composition/ambiguous-corridor] showcase workflow edges[29] id \"ex_29_x_clarify_n_requirement\" \"x_clarify\" -> \"n_requirement\" shares a 385.8px corridor with edges[31] id \"ex_31_x_ret_dev_x_block\" \"x_ret_dev\" -> \"x_block\" at [115, 868] -> [500.8, 868] (segments 1 and 2; minimum 8px) — adjust route/via, bias, or channel coordinates so unrelated edges do not visually merge.",
+      "subject": {
+        "diagramType": "workflow",
+        "collection": "edges",
+        "index": 29,
+        "id": "ex_29_x_clarify_n_requirement",
+        "from": "x_clarify",
+        "to": "n_requirement"
+      },
+      "evidence": {
+        "otherRelationship": {
+          "diagramType": "workflow",
+          "collection": "edges",
+          "index": 31,
+          "id": "ex_31_x_ret_dev_x_block",
+          "from": "x_ret_dev",
+          "to": "x_block"
+        },
+        "overlapLengthPx": 385.8,
+        "minimumPx": 8,
+        "from": [
+          115,
+          868
+        ],
+        "to": [
+          500.79999999999995,
+          868
+        ],
+        "segmentIndex": 1,
+        "otherSegmentIndex": 2
+      },
+      "supportedFixes": [
+        "adjust route/via, bias, or channel coordinates so unrelated edges do not visually merge"
+      ]
+    },
+    {
+      "code": "composition/ambiguous-corridor",
+      "severity": "error",
+      "message": "[composition/ambiguous-corridor] showcase workflow edges[29] id \"ex_29_x_clarify_n_requirement\" \"x_clarify\" -> \"n_requirement\" shares a 368.8px corridor with edges[32] id \"ex_32_x_ret_test_x_block\" \"x_ret_test\" -> \"x_block\" at [132, 868] -> [500.8, 868] (segments 1 and 2; minimum 8px) — adjust route/via, bias, or channel coordinates so unrelated edges do not visually merge.",
+      "subject": {
+        "diagramType": "workflow",
+        "collection": "edges",
+        "index": 29,
+        "id": "ex_29_x_clarify_n_requirement",
+        "from": "x_clarify",
+        "to": "n_requirement"
+      },
+      "evidence": {
+        "otherRelationship": {
+          "diagramType": "workflow",
+          "collection": "edges",
+          "index": 32,
+          "id": "ex_32_x_ret_test_x_block",
+          "from": "x_ret_test",
+          "to": "x_block"
+        },
+        "overlapLengthPx": 368.8,
+        "minimumPx": 8,
+        "from": [
+          132,
+          868
+        ],
+        "to": [
+          500.79999999999995,
+          868
+        ],
+        "segmentIndex": 1,
+        "otherSegmentIndex": 2
+      },
+      "supportedFixes": [
+        "adjust route/via, bias, or channel coordinates so unrelated edges do not visually merge"
+      ]
+    },
+    {
+      "code": "composition/ambiguous-corridor",
+      "severity": "error",
+      "message": "[composition/ambiguous-corridor] showcase workflow edges[31] id \"ex_31_x_ret_dev_x_block\" \"x_ret_dev\" -> \"x_block\" shares a 969px corridor with edges[32] id \"ex_32_x_ret_test_x_block\" \"x_ret_test\" -> \"x_block\" at [132, 868] -> [1101, 868] (segments 2 and 2; minimum 8px) — adjust route/via, bias, or channel coordinates so unrelated edges do not visually merge.",
+      "subject": {
+        "diagramType": "workflow",
+        "collection": "edges",
+        "index": 31,
+        "id": "ex_31_x_ret_dev_x_block",
+        "from": "x_ret_dev",
+        "to": "x_block"
+      },
+      "evidence": {
+        "otherRelationship": {
+          "diagramType": "workflow",
+          "collection": "edges",
+          "index": 32,
+          "id": "ex_32_x_ret_test_x_block",
+          "from": "x_ret_test",
+          "to": "x_block"
+        },
+        "overlapLengthPx": 969,
+        "minimumPx": 8,
+        "from": [
+          132,
+          868
+        ],
+        "to": [
+          1101,
+          868
+        ],
+        "segmentIndex": 2,
+        "otherSegmentIndex": 2
+      },
+      "supportedFixes": [
+        "adjust route/via, bias, or channel coordinates so unrelated edges do not visually merge"
+      ]
+    }
+  ]
+}

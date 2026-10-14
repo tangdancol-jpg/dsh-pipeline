@@ -1,0 +1,969 @@
+/**
+ * dsh-pipeline —— Host 半边（DSH 插件入口）
+ * ============================================================================
+ * 多对话 AI 协作开发流水线。主对话只调度不干活；编写/测试/审核三权分立。
+ *
+ * 本插件把下面这些**从约定变成机制**：
+ *
+ *   1. **分档编排是唯一出口**（`lib/tiers.js` + `pipeline_orchestrate`）
+ *      主对话不能自己决定要几个 AI。要么由独立编排对话给 tier + reason，
+ *      要么由确定性规则引擎判 L0 —— 而引擎要输出 L0，需求必须先通过一组
+ *      保守的平凡性判据。简单需求不超配，复杂需求不漏配。
+ *
+ *   2. **结构化交接物 + 状态机**（`lib/handoff.js` / `lib/states.js` / `lib/store.js`）
+ *      每份交接物有固定字段；状态迁移表里**没有** developing → ready_review 这条边，
+ *      所以"编写绕过测试直接找审核"连状态都推不动。
+ *
+ *   3. **硬拦截**（`lib/guard.js`，注册进 `ctx.tools.guard`）
+ *      越权、跳步、无 OK 关单、测试改代码、主对话读代码 —— 在 dispatch 之前拒。
+ *
+ *   4. **角色令牌**（`lib/tokens.js`）
+ *      角色身份不可自称：主对话派活时铸一枚只属于那个角色的令牌，
+ *      真实子代理通道下还会与子会话 id 二次绑定（令牌转手即失效）。
+ *
+ *   5. **可审计落盘**（`<项目>/.pipeline/<taskId>/`）
+ *      task.json / handoffs/*.json / artifacts/vN/ / audit.jsonl 全流程可追溯。
+ *
+ *   6. **一个界面上能点的总开关**（`lib/switch.js` / `lib/switch-routes.js` / `lib/client.js`）
+ *      DSH 窗口右上角头部那一排里的「多AI 协调」按钮 —— 开 = 上面 1~5 全管；
+ *      关 = 守门弃权、流水线写操作被拒，回到普通 DSH 行为。
+ *      ★ 关掉时**不注销守卫、不注销工具**（结构恒常、行为可变）：
+ *        守卫注销再注册会改变它在 `ToolLayer.guards` 里的顺序，而守卫链是
+ *        "取第一个非 undefined"（`dsh-tools:2646-2651`）—— 顺序一变，与
+ *        dsh-archigate 同时命中时的**拒绝文案**就会跟着变，那是对用户可见的行为抖动。
+ *
+ * ---------------------------------------------------------------------------
+ * 机制依据（读本机 DSH 实现得到，不是从 README 抄的一句话）
+ * ---------------------------------------------------------------------------
+ *   · 插件形态：`export apply/inject` + `dsh.bundle.patch`（与已装的
+ *     dsh-archigate / dsh-drawai / dsh-normify 同形）。
+ *   · 工具注册：`ctx.tools.register(defineTool({...}))` 返回**精确 disposer**
+ *     （`dsh-tools/lib/index.js:2878`）。`defineTool` 的 `output` 必填
+ *     （`:842` 无条件读 `output.render`）。
+ *   · 执行流水线：`tools/pre-execute`（waterfall，`:3225`）
+ *     → `ctx.tools.guard()`（**单调**守卫，`:2921`/`:3241`）→ dispatch
+ *     → `tools/post-execute` → `tools/result`。
+ *     拒绝判据是 `reason !== undefined`（`:2649`）——**放行必须返回 `undefined`**；
+ *     而 guard **抛异常不是拒绝**（`:3267` 会吞成通用 tool error），
+ *     所以本插件的守门整体包在 try/catch 里、内部异常按 fail-closed 处理。
+ *   · 调用方身份：`exec.agent`（`:3149`；**global 调用时为 undefined，必须判空**），
+ *     且 `agent.id === agent.session.id`（`dsh-agent/lib/index.js:511`）——
+ *     这让"令牌 ↔ 会话"二次绑定成为可能。
+ *   · 角色驱动：`ctx.subagents.startContinuable({provider,label,request,signal})`
+ *     → `{childId, messageId}`（`dsh-subagent/lib/index.js:2871`）、
+ *     `ctx.subagents.sendMessage(sender,targetId,content,options)`
+ *     （`typert.host.js:142`）。
+ *
+ * ---------------------------------------------------------------------------
+ * 与 dsh-archigate 的共存（需求原文点名要处理的）
+ * ---------------------------------------------------------------------------
+ * 两边都只注册 `tools.guard`，都**只拒不放**：`guardReason` 取第一个非 undefined
+ * 就返回（`:2646-2651`），没有任何通路能让后一个守卫把前一个的拒绝翻回允许。
+ * 而且 guard 只在 pre-execute 决议为 `allow` 时才跑（`:3241`）—— 别的插件
+ * （archigate 的 archify 交付守门、experimental-auto-review 的授权闸门）先拒的
+ * 调用根本走不到这里，不可能互相翻转。自测里有一条专门验证这件事。
+ *
+ * @module dsh-pipeline
+ */
+
+import { join } from 'node:path'
+
+import { DEFAULTS, mergeConfig } from './lib/config.js'
+import { createGuardFor } from './lib/guard-factory.js'
+import { makeTaskIndexEntry } from './lib/guard.js'
+import { createCallCounter } from './lib/context.js'
+import { createTaskStore } from './lib/store.js'
+import { createSwitch, defaultSwitchStateFile } from './lib/switch.js'
+import { registerInterception } from './lib/intercept.js'
+import { fullTestCredential } from './lib/testscope.js'
+import { hashGateBlocksTests, hashGateEscalationPending } from './lib/hashgate.js'
+import { mountSwitchRoute, ROUTE_PREFIX, STATE_PATH } from './lib/switch-routes.js'
+import { createTokenStore } from './lib/tokens.js'
+import { buildTools, createSeatNotifier } from './lib/tools.js'
+import { createTransport, probeSessionChannel } from './lib/transport/index.js'
+import { createChannelAudit } from './lib/liveness.js'
+import { createMainSessionRegistry, createWaker } from './lib/wakeup.js'
+// ★★ 本轮新增：已播报账本（A19/A20）、巡检兜底（A21–A25）、运行失败取证（A9–A11）。
+import { LEDGER_FILE_NAME, createWakeLedger, defaultLedgerPath } from './lib/wakeledger.js'
+import { createPatrol, patrolFindings } from './lib/patrol.js'
+// ★★ 2026-10-14 新增：**主对话侧的重启自动认领**（席位侧那半已在 indexTask 里，
+//    见下面的 1.7；这两半**判据不同源、互不冒充**）。
+import { autoReattachMain, formatMainReattachReport } from './lib/reattach.js'
+// ★★ 2026-10-14 新增：**孤儿单自恢复**（席位被切断 ⇒ 自己意识到 + 自己重新投递）。
+import { createOrphanAudit, createOrphanRescue } from './lib/orphan.js'
+import { detectRunFailure, sessionsRootOf } from './lib/runfail.js'
+import { pathKey, PACKAGE_ROOT } from './lib/util.js'
+
+/** 插件名。 */
+export const name = 'dsh-pipeline'
+
+/**
+ * 本插件在 profile 里的 entry id。
+ * ⚠️ 必须与 `cordis.patch.yml` 里 `- id:` 的值一致。
+ */
+export const NS = 'dsh-pipeline'
+
+/**
+ * 只依赖工具注册表。
+ * 刻意不注入 sessions / subagents —— 少一个服务依赖就少一种"装不上"的方式。
+ * 子代理通道在运行期用 `ctx.subagents` 做**存在性判断**（没有就退回人工通道），
+ * 而不是声明式依赖。
+ */
+export const inject = ['tools']
+
+/** 版本号（与 package.json 保持一致；日志与收据里会打印）。 */
+export const TOOL_VERSION = '0.1.0'
+
+/** system prompt 段的排序键。取个不撞别人的数（实测宿主里 2800 是子代理、5000 是 ptc SDK）。 */
+const PROMPT_ORDER = 2650
+
+/** 默认项目根：session 工作目录。 */
+function defaultProjectRoot() {
+  return process.cwd()
+}
+
+/**
+ * 插件主体。
+ *
+ * @param {object} ctx - Cordis 上下文。
+ * @param {object} [rawConfig] - profile patch 里那条插件行的 `config`。
+ */
+export function apply(ctx, rawConfig) {
+  const config = mergeConfig(rawConfig)
+
+  if (config.enabled !== true) {
+    const msg = `[pipeline] ${NS} ${TOOL_VERSION}：enabled=false，未注册任何工具与守门。`
+    ctx.logger?.info?.(msg)
+    console.log(msg)
+    return
+  }
+
+  // -------------------------------------------------------------------------
+  // 1) 依赖装配
+  // -------------------------------------------------------------------------
+  const projectRoot = pathKey(config.projectRoot && config.projectRoot.length > 0 ? config.projectRoot : defaultProjectRoot())
+
+  const tokens = createTokenStore({ ttlMs: config.tokenTtlMs })
+  /**
+   * ★★ **已播报账本**（A19 / A20；用户裁定 D5「允许新增状态文件」）。
+   *
+   * 落点：插件目录内（`config.wakeLedgerFile` 留空时 = `<插件目录>/wake-ledger.jsonl`）
+   * —— B16 明确要求"账本与巡检**不得越出插件目录写文件**"。
+   * 三种"用不了"的形态（缺失 / 损坏 / 不可写）各有可判定行为且都走
+   * 「看得见的失败」，判据写在 `lib/wakeledger.js` 的文件头。
+   */
+  const wakeLedger = createWakeLedger({
+    file: config.wakeLedgerFile && config.wakeLedgerFile.length > 0 ? config.wakeLedgerFile : defaultLedgerPath(PACKAGE_ROOT),
+    disabled: config.wakeLedgerEnabled === false,
+    warn: (m) => ctx.logger?.warn?.(m),
+  })
+  const store = createTaskStore({
+    projectRoot,
+    artifactDirName: config.artifactDirName,
+    // ★ **授权面锚点**：`change_scope` / `scope_paths` 里的裸相对路径按它解析
+    //   （默认 = 本插件包根，不是 projectRoot）。改动面审计与守门必须**用同一个锚点**，
+    //   否则同一份授权面在两处会得出不同结论。
+    scopeAnchor: config.changeScopeAnchor,
+    maxReworkPerLeg: config.maxReworkPerLeg,
+    // ★ 席位失联的静默阈值（毫秒）——工具层与拦截缝都用它，见 lib/liveness.js
+    seatSilenceMs: config.seatSilenceMs,
+    // ★ 哈希闸门连续不通过 ⇒ 自动交人工（用户拍板 P13；0 = 关掉自动升级）
+    hashGateEscalateAfter: config.hashGateEscalateAfter,
+    humanRequestTimeoutHours: config.humanRequestTimeoutHours,
+    requireHumanConfirmCode: config.requireHumanConfirmCode === true,
+    maxClarifyRounds: config.maxClarifyRounds,
+    /**
+     * ★★ **A9：运行失败取证**（"崩"与"闲"在判词与证据上分开）。
+     *
+     * 判据是纯的（`lib/runfail.js`），**采样**在这里：先看进程内会话事件
+     * （`ctx.agents.get(sessionId).session.snapshotEvents()`），拿不到再看落盘会话日志
+     * （`session.v4.jsonl.zstd`，席位崩没了时的唯一线索）。
+     *
+     * ★ 取证只做一件事：**回答"这一轮是不是运行失败中止了"**。它不参与"要不要判失联"
+     *   —— 拿不到证据时 `checkLiveness` 照旧走既有三条判据（A12 真阳性一个字没动）。
+     */
+    detectRunFailure: async (task, silent) => {
+      const seats = Array.isArray(silent) ? silent : []
+      let last = null
+      for (const s of seats) {
+        const sessionId = typeof s?.session_id === 'string' && s.session_id.length > 0
+          ? s.session_id
+          : typeof s?.agent_id === 'string' && s.agent_id.length > 0 ? s.agent_id : ''
+        if (sessionId.length === 0) {
+          last = { known: false, found: false, evidence: null, source: 'none', note: `席位 ${String(s?.key ?? '?')} 没有会话 id —— 判不出崩还是闲（如实说读不到）。` }
+          continue
+        }
+        const r = detectRunFailure({ ctx, sessionId, sessionsRoot: sessionsRootOf(), warn: (m) => ctx.logger?.warn?.(m) })
+        if (r.found === true) return r
+        last = r
+      }
+      return last ?? { known: false, found: false, evidence: null, source: 'none', note: '没有可取证的席位。' }
+    },
+  })
+  // ★ 通道侧留痕出口：通道不可达 / 「完全」档被拒 / 归组建不起来 —— 这三类判决
+  //   都必须落盘。写进**既有**的 `.pipeline/<任务>/audit.jsonl`（只追加），不新开机制。
+  const channelAudit = createChannelAudit({
+    auditFile: (id) => store.auditFile(id),
+    log: (m) => ctx.logger?.warn?.(`[pipeline] ${m}`),
+  })
+  const transport = createTransport(ctx, config, { tokens, audit: channelAudit.record })
+  /** ★ 真实会话派活通道的能力探测结论（可观测：日志 + `lastChannelProbe()`）。 */
+  const channelProbe = probeSessionChannel(ctx)
+  LAST_CHANNEL_PROBE = channelProbe
+
+  // -------------------------------------------------------------------------
+  // 1.5) 功能开关（右上角 UI ↔ 宿主机制之间的那根线）
+  // -------------------------------------------------------------------------
+  //
+  // ★ 关掉 ≠ 卸载：守卫与工具**照旧注册**，只是守门第一句就弃权、写工具第一句就拒。
+  //   理由见 `lib/switch.js` 文件头（守卫注销再注册会改变守卫链顺序，
+  //   而顺序会改变与其它插件同时命中时的拒绝文案 —— 那是用户可见的行为抖动）。
+  const sw = createSwitch({
+    stateFile: config.switchStateFile && config.switchStateFile.length > 0
+      ? config.switchStateFile
+      : defaultSwitchStateFile(projectRoot, config.artifactDirName),
+    initial: config.switchDefaultOn !== false,
+    log: (m) => {
+      ctx.logger?.warn?.(`[pipeline] ${m}`)
+      console.warn(`[pipeline] ${m}`)
+    },
+  })
+
+  /**
+   * 守门用的**同步**任务索引。
+   *
+   * 为什么需要它：`guardReason` 是**同步**遍历（`dsh-tools:2928`），而任务数据在
+   * 盘上、读取是异步的。所以在任务被打开/加载时顺手把守门需要的那几个字段
+   * （项目根、流水线目录、报告目录）登记进这个内存索引。
+   *
+   * 代价与边界（诚实写出来）：**进程重启后、任务被再次加载之前，索引是空的**，
+   * 这段时间里文件工具层面的越权判定不生效（令牌层面的判定不受影响，它只看内存
+   * 令牌表）。所以首次调用任何 pipeline 工具时会顺带把任务加载进索引。
+   */
+  const taskIndex = new Map()
+
+  /** ★ 客观观测：每个席位调用过多少次工具（守门那一层数）。 */
+  const counter = createCallCounter()
+  /** ★ 继任后退休的会话：守门靠它拦住旧席位的后续写入。 */
+  const retiredAgents = new Set()
+  const retireAgent = (agentId) => {
+    if (typeof agentId === 'string' && agentId.length > 0) retiredAgents.add(agentId)
+  }
+
+  /** 把任务登记进同步索引。 */
+  const indexTask = (taskId, task) => {
+    if (task === null || task === undefined) return
+    const root = pathKey(task.project_root ?? projectRoot)
+    const pipelineDir = join(root, config.artifactDirName)
+    // ★ `writers` 必须进索引：守门要**同步**判"这个席位有没有越界写别人的分区"。
+    // ★ `scopeAnchor` 也必须进索引：授权面里的裸相对路径按它解析（见 lib/config.js
+    //   的 `changeScopeAnchor`）。任务元数据里显式写了 `scope_anchor` 就优先用它 ——
+    //   于是锚点是**按任务各一份**的，一个任务的锚点影响不到另一个任务。
+    taskIndex.set(taskId, makeTaskIndexEntry({ taskId, projectRoot: root, pipelineDir, scopeAnchor: task.scope_anchor ?? config.changeScopeAnchor, writers: task.roster?.writers ?? null, changeScope: task.change_scope ?? null, fullTest: fullTestCredential(task), hashGateBlocked: hashGateBlocksTests(task), hashGate: task.hash_gate ?? null, hashGateEscalated: hashGateEscalationPending(task),
+      // ★★ T-20261011-56a37e（主管枢纽）：待机面与"编写交付了没有"必须进**同步**索引 ——
+      //   守门要在文件工具与 shell 两层同步判它们，运行时读不到盘。
+      //   数据源只有一个：`task.hub` 与 `task.handoffs`（派生，不另存一份）。
+      hubEnabled: task.hub?.enabled === true,
+      hubStandby: Array.isArray(task.hub?.standby)
+        ? task.hub.standby.map((s) => ({ role: String(s?.role ?? ''), wake_point: String(s?.wake_point ?? ''), status: s?.status === 'woken' ? 'woken' : 'standby' }))
+        : [],
+      devDelivered: (Array.isArray(task.handoffs) ? task.handoffs : []).some((h) => h?.kind === 'dev_to_test') }))
+
+    /**
+     * ★★ **A27(b)：重启后认出既有席位**（用户裁定 ② 的"席位侧那半"）。
+     *
+     * 令牌表是**进程内存态** ⇒ DSH 一重启，"这个会话是哪个席位"就全没了，
+     * 机制的表现为「认不出 → 干脆不叫 → 再派一席」，而那正是本单要消灭的循环。
+     *
+     * 判据：**盘上有登记就把它认回来**（`task.dispatched[]` 由 `pipeline_dispatch`
+     * 在派活成功之后落盘，跨进程活着）。识别依据缺失 / 损坏时 `tokens.restore`
+     * 返回 `ok:false` —— 这里**如实留痕**（不静默、也不凭空新建席位，A27(c)）。
+     */
+    const dispatches = Array.isArray(task.dispatched) ? task.dispatched : []
+    for (const d of dispatches) {
+      const role = String(d?.role ?? '')
+      const agentId = typeof d?.agent_id === 'string' && d.agent_id.length > 0
+        ? d.agent_id
+        : typeof d?.session_id === 'string' && d.session_id.length > 0 ? d.session_id : ''
+      if (role.length === 0 || agentId.length === 0) continue
+      try {
+        if (tokens.roleOfAgent(agentId, taskId) !== null) continue
+        const r = tokens.restore({
+          taskId,
+          role,
+          seat: d?.seat ?? null,
+          agentId,
+          sessionId: d?.session_id ?? null,
+          token: d?.token ?? null,
+          atMs: typeof d?.at_ms === 'number' ? d.at_ms : null,
+        })
+        if (r.ok !== true) {
+          ctx.logger?.warn?.(`[pipeline] 重启后认出席位失败（任务 ${taskId}，席位 ${role}${d?.seat === null || d?.seat === undefined ? '' : `#${d.seat}`}）：${r.reason}`)
+        }
+      } catch (err) {
+        ctx.logger?.warn?.(`[pipeline] 重启后认出席位异常（不影响本次调用）：${String(err?.message ?? err)}`)
+      }
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // 1.8) ★★ 交付即唤醒主对话（本次前置修复）
+  // -------------------------------------------------------------------------
+  //
+  //   现场（用户原话）：「真实会话干完活，**主对话收不到任何信号**，
+  //   只能靠人问或轮询，整条流水线看着像停摆。」
+  //
+  //   根因：子代理通道自带回调（会话结束 ⇒ harness 往协调者注入
+  //   `Background subagent … finished`），真实会话通道只做了三步
+  //   （建会话 / 投递 / 读回），**没有第四步「交付回调」**。
+  //
+  //   两条登记一起用（缺一不可）：
+  //     · **内存**（`registry`）—— 唤醒路径同步即查，热；
+  //     · **落盘**（`task.contacts.main`）—— 跨重启可查（DSH 重启后内存登记表没了，
+  //       主对话在它下次调工具之前是"不知道唤醒该投给谁"的）。
+  //   登记发生在**每一次** pipeline 工具调用之后（`lib/tools.js` 的唯一出口），
+  //   所以它不依赖任何一条特定路径。
+  const mainSessions = createMainSessionRegistry()
+  const wakeup = createWaker({
+    ctx,
+    registry: mainSessions,
+    /** ★★ 已播报账本：让「同一条事件恰播一次」**跨进程**成立（A19）。 */
+    ledger: wakeLedger,
+    // 渲染"当前状态 + 下一步合法事件"要用任务（读盘，但唤醒是低频事件：一次交付一条）
+    getTask: (taskId) => store.peek?.(taskId) ?? null,
+    // ★ 内存登记表没命中时的**兜底**：读落盘的 `task.contacts.main`。
+    //   补的正是"DSH 重启后、主对话还没再调过任何工具"的那个窗口 ——
+    //   没有它，重启后的第一次交付会被静默跳过（而那是最常见的场景）。
+    mainContactOf: (taskId) => store.mainContact(taskId),
+    // 留痕走**既有**的 `.pipeline/<任务>/audit.jsonl`（只追加，不新开机制）
+    audit: async (taskId, action, detail) => {
+      if (typeof taskId !== 'string' || taskId.length === 0) return
+      await store.recordAudit(taskId, 'main', action, detail)
+    },
+    // 主对话会话落盘（跨重启可查）—— 只在**变了**的时候写
+    rememberContact: async (taskId, sessionId) => {
+      const r = await store.rememberMainContact(taskId, sessionId)
+      if (r.ok !== true) ctx.logger?.warn?.(`[pipeline] 主对话会话登记失败：${String(r.error ?? '')}`)
+      return r
+    },
+    warn: (m) => ctx.logger?.warn?.(m),
+  })
+
+  const deps = {
+    defineTool: DEFINE_TOOL,
+    // ★ 退化时必须让工具层知道：入参要自己吐严格 JSON Schema（见 lib/tools.js 的 tool()）
+    defineToolDegraded: DEFINE_TOOL_DEGRADED,
+    ctx,
+    config,
+    store,
+    tokens,
+    transport,
+    indexTask,
+    sw,
+    // ★ 客观观测 + 继任后的退休名单（工具层与守门层共用）
+    counter,
+    retireAgent,
+    // ★★ **交付即唤醒主对话**（本次前置修复）：工具层每调一次就记下"主对话在哪个
+    //    会话"（`lib/tools.js` 的 `rememberMainCaller` 读它），拦截缝的触发点读
+    //    `deps.wakeMain` 投递。见 lib/wakeup.js 的文件头。
+    wakeup,
+  }
+
+  // -------------------------------------------------------------------------
+  // 1.85) ★★ **主对话侧的重启自动认领**（机制对比文档 §二 ④ 照出来的另一半）
+  // -------------------------------------------------------------------------
+  //
+  //   现场：**席位侧早就是自动的**（上面 `indexTask` 里那段 A27(b)：按
+  //   `task.dispatched[]` 台账调 `tokens.restore()`），而**主对话侧仍是手动** ——
+  //   DSH 每重启一次，就得由人或主对话自己发一次
+  //   `pipeline_task_open { task_id, reattach: true }` 才拿得回身份。
+  //   根因是同一个：**令牌表是进程内存态**，重启即全空。
+  //
+  //   判据（凭什么认定这个会话是某任务的主对话）：
+  //     **盘上那条主对话自己写下的、跨进程活着的记录** ——
+  //     `.pipeline/<任务>/task.json` → `contacts.main.agent_id`
+  //     （由 `lib/store.js` 的 `rememberMainContact()` 落盘；而它挂在
+  //      `lib/tools.js` 的**唯一工具出口**上，所以每一次 pipeline 工具调用都会刷新它）。
+  //     四条同时成立才认：① 记录存在 ② `role === 'main'` ③ `agent_id` 非空
+  //     ④ **它与本次调用方的会话 id 逐字相等**。判据本体 =
+  //     `lib/reattach.js` 的 `judgeMainClaim()`（**纯函数、只读、不写盘、不抛**）。
+  //
+  //   为什么挂在 `tools/pre-execute` 而**不是**工具出口：
+  //     宿主的执行流水线是 `tools/pre-execute`（:3225）→ `ctx.tools.guard`（:3241）
+  //     → dispatch。挂在出口就**太晚了** —— 重启后主对话的第一次
+  //     `pipeline_transition` 会先被守门以"没有身份"拒掉。挂在**前置缝**上，
+  //     认领在守门之前完成，于是"第一次调用就是通的"。
+  //
+  //   ★ 为什么**搭在既有那条拦截缝里**（`lib/intercept.js` 的 `tools/pre-execute`），
+  //     而不是自己 `ctx.on` 再挂一条：`tests/load-smoke.mjs` 把
+  //     「`tools/pre-execute` 恰好 **1** 条中间件」写成了**既有断言**（条数一变它就红，
+  //     而"不许改既有断言/期望值"是本单的硬约束）。本调用**不改变**那条缝的
+  //     放行/拒绝语义 —— 它既不 deny 也不 ask，只在最前面顺手把身份认回来。
+  //     代价（如实写出来）：`config.intercept !== true` 时它不生效，退化为旧的手动认领
+  //     —— 那种配置下会打一条 `warn` 把这件事说出来，不静默。
+  //
+  //   ★ 三条纪律（写在装配上，不写在善意里）：
+  //     · **不放宽任何身份校验**：不碰 `lib/guard.js` 一个字、不碰
+  //       `tokens.resolve` / `roleOfAgent` / `bindAgent`。反而**更严** ——
+  //       手动通道 `store.reattach()` 文件头写明"不校验调用方身份"，而这里要求
+  //       会话 id 与盘上记录**逐字相等**。
+  //     · **不补位、不建会话、不改状态**：本段装配里**没有**
+  //       `transport.spawnRole` / `store.recordDispatch` / 任何状态迁移入口；
+  //       留痕只追加 `.pipeline/<任务>/audit.jsonl`，**不碰 `task.json`**
+  //       （碰了会把巡检的"最后一次进展时刻"推前 = 机制自己制造进展）。
+  //     · **认领不了就报"认领不了"**：依据缺失 / 损坏 / 恢复被拒 ⇒
+  //       `warn` 喊出来 + `main:reattach-refused` 留痕，且**不静默跳过、不用近似物冒名**。
+  // -------------------------------------------------------------------------
+  /** 负缓存：扫过一次、一张都没认到的会话不再重复扫盘（见 lib/reattach.js 的说明）。 */
+  const mainReattachCache = new Set()
+  /** ★ "同一条认领不了"只报警/留痕一次（不刷屏）—— 但**每次都还进报告**，不静默。 */
+  const mainReattachRefusalMemo = new Set()
+  /**
+   * ★ 认领入口（返回报告，同时把报告存进只读导出 `lastMainReattach()`）。
+   *
+   * 它被注入 `registerInterception()`，由那条**既有**的 `tools/pre-execute` 缝
+   * 在**席位作用域判定之前**调用 —— 理由见上面那段注释。
+   */
+  const mainReattach = async (sessionId) => {
+    const report = await autoReattachMain({
+      store,
+      tokens,
+      sessionId,
+      cache: mainReattachCache,
+      refusalMemo: mainReattachRefusalMemo,
+      log: (m) => ctx.logger?.info?.(m),
+      warn: (m) => {
+        ctx.logger?.warn?.(m)
+        console.warn(m)
+      },
+    })
+    LAST_MAIN_REATTACH = report
+    return report
+  }
+  /**
+   * 交给拦截缝的那个可调用体 —— 挂不上时是 `null`（缝里那一句就整体跳过）。
+   *
+   * `config.mainReattachEnabled === false` ⇒ 显式关闭，交 `null`（并**喊出来**）。
+   */
+  const mainReattachForSeam = config.mainReattachEnabled === false ? null : mainReattach
+  if (config.mainReattachEnabled === false) {
+    ctx.logger?.warn?.(
+      '[pipeline] 主对话侧自动认领**已关闭**（config.mainReattachEnabled=false）—— DSH 重启后主对话**必须手动**重新认领（`pipeline_task_open { reattach: true }`）。',
+    )
+  }
+
+  // -------------------------------------------------------------------------
+  // 1.9) ★★ **孤儿单自恢复**（用户原话：「席位被切断后，机制要能**自己意识到**并
+  //      **重新投递** —— 不是等人来救。」）
+  // -------------------------------------------------------------------------
+  //
+  //   它补的是**唯一剩下没人管的那一格**：席位失联只**冻**不**叫**（`lib/liveness.js`），
+  //   巡检只**播报**不**动作**（`lib/patrol.js`，用户裁定 A22 写死），运行失败中止
+  //   是**另一条判词**（`lib/runfail.js`）。于是"席位被切断"的单就永远停在那里 ——
+  //   现场两例：`T-20261011-4a2dc7`（`analyzing` / 0 交接物 / 连派活台账都没有）、
+  //   `T-20261011-a5fe41`（机制阻塞 / planner 零交接物 / 会话 id 不是会话形状）。
+  //
+  //   ★ 纪律（写在装配上，不是写在善意里）：
+  //     · **不建会话、不派新席位**（用户裁定：「不要求自动补新席位」）——
+  //       这里注入的只有 `notify`，它就是 `pipeline_dispatch { notify_only: true }` 的
+  //       **同一份实现**（`createSeatNotifier().notifyOnly`）；装配里**没有**
+  //       `transport.spawnRole` / `store.recordDispatch` 这两条能造出席位的路；
+  //     · **不改任务状态**：留痕走 `.pipeline/<任务>/audit.jsonl`（只追加），
+  //       **不碰 `task.json`** —— 碰了就等于"机制自己制造了进展"，会把无进展计时清零；
+  //     · **幂等与失败都复用既有账本**（`wake-ledger.jsonl`）：成功记 `record`、
+  //       失败记 `noteUnresolved`（⇒ **既有巡检**那条 `unresolved-wake` 会播报出来）、
+  //       连续失败到上限记 `markEscalated`（放弃，不再骚扰）；
+  //     · 每轮**绝不抛**（抛出去会把定时器带死 —— 那正是"停摆"的成因）。
+  //
+  //   ★ 为什么必须在这里（`buildTools` **之前**）装配：`pipeline_status` 的"列全部任务"
+  //     那一段要能把**最近一轮扫描的结论**当成只读可见面报出来（主对话不必读日志）。
+  let orphanRescue = null
+  if (config.orphanRescueEnabled === true) {
+    const seatNotifier = createSeatNotifier(deps)
+    orphanRescue = createOrphanRescue({
+      store,
+      ledger: wakeLedger,
+      // ★ 重新投递 = `notify_only` 的同一份实现（不建会话、不改状态、失败返回 ok:false）。
+      notify: (spec) => seatNotifier.notifyOnly(spec.task, spec.role, spec.seat, spec.text, false),
+      wake: (spec) => wakeup.wake(spec),
+      audit: createOrphanAudit((id) => store.auditFile(id), (m) => ctx.logger?.warn?.(`[pipeline] ${m}`)),
+      detectRunFailure: async (task, seats) =>
+        typeof store.detectRunFailure === 'function' ? store.detectRunFailure(task, seats) : null,
+      intervalMs: config.orphanIntervalMs,
+      graceMs: config.orphanGraceMs,
+      backoffMs: config.orphanRedeliverBackoffMs,
+      maxAttempts: config.orphanMaxRedeliverAttempts,
+      warn: (m) => ctx.logger?.warn?.(m),
+    })
+    deps.orphanRescue = orphanRescue
+    ctx.effect(() => () => orphanRescue.stop(), 'pipeline: orphan rescue (detect + redeliver)')
+  }
+
+  // -------------------------------------------------------------------------
+  // 2) 工具面
+  // -------------------------------------------------------------------------
+  const tools = buildTools(deps)
+  for (const [key, def] of Object.entries(tools)) {
+    ctx.effect(() => ctx.tools.register(def), `pipeline: ${def.name}`)
+    void key
+  }
+
+  // -------------------------------------------------------------------------
+  // 3) 硬拦截
+  // -------------------------------------------------------------------------
+  //
+  //   两条缝、**同一份判据**：
+  //     · `ctx.tools.guard`      —— 工具服务那条路（靠令牌/会话绑定认人，同步）
+  //     · `tools/pre-execute` 等 —— 宿主的**拦截扩展点**，按"这个会话是不是管线席位"认人
+  //       （管线席位派生出来的子会话也躲不掉；详见 lib/intercept.js 的文件头）
+  let guardFn = null
+  if (config.guardEnabled === true || config.intercept === true) {
+    guardFn = createGuardFor({
+      tokens,
+      config,
+      taskIndex,
+      sw,
+      counter,
+      retired: retiredAgents,
+      // ★ 索引未命中要留痕（不是拒绝，是"这段判据没跑到"）—— 静默 fail-open 就是假绿。
+      warn: (m) => ctx.logger?.warn?.(m),
+    })
+  }
+  if (config.guardEnabled === true && guardFn !== null) {
+    ctx.effect(() => ctx.tools.guard(guardFn), 'pipeline: separation-of-powers guard')
+  }
+
+  // -------------------------------------------------------------------------
+  // 3.2) ★ 拦截缝：把同一份判据挂到宿主的工具前置/提示词/工具后置缝上
+  // -------------------------------------------------------------------------
+  //
+  //   用户原话：「我是让你安排写入多 ai 协同插件中去阻止他们干不该干的事，而不是新写」。
+  //   所以它挂在**本插件**里，不是另起一套 Skill + 钩子。
+  //
+  //   作用域：**只有本插件派出去的管线席位**受影响（判据 = 该 agentId 在令牌表里绑了角色）；
+  //   其它会话（用户自己的对话、别的项目、别的插件）一律直通。
+  //   kill-switch：`config.intercept === true`（配置层）+ 总开关 `sw.isOn()`（即时）。
+  let interception = null
+  if (config.intercept === true && guardFn !== null && typeof ctx.on === 'function') {
+    try {
+      interception = registerInterception(ctx, {
+        tokens,
+        guard: guardFn,
+        warn: (m) => ctx.logger?.warn?.(m),
+        getTask: (taskId) => store.peek?.(taskId) ?? null,
+        /**
+         * ★★ **主对话侧的重启自动认领**（D1 第 1 件）—— 搭在这条**既有**缝的最前面调用。
+         *
+         * 为什么搭这里而不是自己再挂一条 `ctx.on('tools/pre-execute')`：
+         * `tests/load-smoke.mjs` 把"`tools/pre-execute` 恰好 1 条中间件"写成了既有断言，
+         * 而"不许改既有断言/期望值"是硬约束。本调用**不改变**这条缝的任何决议。
+         */
+        mainReattach: mainReattachForSeam,
+        // ★★ 交付即唤醒：拦截缝的触发点（post-execute 交付 / 失联自动阻塞）
+        //    投递用的**同一个**入口（幂等与投递路径都在 lib/wakeup.js 里，唯一一份）。
+        wakeMain: (spec) => wakeup.wake(spec),
+        /**
+         * ★★ **唤醒器本体**（不只是投递入口）—— 拦截缝要用它的两件事：
+         *   · A28(b)：席位**接管**留痕（席位下一次动工具时记一笔）；
+         *   · 席位侧投递的成败留痕（`seat:wake-delivered` / `seat:wake-failed`）。
+         */
+        waker: wakeup,
+        // ★ 失联检测的静默阈值（席位简报里那条提示要用它，与 store 用**同一个**值）
+        seatSilenceMs: config.seatSilenceMs,
+        /**
+         * ★ 失联检测的**处置**入口（`tools/pre-execute` 那条缝调它）。
+         *
+         * 两件事必须一起做，所以包在这里而不是直接暴露 store 方法：
+         *   ① 查 + 必要时把任务推到「已阻塞」；
+         *   ② **立刻刷新同步索引** —— `taskIndex` 是守门判据的同步数据源，
+         *      状态变了不刷索引，后面那段判据就会拿旧状态判（"失败分支没刷新同步索引
+         *      ⇒ 拦截静默失效"—— 这个坑本项目踩过一次，这里显式堵上）。
+         */
+        checkLiveness: async (taskId) => {
+          if (config.seatLivenessEscalate !== true) {
+            // 只报告不处置：仍然算一遍并留痕，但不动状态。
+            const r = await store.checkLiveness(taskId, { escalate: false })
+            return r
+          }
+          const r = await store.checkLiveness(taskId, { escalate: true })
+          if (r !== null && r !== undefined && r.task !== undefined && r.task !== null) indexTask(r.task.id, r.task)
+          return r
+        },
+      })
+      ctx.effect(() => interception.dispose, 'pipeline: interception seams')
+      ctx.logger?.info?.(`[pipeline] 拦截缝已挂：${interception.seams.join(' / ')}（只对管线席位生效）`)
+    } catch (err) {
+      ctx.logger?.warn?.(`[pipeline] 拦截缝挂载失败（守门与工具不受影响）：${String(err?.message ?? err)}`)
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // 3.3) ★★ 巡检兜底（A21–A25；用户裁定 D4「加一条巡检兜底」）
+  // -------------------------------------------------------------------------
+  //
+  //   它修的正是**唯一剩下的静默面**：「席位中止的播报恰好也不通」。
+  //   中止检测挂在"下一次工具调用 / 下一次开步"上（写时检查，见 intercept），
+  //   而"没有任何人在动"恰恰让那两个触发点都失效 —— 所以需要一条**与任何人无关的**
+  //   周期性检查：它只回答「这张单已经多久没有任何进展了？」，然后**播报**出去。
+  //
+  //   ★ 纪律（写在判据里，不是写在善意里）：
+  //     · **只播报，不动作** —— 巡检器自己不认识任何"补位 / 继任 / 冻结 / 解冻 /
+  //       推进状态 / 重置失联计数"的接口（结构上就做不到，A22/B17）；
+  //     · 与**失联检测不同源、互不冒充**（A24）：失联 = 静默**超阈值**（判词在
+  //       `lib/liveness.js`），巡检 = **无进展**超口径（判词在 `lib/patrol.js`）；
+  //       巡检不调用 `checkLiveness`，一次都不调；
+  //     · 同一条无进展跨多次巡检**只播一次**（身份 = `<状态>|<最后进展时刻>`，
+  //       跨进程靠已播报账本去重）；进展恢复后再卡住算**新的一条**（A23）；
+  //     · 巡检自己抛错**不许停摆**，连续失败到阈值就把"巡检已停摆"播出去（A25）。
+  let patrol = null
+  if (config.patrolEnabled === true) {
+    /** 内存节流：同一个 finding 在窗口内不重复走唤醒路径（跨进程去重仍靠账本）。 */
+    const reportedFindings = new Map()
+    const PATROL_REPORT_WINDOW_MS = 30 * 60 * 1000
+    const noteFinding = (id, atMs) => {
+      reportedFindings.set(id, atMs)
+      if (reportedFindings.size > 512) {
+        const oldest = [...reportedFindings.entries()].sort((a, b) => a[1] - b[1])[0]
+        if (oldest !== undefined) reportedFindings.delete(oldest[0])
+      }
+    }
+    const reportFinding = async (taskId, task, finding) => {
+      const nowMs = Date.now()
+      const last = reportedFindings.get(finding.id)
+      if (last !== undefined && nowMs - last < PATROL_REPORT_WINDOW_MS) return false
+      noteFinding(finding.id, nowMs)
+      await wakeup.wake({
+        taskId,
+        actorRole: 'mechanism',
+        actorSeat: null,
+        kind: String(finding.kind ?? 'patrol'),
+        what: '**巡检发现长时间无进展**（只播报，不动作）',
+        disc: String(finding.id ?? ''),
+        identitySource: 'patrol-finding',
+        task,
+        note: String(finding.detail ?? ''),
+        via: 'patrol',
+      })
+      return true
+    }
+    patrol = createPatrol({
+      intervalMs: config.patrolIntervalMs,
+      failureThreshold: 3,
+      warn: (m) => ctx.logger?.warn?.(m),
+      /**
+       * ★ A25 的最小出口：tick 整体抛错到阈值时，**不依赖 tick** 地把"巡检已停摆"
+       *   播出去（往账本里认得的那几张单各播一条；同一次停摆只播一条 —— 身份含段号）。
+       */
+      onStalled: async (stats) => {
+        const ids = wakeLedger.knownTaskIds()
+        for (const id of ids) {
+          const task = await store.get(id)
+          if (task === null) continue
+          await wakeup.wake({
+            taskId: id,
+            actorRole: 'mechanism',
+            actorSeat: null,
+            kind: 'patrol-stalled',
+            what: '**巡检自身已停摆**（连续抛错到阈值）',
+            disc: `patrol-stalled|${Number(stats?.stall_episodes ?? 1)}`,
+            identitySource: 'patrol-stalled',
+            task,
+            note:
+              `巡检已连续失败 ${Number(stats?.consecutive_failures ?? 0)} 次（阈值 ${Number(stats?.failure_threshold ?? 3)}），` +
+              `最后一次错误：${String(stats?.last_error ?? '(无)')}\n` +
+              '★ 停摆本身**必须可见**（A25）；巡检仍在**继续重试**，恢复后这一条不会重复播报。',
+            via: 'patrol',
+          })
+        }
+      },
+      tick: async ({ stats }) => {
+        const list = await store.list()
+        for (const entry of list) {
+          const task = await store.get(entry.id)
+          if (task === null) continue
+          const res = patrolFindings({
+            task,
+            now: Date.now(),
+            stallMs: config.patrolStallMs,
+            unconsumed: wakeup.pendingDeliveries(entry.id, { olderThanMs: config.wakeUnconsumedMs, limit: 5 }),
+            unresolved: wakeLedger.unresolvedEntries({ taskId: entry.id, limit: 5 }),
+            patrolFailures: Number(stats?.consecutive_failures ?? 0),
+            failureThreshold: Number(stats?.failure_threshold ?? 3),
+            stallEpisodes: Number(stats?.stall_episodes ?? 0),
+            patrolOwner: 'patrol',
+          })
+          for (const f of res.findings) await reportFinding(entry.id, task, f)
+          /**
+           * ★ R1：**未被消费的投递不得从此静默消失** —— 由唤醒器发一条**可配对读出
+           *   的升级事件**（不是把原事件原地重放）。它只在"没被消费且没升过级"时发，
+           *   一旦被消费即不再发（判据在 `wakeup.escalateUnconsumed`）。
+           */
+          await wakeup.escalateUnconsumed(entry.id, { olderThanMs: config.wakeUnconsumedMs, limit: 2, reason: 'patrol:unconsumed' })
+        }
+      },
+    })
+    patrol.start()
+    ctx.effect(() => () => patrol.stop(), 'pipeline: patrol (report-only sweep)')
+    ctx.logger?.info?.(
+      `[pipeline] 巡检兜底已启动：每 ${Math.round(config.patrolIntervalMs / 60000)} 分钟一轮，` +
+        `无进展口径 ${Math.round(config.patrolStallMs / 60000)} 分钟，未接管升级口径 ${Math.round(config.wakeUnconsumedMs / 60000)} 分钟（**只播报，不动作**）。`,
+    )
+  }
+
+  // -------------------------------------------------------------------------
+  // 3.4) ★★ **孤儿单自恢复的扫描器启动**（装配见 1.9；这里只负责起表）
+  // -------------------------------------------------------------------------
+  //
+  //   ★ 它与上面那条巡检**是两条并行的周期**，各自跑各自的：
+  //     · 巡检（3.3）**只播报**「长时间无进展」——A22 的不动作纪律一个字没动；
+  //     · 自恢复（本条）**识别 + 自己重新投递**（走 `notify_only` 的同一份实现）。
+  //   判据不同源、动作不同，互不冒充（A24 的同一条纪律）。
+  if (orphanRescue !== null) {
+    orphanRescue.start()
+    ctx.logger?.info?.(
+      `[pipeline] 孤儿单自恢复已启动：每 ${Math.round(config.orphanIntervalMs / 60000)} 分钟一轮，` +
+        `判定窗 ${Math.round(config.orphanGraceMs / 60000)} 分钟，失败退避 ${Math.round(config.orphanRedeliverBackoffMs / 60000)} 分钟，` +
+        `同一身份最多重投 ${config.orphanMaxRedeliverAttempts} 次（**不建会话、不派新席位、不改状态**）。`,
+    )
+  } else {
+    ctx.logger?.info?.('[pipeline] 孤儿单自恢复已关闭（config.orphanRescueEnabled=false）—— 席位被切断时不会有人重新投递。')
+  }
+
+  // -------------------------------------------------------------------------
+  // 3.5) 开关的 HTTP 面（客户端 UI 用）
+  // -------------------------------------------------------------------------
+  //
+  // ★ 仍然**不把 webServer 写进 inject**：那样在没有 webServer 的形态（headless）下
+  // 整个插件都不会激活，而守门与工具在 headless 下照样有用。
+  //
+  // ★ 但也不能"在 apply 里探测一次就完事"——探不探得到取决于**激活顺序**：
+  //   本插件只 inject `tools`，`tools` 一就绪它的 fiber 就激活；而 `webServer`
+  //   是后一层的插件才提供的。两者一前一后时那次探测必然拿到 undefined，
+  //   于是路由永远挂不上 —— 表现就是工具全都注册成功、`/.dsh-pipeline/state`
+  //   却一直 404（实测确认过这条）。
+  //   真实 cordis 上的语义微测：先提供 webServer 时 `ctx.get('webServer')`
+  //   拿得到服务；后提供时拿到的就是 undefined（且 `ctx.webServer` 属性直读会抛
+  //   `cannot get property "webServer" without inject`）。
+  //
+  // ★ 所以改用 cordis 的**可选注入**惯用法 `ctx.inject(['webServer'], cb)`
+  //   （`@deepseek-ai/cordis/src/registry.ts:300-302`，机制是 fiber 的依赖触发：
+  //   `fiber.ts:611-623` 的 `_refresh()`）。它建一个**子 fiber**：
+  //     · webServer 可用 ⇒ 回调跑 ⇒ 挂路由（disposer 记在这个子 fiber 上）；
+  //     · webServer 不可用/被卸载 ⇒ 回调不跑/子 fiber 卸载 ⇒ 路由自动摘掉。
+  //   于是有 webServer 就挂、没有就静默跳过：apply 照常跑完，工具与守门照常注册。
+  //
+  // ⚠️ 回调是**异步**跑的（cordis `fiber.ts:650` 先 `await Promise.resolve()`），
+  //    所以"挂上了没有"这句话只能由回调自己说，不能拿 apply 结尾那一刻的状态去断言。
+  let routeMounted = false
+
+  /** 把路由挂到 target（有 webServer 才算数）；返回是否挂上。 */
+  const mountSwitchRouteWhenReady = (target, via) => {
+    try {
+      const mounted = mountSwitchRoute(target, {
+        sw,
+        version: TOOL_VERSION,
+        log: (m) => target.logger?.debug?.(`[pipeline] ${m}`),
+      })
+      if (mounted === null) return false
+      target.effect(() => mounted.dispose, 'pipeline: switch route')
+      routeMounted = true
+      const rmsg =
+        `[pipeline] 开关 UI 端点已挂载：GET/POST ${STATE_PATH}` +
+        `（右上角「多AI 协调」按钮走它；经 ${via}）。`
+      target.logger?.info?.(rmsg)
+      console.log(rmsg)
+      return true
+    } catch (err) {
+      // 路由注册失败（例如别人已经占了同一前缀）不该让整个插件不激活。
+      target.logger?.warn?.(
+        `[pipeline] 开关路由挂载失败（UI 按钮会显示未知，pipeline_switch 工具仍然可用）：${String(err?.message ?? err)}`,
+      )
+      return false
+    }
+  }
+
+  let routeDeferred = false
+  if (config.switchRoute !== false) {
+    if (typeof ctx.inject === 'function') {
+      routeDeferred = true
+      ctx.inject(['webServer'], (child) => {
+        mountSwitchRouteWhenReady(child, 'ctx.inject(["webServer"])')
+      })
+    } else {
+      // 没有 ctx.inject（非 cordis 宿主 / 极老形态）：退回运行期探测，能挂就挂。
+      routeDeferred = false
+      mountSwitchRouteWhenReady(ctx, "ctx.get('webServer')（运行期探测）")
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // 4) system prompt 段（告诉模型这套流水线怎么用）
+  // -------------------------------------------------------------------------
+  if (config.registerPromptSection === true) {
+    try {
+      ctx.systemPrompt?.section?.({
+        name: 'pipeline:roles',
+        order: PROMPT_ORDER,
+        text: () => PIPELINE_PROMPT,
+      })
+    } catch (err) {
+      ctx.logger?.warn?.(`[pipeline] system prompt 段注册失败（不影响工具与守门）：${String(err?.message ?? err)}`)
+    }
+  }
+
+  const snap = sw.snapshot()
+  const msg =
+    `[pipeline] ${NS} ${TOOL_VERSION} 已加载：29 个 pipeline_* 工具已注册；` +
+    (config.guardEnabled === true ? '守门已启用；' : '**guardEnabled=false（没有硬拦截）**；') +
+    `通道=${transport.kind}（transport=${config.transport}，spawnRoles=${config.spawnRoles !== false}）；` +
+    `真实会话通道=${channelProbe.ok ? '可用' : '**不可达**'}${channelProbe.ok ? '' : `（缺 ${channelProbe.missing.join('、')}）`}；` +
+    `工作区=${join(projectRoot, config.artifactDirName)}；` +
+    `多AI 协调开关=**${snap.on ? '开' : '关'}**（revision ${snap.revision}${snap.restored ? '，自状态文件恢复' : '，默认值'}）。`
+  ctx.logger?.info?.(msg)
+  console.log(msg)
+
+  // ★ 通道不可达要**喊出来**（不是只在返回值里）：先上报、不静默降级。
+  if (channelProbe.ok !== true) {
+    const wmsg =
+      '[pipeline] ⚠ 真实会话派活通道**不可达**，已按「先上报、不静默降级」停住（不会自动退回子代理）：\n' +
+      channelProbe.evidence.map((e) => `  · ${e}`).join('\n') + '\n' +
+      '  降级方案（交用户裁定后再改配置）：\n' +
+      channelProbe.degradations.map((x, i) => `  ${i + 1}. ${x}`).join('\n')
+    ctx.logger?.warn?.(wmsg)
+    console.warn(wmsg)
+  }
+
+  if (routeMounted) {
+    const rmsg =
+      `[pipeline] 开关 UI 端点已就绪：GET/POST ${STATE_PATH}（右上角「多AI 协调」按钮走它）。` +
+      (snap.on ? '' : '\n[pipeline] ⚠ 当前开关是**关**：守门已弃权，流水线写入动作会被拒。')
+    ctx.logger?.info?.(rmsg)
+    console.log(rmsg)
+  } else if (config.switchRoute !== false) {
+    // routeDeferred 时 apply 已经登记了可选注入 —— 此刻没挂上不代表最终没挂上
+    // （回调至少晚一个微任务），所以这里不能报"未挂载"。
+    const rmsg = routeDeferred
+      ? `[pipeline] 开关 UI 端点：已登记可选注入（webServer），服务就绪后自动挂载 ${STATE_PATH}；` +
+        'headless 形态下它永远不会就绪 —— 那是设计内的降级，不是故障。'
+      : `[pipeline] 未挂载开关 UI 端点（拿不到 ctx.webServer，或前缀 ${ROUTE_PREFIX} 已被占用）—— ` +
+        '右上角不会出现「多AI 协调」按钮；开关仍可用 pipeline_switch 工具切换。'
+    if (routeDeferred) {
+      ctx.logger?.info?.(rmsg)
+      console.log(rmsg)
+    } else {
+      ctx.logger?.warn?.(rmsg)
+      console.warn(rmsg)
+    }
+  }
+}
+
+/**
+ * `defineTool` 从 `@deepseek-ai/dsh-tools` 拿。
+ *
+ * 解析不到时退化成"恒等函数"：这时工具定义仍是合法对象（注册表只需要
+ * name/description/parameters/output/execute），插件还能工作 ——
+ * 总比整行 import 失败、插件完全不激活要好。退化会打一条警告日志。
+ */
+let DEFINE_TOOL = (definition) => definition
+let DEFINE_TOOL_DEGRADED = true
+try {
+  const mod = await import('@deepseek-ai/dsh-tools')
+  if (typeof mod.defineTool === 'function') {
+    DEFINE_TOOL = mod.defineTool
+    DEFINE_TOOL_DEGRADED = false
+  }
+} catch {
+  /* 保持退化实现 */
+}
+if (DEFINE_TOOL_DEGRADED) {
+  console.warn(
+    '[pipeline] 未能解析 @deepseek-ai/dsh-tools：defineTool 退化为恒等函数。\n' +
+    '[pipeline] 这不再是致命故障 —— lib/tools.js 自己就吐严格 JSON Schema' +
+    '（required 为字符串数组、parameters 带 type/properties），' +
+    '宿主 Tools.register() 的 assertSupportedJsonSchema 仍会通过，工具照常注册。'
+  )
+}
+
+/** 给 index.js 的使用者一个查询退化状态的出口（bin/ 与自测会用到）。 */
+export function isDefineToolDegraded() {
+  return DEFINE_TOOL_DEGRADED
+}
+
+/**
+ * ★ 上一次 `apply()` 时**真实会话派活通道**的能力探测结论。
+ *
+ * 为什么必须能查：派活通道的「可达 / 不可达 + 证据 + 降级方案」如果只写在日志里，
+ * 排查时就得翻日志；它是**判决**，得能被程序读到、被自测断言、被审查引用。
+ */
+let LAST_CHANNEL_PROBE = null
+export function lastChannelProbe() {
+  return LAST_CHANNEL_PROBE
+}
+
+/**
+ * ★★ 最近一次**主对话侧自动认领**的结论（只读导出）。
+ *
+ * 为什么必须能查（与 `lastChannelProbe()` 同一条理由）：认领是**判决** ——
+ * 「它凭什么认定这个会话是这张单的主对话」「认领上了没有 / 为什么认领不了」
+ * 如果只活在一次工具调用的返回值或日志里，审查与自测就没法**程序化**核对它。
+ *
+ * 字段（完整定义见 `lib/reattach.js` 的 `autoReattachMain` 返回值）：
+ *   · `session_id` / `swept` / `reason`（结论码取自 `CLAIM_REASONS`）
+ *   · `claims[]`  —— 认领成功的单（`restored` 标明"令牌是按台账认回来的"）
+ *   · `refused[]` —— **认领不了**的单（`reason` + `detail` + `evidence` 原文）
+ *   · `created_sessions` / `created_seats` / `touched_task_json` —— 机械判据：
+ *     本机制**没有**创建会话、没有派席位、没有改 `task.json`（三个恒为 0/false）。
+ *
+ * 取值出口还有一条给人看的：`formatMainReattachReport()`（`lib/reattach.js`）。
+ */
+let LAST_MAIN_REATTACH = null
+export function lastMainReattach() {
+  return LAST_MAIN_REATTACH
+}
+
+/** 导出配置默认值，便于文档与自测引用同一份。 */
+export { DEFAULTS }
+
+/**
+ * 注册进 system prompt 的说明。
+ *
+ * 写得短而硬：模型要先知道"你是谁、你不能干什么"，才谈得上协作。
+ * 措辞里刻意保留"必须/不得"这类硬词，因为它是给模型看的行为契约。
+ */
+export const PIPELINE_PROMPT = [
+  '本机装有多对话 AI 协作开发流水线（dsh-pipeline）。它的核心是「主对话只调度不干活；编写/测试/审核三权分立」。',
+  '',
+  '★ 这套流水线的**设计目的**是**防过度工程化**：每个 AI 只干自己该干的。六条规则：',
+  '  ① **编程别跑测试**：编写角色跑测试类命令（npm test / pytest / node --test / node tests/xxx）会被拒；',
+  '     你也不能产出测试报告或测试结论（用例、通过证据、判定全是 tester 的产物）。',
+  '  ② **编排别看代码**：主对话 / 需求分析 / 计划**读不到源码正文**（read、检索工具、shell 读都会被拦），',
+  '     你们的产物里也不许出现代码正文；只吃需求档 + 脱敏摘要 + 只给路径的目录结构。',
+  '  ③ **最小改动**：计划的 change_scope 是**授权改动面**，编写只能在这个清单内动 ——',
+  '     **新增文件也算越界**；"顺手重构 / 统一风格 / 升级依赖"= 没有授权 = 不许；',
+  '     要扩大范围就走澄清/变更拿到新授权。dev_to_test 必须带 change_manifest（每条引用一个授权条目）。',
+  '  ④ **职责自限**：需求分析与计划的产物里要写明"我只做什么、不做什么"（role_scope），',
+  '     计划还要为**每个执行角色**写边界卡（role_boundaries），派活时按它派 —— 别让谁顺手多干。',
+  '  ⑤ **双轨派活**：计划一出，**编写与审核同时接任务** —— 审核开工前就拿到授权面、越界清单、',
+  '     自己的边界卡与改动基线；但它**不能提前出结论**（链路不变：编写 → 测试 → 才交审核）。',
+  '  ⑥ **审核只读 + 前后版本对比**：审核除了自己的日志（.pipeline/<任务>/reports/reviewer/*.log）',
+  '     **什么都写不了**；它靠**改动基线**做前后版本对比（pipeline_change_audit），把"多改 / 少改 /',
+  '     改错地方"写进 review_verdict.change_audit；有多改就不许发 OK。',
+  '',
+  '如果你是被开单的主对话：你只负责接需求、开单、按角色清单派活、跟踪状态、收到审核 OK 后关单。',
+  '你**不读代码、不写代码、不跑测试、不做技术判断**，也**不自行决定要调用几个 AI** —— 那是计划 AI 的产物。',
+  '要增减角色，只能走「执行角色提申请 → 计划 AI 复核」，你不能自己批。',
+  '',
+  '★ 开工前的顺序是固定的：① 需求分析（orchestrator）出任务卡 + **需求不清楚处清单**；',
+  '   ② 把不清楚处交**用户**人工确认（你是唯一的通道，不得替用户拍板）；',
+  '   ③ 确认后派计划 AI（planner）出计划 → 自检 → **分配 AI**（角色清单 / 用几个 / 派谁 / 什么顺序 / 按层分席位）。',
+  '   计划自检发现缺失时，planner 会走澄清梯退回需求分析；需求分析答不了才升级到你 → 用户。',
+  '',
+  '如果你是编写角色：按任务卡改程序、自测，然后产出 dev_to_test 交接物**直接提交测试**。你不能直接提交审核。',
+  '  多席位时你只写自己那一段（按层分工，范围由 scope_paths 卡死）；**越界写别人的分区会被守门拦下**。',
+  '  **不要跑测试** —— 构建/启动级冒烟可以（npm run build / node build.mjs），但"通过与否"由 tester 判。',
+  '如果你是测试角色：独立设计用例并执行，通过后产出 test_to_review 交审核；不通过就用 pipeline_rework 打回编写。',
+  '**你不能替编写改代码** —— 发现了缺陷就打回，不要自己动手。',
+  '如果你是审核角色：核对需求、产物、测试报告，通过就产出 conclusion=OK 的 review_verdict，否则用 pipeline_rework 打回。',
+  '',
+  '每一个动作都要带 role_token；每个环节都要产出结构化交接物；状态推进由机制判定，不接受"我觉得可以了"。',
+].join('\n')

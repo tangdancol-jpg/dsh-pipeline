@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "ok": false,
+  "command": "finalize",
+  "status": "fail",
+  "type": "workflow",
+  "quality": "showcase",
+  "specification": {
+    "path": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\_probe-split-noauto\\main-path.candidate.json",
+    "sha256": "0377c5b2abc7a7679f7c9e39221fb130e32b7bf403e6059f08e14b61ce4ffb2b",
+    "bytes": 17263
+  },
+  "artifact": {
+    "path": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\_probe-split-noauto\\main-path.html"
+  },
+  "gates": {
+    "validate": "fail",
+    "deliver": "not-run",
+    "check": "not-run",
+    "browser-check": "not-run"
+  },
+  "failedStage": "validate",
+  "diagnostics": [
+    {
+      "code": "internal/unclassified",
+      "severity": "error",
+      "message": "Renderer failed before emitting a structured diagnostic.",
+      "subject": {},
+      "evidence": {
+        "exitCode": 1
+      }
+    }
+  ],
+  "diagnosticSummary": {
+    "total": 1,
+    "shown": 1,
+    "truncated": false
+  },
+  "evidence": {
+    "receipt": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\_probe-split-noauto\\main-path.finalize.json",
+    "summaryReceipt": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\_probe-split-noauto\\main-path.finalize-summary.json"
+  },
+  "update": {
+    "status": "current",
+    "installedVersion": "3.0.1",
+    "availableVersion": "3.0.1",
+    "releaseNotes": null,
+    "checkedAt": "2026-10-13T15:09:43.710Z",
+    "source": "cache",
+    "noticeRequired": false,
+    "noticeText": null
+  },
+  "visualReview": "not-requested",
+  "durationMs": 447,
+  "nextAction": {
+    "action": "edit-in-place",
+    "candidate": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\_probe-split-noauto\\main-path.candidate.json",
+    "constraint": "Preserve unaffected semantics and geometry; do not replace the whole candidate.",
+    "then": "finalize-once"
+  }
+}

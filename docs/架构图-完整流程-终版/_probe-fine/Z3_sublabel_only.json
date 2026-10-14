@@ -1,0 +1,598 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "AI 协作流水线 · 应然完整流程",
+    "subtitle": "目标形态，不考虑当前状态。红 = 当前完全没有实现的部件（normify 结构里 4 个 planned 模块）。结构与事件名实读 normify-dsh-pipeline 与 lib/states.js。",
+    "locale": "zh",
+    "output": "ai-pipeline-flow.html",
+    "quality_profile": "showcase",
+    "visual_preset": "classic",
+    "legend": {
+      "mode": "all",
+      "entries": {
+        "frontend": {
+          "label": "用户 ⇄ 主对话（入口 / 出口）"
+        },
+        "backend": {
+          "label": "角色席（需求分析 / 计划 / 架构与安全 / 编写）"
+        },
+        "cloud": {
+          "label": "独立复核（测试 / 审核）"
+        },
+        "database": {
+          "label": "留档（唯一需求档）"
+        },
+        "external": {
+          "label": "机制底座（托住全流程）"
+        },
+        "security": {
+          "label": "★ 红 = 当前未实现（planned，4 个）"
+        }
+      }
+    },
+    "views": [
+      {
+        "id": "main_path",
+        "label": "主路径（一站不落）",
+        "focus": [
+          "n_intake",
+          "n_supervision",
+          "n_requirement",
+          "n_planning",
+          "n_architecture",
+          "n_execution",
+          "n_verification",
+          "n_archiving",
+          "n_closeout"
+        ],
+        "note": "用户下达 → 登记建单 → 主管发起派活 → 需求分析 → 计划 → 架构与安全 → 编写 → 测试审核 → 留档 → 关单回投"
+      },
+      {
+        "id": "missing",
+        "label": "★ 当前缺失的 4 个部件",
+        "focus": [
+          "n_supervision",
+          "n_ledger",
+          "n_patrol",
+          "n_reattach"
+        ],
+        "note": "主管枢纽 / 幂等播报账本 / 巡检兜底 / 重启认领 —— normify 里 state=planned、source 为空、无实现落点"
+      },
+      {
+        "id": "ladder",
+        "label": "澄清梯与打回环",
+        "focus": [
+          "n_requirement",
+          "n_planning",
+          "n_execution",
+          "n_verification",
+          "n_closeout"
+        ],
+        "note": "两级澄清梯（先问需求分析，答不了才升级用户）与打回预算（每条腿 2 次）挂在这几个节点之间"
+      },
+      {
+        "id": "substrate",
+        "label": "机制底座（怎么托住全流程）",
+        "focus": [
+          "n_plumbing",
+          "n_wakeup",
+          "n_hostmsg",
+          "n_ledger",
+          "n_liveness",
+          "n_patrol",
+          "n_reattach",
+          "n_tokens",
+          "n_guard",
+          "n_hashing",
+          "n_states"
+        ],
+        "note": "投递链（唤醒 / 宿主通道 / 幂等账本 / 失联 / 巡检 / 重启认领）与约束链（令牌 / 守门 / 哈希闸门 / 状态机）"
+      }
+    ]
+  },
+  "lanes": [
+    {
+      "id": "mech_deliver",
+      "label": "机制底座 · 投递与兜底"
+    },
+    {
+      "id": "entry",
+      "label": "用户 ⇄ 主对话（下达与登记）"
+    },
+    {
+      "id": "hub",
+      "label": "主管枢纽（★ 未实现）"
+    },
+    {
+      "id": "seats",
+      "label": "角色席（需求分析 / 计划 / 架构与安全 / 编写）"
+    },
+    {
+      "id": "gates",
+      "label": "独立复核（测试 / 审核）"
+    },
+    {
+      "id": "archive",
+      "label": "留档（唯一需求档）"
+    },
+    {
+      "id": "closeout",
+      "label": "关单与回投（回投用户）"
+    },
+    {
+      "id": "mech_rule",
+      "label": "机制底座 · 令牌 / 守门 / 闸门 / 状态机"
+    }
+  ],
+  "phases": [
+    {
+      "id": "ph_reg",
+      "label": "① 登记",
+      "fromCol": 0,
+      "toCol": 0
+    },
+    {
+      "id": "ph_dispatch",
+      "label": "② 派活与定口径",
+      "fromCol": 1,
+      "toCol": 1
+    },
+    {
+      "id": "ph_plan",
+      "label": "③ 计划",
+      "fromCol": 2,
+      "toCol": 2
+    },
+    {
+      "id": "ph_design",
+      "label": "④ 方案",
+      "fromCol": 3,
+      "toCol": 3
+    },
+    {
+      "id": "ph_run",
+      "label": "⑤ 执行与复核",
+      "fromCol": 4,
+      "toCol": 4
+    },
+    {
+      "id": "ph_close",
+      "label": "⑥ 留档与关单",
+      "fromCol": 5,
+      "toCol": 5
+    }
+  ],
+  "nodes": [
+    {
+      "id": "n_intake",
+      "lane": "entry",
+      "col": 0,
+      "type": "frontend",
+      "label": "接入与登记",
+      "sublabel": "用户下达 → 登记建单",
+      "tag": "open → pending",
+      "width": 92,
+      "height": 68
+    },
+    {
+      "id": "n_closeout",
+      "lane": "closeout",
+      "col": 5,
+      "type": "frontend",
+      "label": "关单与回投",
+      "sublabel": "审核 OK 才可关单",
+      "tag": "close → 回投用户",
+      "width": 92,
+      "height": 68
+    },
+    {
+      "id": "n_supervision",
+      "lane": "hub",
+      "col": 1,
+      "type": "security",
+      "label": "主管枢纽",
+      "sublabel": "主管枢纽（缺失）",
+      "tag": "planned",
+      "width": 92,
+      "height": 68
+    },
+    {
+      "id": "n_requirement",
+      "lane": "seats",
+      "col": 1,
+      "type": "backend",
+      "label": "需求分析",
+      "sublabel": "任务卡 / 验收标准",
+      "tag": "pipeline_orchestrate",
+      "width": 92,
+      "height": 68
+    },
+    {
+      "id": "n_planning",
+      "lane": "seats",
+      "col": 2,
+      "type": "backend",
+      "label": "计划与授权面",
+      "sublabel": "档位 / 名单 / 四槽",
+      "tag": "pipeline_plan",
+      "width": 92,
+      "height": 68
+    },
+    {
+      "id": "n_architecture",
+      "lane": "seats",
+      "col": 3,
+      "type": "backend",
+      "label": "架构与安全",
+      "sublabel": "动手前出方案",
+      "tag": "design",
+      "width": 92,
+      "height": 68
+    },
+    {
+      "id": "n_execution",
+      "lane": "seats",
+      "col": 4,
+      "type": "backend",
+      "label": "编写席执行",
+      "sublabel": "边界卡内落笔",
+      "tag": "pipeline_artifact",
+      "width": 92,
+      "height": 68
+    },
+    {
+      "id": "n_verification",
+      "lane": "gates",
+      "col": 4,
+      "type": "cloud",
+      "label": "测试与审核",
+      "sublabel": "自己跑判据",
+      "tag": "test_* / review_ok",
+      "width": 92,
+      "height": 68
+    },
+    {
+      "id": "n_archiving",
+      "lane": "archive",
+      "col": 5,
+      "type": "database",
+      "label": "留档",
+      "sublabel": "汇总唯一需求档",
+      "tag": "compile_requirement",
+      "width": 92,
+      "height": 68
+    },
+    {
+      "id": "n_wakeup",
+      "lane": "mech_deliver",
+      "col": 0,
+      "type": "external",
+      "label": "唤醒投递",
+      "sublabel": "交付/推进/失联",
+      "tag": "wakeup.js",
+      "width": 92,
+      "height": 68
+    },
+    {
+      "id": "n_ledger",
+      "lane": "mech_deliver",
+      "col": 1,
+      "type": "security",
+      "label": "幂等播报账本",
+      "sublabel": "幂等播报账本（缺失）",
+      "tag": "planned · 恰播一次",
+      "width": 92,
+      "height": 68
+    },
+    {
+      "id": "n_liveness",
+      "lane": "mech_deliver",
+      "col": 2,
+      "type": "external",
+      "label": "失联判定",
+      "sublabel": "四条判据同时成立",
+      "tag": "liveness.js",
+      "width": 92,
+      "height": 68
+    },
+    {
+      "id": "n_patrol",
+      "lane": "mech_deliver",
+      "col": 3,
+      "type": "security",
+      "label": "巡检兜底",
+      "sublabel": "巡检兜底（缺失）",
+      "tag": "planned · 卡点静默",
+      "width": 92,
+      "height": 68
+    },
+    {
+      "id": "n_hostmsg",
+      "lane": "mech_deliver",
+      "col": 4,
+      "type": "external",
+      "label": "宿主消息通道",
+      "sublabel": "注入下一轮上下文",
+      "tag": "hostmsg.js",
+      "width": 92,
+      "yOffset": 0,
+      "height": 68
+    },
+    {
+      "id": "n_reattach",
+      "lane": "mech_deliver",
+      "col": 4,
+      "type": "security",
+      "label": "重启认领",
+      "sublabel": "重启认领（缺失）",
+      "tag": "planned · 认得席位",
+      "width": 92,
+      "yOffset": 80,
+      "height": 68
+    },
+    {
+      "id": "n_plumbing",
+      "lane": "mech_rule",
+      "col": 0,
+      "type": "external",
+      "label": "机制底座",
+      "sublabel": "十条机制托住全流程",
+      "tag": "flow.plumbing",
+      "width": 92,
+      "height": 68
+    },
+    {
+      "id": "n_tokens",
+      "lane": "mech_rule",
+      "col": 1,
+      "type": "external",
+      "label": "席位令牌",
+      "sublabel": "写入按它判",
+      "tag": "tokens.js",
+      "width": 92,
+      "height": 68
+    },
+    {
+      "id": "n_guard",
+      "lane": "mech_rule",
+      "col": 2,
+      "type": "external",
+      "label": "守门",
+      "sublabel": "两侧拦越权写入",
+      "tag": "guard.js",
+      "width": 92,
+      "height": 68
+    },
+    {
+      "id": "n_hashing",
+      "lane": "mech_rule",
+      "col": 3,
+      "type": "external",
+      "label": "哈希前置闸门",
+      "sublabel": "足迹 vs 授权面",
+      "tag": "hashgate.js",
+      "width": 92,
+      "height": 68
+    },
+    {
+      "id": "n_states",
+      "lane": "mech_rule",
+      "col": 4,
+      "type": "external",
+      "label": "任务状态机",
+      "sublabel": "合法迁移 · 打回预算",
+      "tag": "states.js",
+      "width": 92,
+      "height": 68
+    }
+  ],
+  "edges": [
+    {
+      "id": "e_open",
+      "from": "n_intake",
+      "to": "n_supervision",
+      "label": "交主管",
+      "variant": "default",
+      "role": "main"
+    },
+    {
+      "id": "e_dispatch_orchestrator",
+      "from": "n_supervision",
+      "to": "n_requirement",
+      "label": "dispatch_orchestrator",
+      "variant": "emphasis",
+      "role": "main"
+    },
+    {
+      "id": "e_requirement_confirmed",
+      "from": "n_requirement",
+      "to": "n_planning",
+      "label": "确认",
+      "variant": "emphasis",
+      "role": "main"
+    },
+    {
+      "id": "e_planned",
+      "from": "n_planning",
+      "to": "n_architecture",
+      "variant": "default",
+      "role": "main"
+    },
+    {
+      "id": "e_dispatch_writer",
+      "from": "n_architecture",
+      "to": "n_execution",
+      "label": "派编写",
+      "variant": "default",
+      "role": "main"
+    },
+    {
+      "id": "e_dev_submitted",
+      "from": "n_execution",
+      "to": "n_verification",
+      "label": "dev_submitted",
+      "variant": "emphasis",
+      "role": "main"
+    },
+    {
+      "id": "e_review_ok",
+      "from": "n_verification",
+      "to": "n_archiving",
+      "label": "审核 OK",
+      "variant": "emphasis",
+      "role": "main"
+    },
+    {
+      "id": "e_close",
+      "from": "n_archiving",
+      "to": "n_closeout",
+      "label": "close",
+      "variant": "emphasis",
+      "role": "main"
+    },
+    {
+      "id": "e_plan_gap",
+      "from": "n_planning",
+      "to": "n_requirement",
+      "variant": "dashed",
+      "role": "branch"
+    },
+    {
+      "id": "e_rework",
+      "from": "n_verification",
+      "to": "n_execution",
+      "label": "打回 · 预算 2",
+      "variant": "dashed",
+      "role": "error"
+    },
+    {
+      "id": "e_wake_main",
+      "from": "n_wakeup",
+      "to": "n_intake",
+      "label": "叫醒主对话",
+      "variant": "dashed",
+      "role": "async"
+    },
+    {
+      "id": "e_wake_seat",
+      "from": "n_hostmsg",
+      "to": "n_execution",
+      "label": "叫醒既有席位",
+      "variant": "dashed",
+      "role": "async"
+    },
+    {
+      "id": "e_d_ledger",
+      "from": "n_ledger",
+      "to": "n_wakeup",
+      "variant": "dashed",
+      "role": "async"
+    },
+    {
+      "id": "e_d_liveness",
+      "from": "n_liveness",
+      "to": "n_ledger",
+      "label": "触发",
+      "variant": "dashed",
+      "role": "async"
+    },
+    {
+      "id": "e_d_patrol",
+      "from": "n_patrol",
+      "to": "n_liveness",
+      "variant": "dashed",
+      "role": "async"
+    },
+    {
+      "id": "e_d_reattach",
+      "from": "n_reattach",
+      "to": "n_hostmsg",
+      "label": "认领",
+      "variant": "dashed",
+      "role": "async"
+    },
+    {
+      "id": "e_r_tokens",
+      "from": "n_plumbing",
+      "to": "n_tokens",
+      "variant": "default",
+      "role": "async"
+    },
+    {
+      "id": "e_r_guard",
+      "from": "n_tokens",
+      "to": "n_guard",
+      "label": "判定",
+      "variant": "default",
+      "role": "async"
+    },
+    {
+      "id": "e_r_hashing",
+      "from": "n_guard",
+      "to": "n_hashing",
+      "variant": "default",
+      "role": "async"
+    },
+    {
+      "id": "e_r_states",
+      "from": "n_hashing",
+      "to": "n_states",
+      "label": "推进",
+      "variant": "default",
+      "role": "async"
+    },
+    {
+      "id": "e_rule_close",
+      "from": "n_states",
+      "to": "n_closeout",
+      "label": "判迁移",
+      "variant": "dashed",
+      "role": "async"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "rose",
+      "title": "★ 红 = 当前完全没有实现（normify 里 state=planned、source 为空）",
+      "items": [
+        "主管枢纽（缺失）：由它发起需求分析 / 计划 / 架构三方对话，承接所有席位交付与上报 —— 席位与主对话之间唯一的升级节点，当前完全没有实现",
+        "幂等播报账本（缺失）：落盘记录「哪条事件已经播过」，让「同一条事件恰播一次」在进程重启后仍成立；没有它，重放与重复播报分不开",
+        "巡检兜底（缺失）：定时巡检「长时间无进展」并主动播报；没有它，卡点可以静默存在",
+        "重启认领（缺失）：DSH 重启后机制仍应认得出既有席位；现状只有主对话能重认领，而且是手动的"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "主路径 —— 每一跳对应状态机里的一个合法事件（实读 lib/states.js）",
+      "items": [
+        "open → 待分配(pending) → dispatch_orchestrator（main）→ 需求分析中(analyzing)",
+        "requirement_confirmed（guard 要求带用户答复原文）→ 待计划(ready_plan) → dispatch_planner → 计划中(planning) → planned → 待开发(ready_dev)",
+        "dispatch_writer → 开发中(developing) → dev_submitted（writer）→ 待测试(ready_test) → dispatch_tester → 测试中(testing)",
+        "test_passed → 待审核(ready_review) → dispatch_reviewer → 审核中(reviewing) → review_ok → 已通过(passed)",
+        "close（guard: close_gates，必须已有有效审核结论）→ 已关闭(closed) ⇒ 结果回投用户"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "两级澄清梯与打回环 —— 用户只与主对话相连，所以这是唯一的人工上升通道",
+      "items": [
+        "第一级：执行 / 顾问角色 clarification_request → 等待需求分析答复(awaiting_clarification)；需求分析 clarification_reply(answered) ⇒ 回到被打断前的状态，原角色原地继续",
+        "第二级：需求分析答不了（cannot_answer）⇒ 它自己 human_request 升级 → 主对话 pipeline_human_relay 转告用户 → 用户答复 → human_reply ⇒ 回到被打断前的状态",
+        "等待态刻意不覆盖 previous_state，所以「提问 → 升级 → 答复」整条链能恢复到最初被打断的那个工作状态；图中 plan_gap 那条回流边就是这部梯的实例",
+        "打回：test_failed → 已打回编写；review_ng_dev → 已打回编写；review_ng_test → 已打回测试。三条边都挂 rework_budget，每条腿默认 2 次",
+        "预算只在打回那一刻扣，重新派活（dispatch_writer / dispatch_tester）刻意不再扣，否则会出现「已打回，但再也派不出编写」的死结"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "机制底座怎么托住全流程",
+      "items": [
+        "唤醒投递：把「席位交付 / 状态推进 / 席位失联」变成一条面向正确收件人的消息；宿主消息通道把它注入某个席位或主对话的下一轮队列（runtime-context，不是用户消息）",
+        "失联判据四条同时成立才算：超过静默阈值 + 轮到场了 + 台账里没有任何活着的证据 + 会话日志也没在长",
+        "幂等键 = 任务 + 事件类别 + 执行者 + 稳定交付身份；取不到稳定身份就不播报（留痕 wake:skipped），绝不用递增计数器代替",
+        "写入侧四道约束：席位令牌（每席位一枚，所有写入按它判）→ 守门（文件工具与 shell 两侧拦越权）→ 哈希前置闸门（足迹 vs 授权面 / 基线）→ 任务状态机（合法迁移与打回预算）"
+      ]
+    }
+  ]
+}

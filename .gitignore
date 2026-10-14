@@ -1,0 +1,47 @@
+# ---- 本副本是脱敏后的可上传版本，以下内容一律不入库 ----
+# 生成/校验用的构建脚本地（构建结束即删除，写进来是双保险）
+# ★ 用 / 锁定根目录：docs/ 下面也有叫 _tools 的交付内容，不能被一起挡掉
+/_tools/
+_work/out/
+
+# 密钥与凭据（本就不应出现在此，写进来是挡一道）
+dashboard-keys.json
+*-keys.json
+*.pem
+*.key
+.env
+.env.*
+
+# 编辑器 / 系统噪音
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*~
+
+# 备份与转储（脱敏时已按文件名挡掉，再挡一次）
+*.bak-*
+*.bak
+*_backup-*
+*-backup-*
+*.orig
+*.wip-*
+*-last-run.txt
+*run-all.txt
+*run-all-after.txt
+*snapshot*
+wake-ledger.jsonl
+*BACKUP-TAG.txt
+
+# 流水线运行期数据（含会话/密钥信息，绝不入库）
+.pipeline/
+sessions/
+*.pid
+*.log
+
+# 归档产物
+*.zip
+*.tar.gz
+
+# 含个人信息的原始备份目录（本就不在副本里，再挡一道）
+_pii-backup/
