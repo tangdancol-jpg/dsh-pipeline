@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
-  "receiptId": "<uuid>",
+  "receiptId": "（UUID）",
   "status": "current",
   "command": "deliver",
   "type": "workflow",
-  "input": "<DSH_HOME>\\dsh_orb\\架构图-AI完整流程-v2\\ai-pipeline-flow.candidate.json",
-  "output": "<DSH_HOME>\\dsh_orb\\架构图-AI完整流程-v2\\ai-pipeline-flow.html",
+  "input": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-AI完整流程-v2\\ai-pipeline-flow.candidate.json",
+  "output": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-AI完整流程-v2\\ai-pipeline-flow.html",
   "specification": {
     "sha256": "9d1cd8fd20a14e1fb25613618a317148fe2c1c723d5bdc7b4a09904f1b25a621",
     "bytes": 17178

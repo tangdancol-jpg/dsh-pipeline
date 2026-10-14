@@ -3,9 +3,9 @@
   "ok": true,
   "command": "validate",
   "type": "workflow",
-  "input": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\v2\\main-path-v2.workflow.json",
+  "input": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\v2\\main-path-v2.workflow.json",
   "candidate": {
-    "path": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\v2\\main-path-v2.workflow.json",
+    "path": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\v2\\main-path-v2.workflow.json",
     "sha256": "20c688c39001685e3804c450078e670047fe68f1f1caf3cbde4ee65822cdff08",
     "bytes": 25098
   },
@@ -14,7 +14,7 @@
     "command": "finalize",
     "arguments": [
       "workflow",
-      "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\v2\\main-path-v2.workflow.json",
+      "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\v2\\main-path-v2.workflow.json",
       "<output.html>",
       "--quality",
       "standard",
@@ -1066,7 +1066,7 @@
       },
       {
         "severity": "warning",
-        "code": "composition/<redacted>",
+        "code": "composition/***",
         "nodeId": "n_intake",
         "owner": {
           "kind": "node",

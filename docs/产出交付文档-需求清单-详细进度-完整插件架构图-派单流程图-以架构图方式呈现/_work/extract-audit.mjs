@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const ROOT = '<DSH_HOME>\\profiles\\desktop\\.pipeline';
+const ROOT = '~\\.dsh\\profiles\\desktop\\.pipeline';
 const OUT = path.join(import.meta.dirname, 'out');
 fs.mkdirSync(OUT, { recursive: true });
 

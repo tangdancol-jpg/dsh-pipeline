@@ -203,7 +203,7 @@ function readTaskFile(h, taskId) {
  * 「最后一次进展」的**最大值**，而 `store.open` / `transition` 刚写下的 history 行
  * 本身就是"现在" ⇒ 只把派活时间改旧，最后进展仍然是"现在"（D8 那条 within-grace 会命中）。
  * 所以夹具直接改盘上那份 `task.json`（临时目录里我们自己的单），再让 store 按
- * "盘比内存新 ⇒ 重载"的既有对账把它读回来（`store.js:845` 的 `loadTask`）。
+ * "盘比内存新 ⇒ 重载"的既有对账把它读回来（`store/base.js` 的 `loadTask`）。
  */
 async function ageTask(h, taskId, minutes = 40) {
   const file = join(h.store.taskDir(taskId), 'task.json')
@@ -309,7 +309,7 @@ export async function runOrphanRescueCheck() {
     const o2 = await h.store.open({ requirement: '夹具：孤儿形状②（机制阻塞 / planner 零交接物）', actorRole: 'main', actorAgentId: 'agent-main' })
     const id2 = o2.task.id
     /** ★ 真单里 planner 的会话 id 就是一个**裸 UUID**（不是 `session-…` 形状）。 */
-    const bareUuid = '<uuid>'
+    const bareUuid = '00000000-0000-4000-8000-000000000201'
     await patchTaskFile(h, id2, (t) => {
       t.state = 'blocked'
       t.created_at = stale
@@ -640,11 +640,11 @@ export async function runOrphanRescueCheck() {
   //
   //  修法：`lib/orphan.js` 的 `MECHANISM_BOOKKEEPING_ACTIONS` 补上**主对话侧**那五个名字
   //  （`wake:skipped` / `wake:delivered` / `wake:failed` / `wake:dedup` / `wake:escalated`，
-  //  逐条对应 `lib/wakeup.js:101-122` 的 `WAKE_AUDIT`），与已经在表里的 `seat:wake-*` 配对。
+  //  逐条对应 `lib/wakeup/keys.js` 的 `WAKE_AUDIT`），与已经在表里的 `seat:wake-*` 配对。
   //
   //  ★ 本段有**两条反例**，缺一不可：一条防"计数串台"，一条防"把判定窗关掉"。
   //  ★ 下面那行 `wake:skipped` 是**同形夹具**（复刻真单那一行的形状与写入路径，
-  //    `wakeup.js:1134` → `store.recordAudit` → `history.push`），**不是活体**。
+  //    `wakeup/waker.js` → `store.recordAudit` → `history.push`），**不是活体**。
   {
     // --- 正例：**生产同形**（每轮失败之后真的写一行 `wake:skipped`）---
     const rig4 = await makeRig({
@@ -662,8 +662,8 @@ export async function runOrphanRescueCheck() {
       /**
        * ★★ **复刻生产形状的那一步**：每一轮结束（失败 ⇒ 账本落一条 `unresolved` ⇒
        * **既有巡检**把它当"该叫没叫"播报）之后，唤醒层在"没投出去"时往 `task.history`
-       * 写一行 —— 走的是**线上那条写入路径**（`lib/wakeup.js:1134` 的 `note()` →
-       * `store.recordAudit`（`lib/store.js:7794`，它 `history.push(entry)`））。
+       * 写一行 —— 走的是**线上那条写入路径**（`lib/wakeup/waker.js` 的 `note()` →
+       * `store.recordAudit`（`lib/store.js`，它 `history.push(entry)`））。
        * 本机两张真单（`T-20261011-4a2dc7` / `a5fe41`）的 `history` 末行逐字就是它。
        * ⚠️ 这是**同形夹具，不是活体**：形状与写入路径一致，数据全在本测试的临时目录里。
        *

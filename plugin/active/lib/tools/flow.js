@@ -194,7 +194,7 @@ export function buildFlowTools(ctx) {
       '异常出口 event：block（已阻塞）/ unblock（解除阻塞）/ cancel（已取消）。',
     parameters: {
       task_id: S('string', '任务 ID'),
-      event: S('string', '事件名（dispatch_orchestrator / requirement_confirmed / dispatch_planner / planned / dispatch_writer / dev_submitted / dispatch_tester / test_passed / dispatch_reviewer / review_ok / close / block / unblock / cancel 等）'),
+      event: S('string', '事件名（dispatch_orchestrator / requirement_confirmed / dispatch_planner / planned / dispatch_writer / dev_submitted / main_dev_submitted（主对话代发编写交测试）/ dispatch_tester / test_passed / dispatch_reviewer / review_ok / close / block / unblock / cancel 等）'),
       note: S('string', '备注（可空）'),
       role_token: S('string', '角色令牌'),
     },

@@ -62,7 +62,7 @@ export const S2 = {
         ['2026-10-12T14:20:32Z', 'transition:unblock', '用户裁定先推本单；回归已修（selftest 70/70 已活体验证）'],
         ['2026-10-12T14:27:50Z', 'roster:set + transition:planned', 'L1 / 7 对话 / 四槽 slots_digest=c421873b…'],
         ['2026-10-12T14:43:30Z', 'transition:block（机制触发）', '失联冻结 #1'],
-        ['2026-10-12T14:44:15Z', 'transition:unblock', '★ 反证：<session-id>… 的日志 13 秒内 563,327 → 575,960 B（+12,633 B）'],
+        ['2026-10-12T14:44:15Z', 'transition:unblock', '★ 反证：session-…… 的日志 13 秒内 563,327 → 575,960 B（+12,633 B）'],
         ['2026-10-12T14:47:32Z', 'artifact:register v1', 'writer#1：A5 席位身份缺件 + A4 证据可观测（+15 行 / 14,354 B）'],
         ['2026-10-12T14:47:56Z', 'gate:hash pass=true + handoff:dev_to_test', 'H-7d661abef1479500 / 4 条改动声明 / within_scope=true'],
         ['2026-10-12T14:53:45Z', 'transition:block（机制触发）', '失联冻结 #2（测试位）'],
@@ -188,7 +188,7 @@ export const S2_FAILURES = {
 
   b2: {
     title: '故障 2 · B2 会话活动判据为什么**从装上就一次没采样成功**',
-    report: '报告：<DSH_HOME>\\dsh_orb\\只读诊断-那条-补会话活动判据-的修复-为什么没拦住这次误判-一个字都不许改-硬\\诊断报告-B2会话活动判据为什么没拦住.md（39,521 B / 459 行，该目录唯一文件）',
+    report: '报告：~\\.dsh\\dsh_orb\\只读诊断-那条-补会话活动判据-的修复-为什么没拦住这次误判-一个字都不许改-硬\\诊断报告-B2会话活动判据为什么没拦住.md（39,521 B / 459 行，该目录唯一文件）',
     chain: [
       ['环节 ①', 'root === null ⇒ 确认门被关', '**证实（根因的直接机制）**',
         'store.js:401 原文：`if (root === null) return { samples: null, note: \'拿不到会话目录（DSH_HOME / DSH_SESSIONS_DIR 都没设）—— 本次没有活动证据\', root: null, found: 0, gate_applicable: false }`',
@@ -205,7 +205,7 @@ export const S2_FAILURES = {
     ],
     evidence: [
       '台账留痕（报告 L239–273，引 T-20261012-6884af 的 task.json 第 3850 行起）：`"quiet_streak": 1`（:3864）· `"known": false`（:3866）· `"reason": "拿不到会话日志（session.v4.jsonl.zstd）—— 没有活动证据，不等于它没动"`（:3870）· `"sample_at": null`（:3871）· `"activity_known": false`（:3875）· `"writer#1": 0`（:3879）。',
-      'dispatched 记录（:3838–3848）：`"agent_id": "<session-id>"` · `"session_id": null` · `"via": "subagent"` · `"at_ms": 1791815903088`。★ 报告 L297：`activity_note` 这个字段**全插件无人消费**；L299：`1501-1503` 那条路**从来没执行过**。',
+      'dispatched 记录（:3838–3848）：`"agent_id": "session-…"` · `"session_id": null` · `"via": "subagent"` · `"at_ms": 1791815903088`。★ 报告 L297：`activity_note` 这个字段**全插件无人消费**；L299：`1501-1503` 那条路**从来没执行过**。',
       '字节对比（报告 L45–46）：lib/liveness.js 现盘 30,416 B vs 运行版 29,724 B；lib/store.js 现盘 325,426 B vs 运行版 324,171 B。⇒ 「现盘 ≠ 运行版」，即**补丁可能还没生效到运行中的进程**。',
       '节流（报告 L233）：intercept.js 的 `LIVENESS_CHECK_THROTTLE_MS = 60s`。',
       '实测场景（报告 L423–430）：实跑 A–H 八个场景。',
@@ -280,11 +280,11 @@ export const S2_FAILURES = {
       ['1', '10-11 21:48 / 13:48:10Z', 'T-20261011-214043', 'writer#1', '主对话于 13:57:48Z 解除时说「席位未失联（8 个均无失联），编写席已产出制品 v2 并提了澄清」', 'transition:unblock 13:57:48Z（main）'],
       ['2', '10-11 21:47 / 13:47:39Z', 'T-20261011-5a871c', 'planner', '那个计划会话在 13:48:40–13:49:11 成功提交了计划（H-7ad158db79f7fd84）⇒ 判死时它活着', '重派（席位继任），计划最终落定'],
       ['3', '10-11 21:14 / 13:14:xx', '（214043 同期）', '—', '见交接档 §18.2 ②：「全账本共 6 次」自动阻塞，§18.3 P1 又写「6 次自动阻塞中**至少 4 次被明确记为误报**」', '—'],
-      ['4', '10-12 20:58 / 12:58:36Z', 'T-20261011-214043', 'writer#3', '会话 <session-id> 的 session.v4.jsonl.zstd 在 30 秒内由 381,679 B → 392,396 B（**+10,717 B**）；后续三测 +14,158 B / +23,207 B（约 1.1 KB/s）', 'transition:unblock 12:59:38Z（main）'],
-      ['5', '10-12 21:16 / 13:16:50Z', 'T-20261011-214043', 'writer#3', '会话 <session-id> 于 21:13:45–21:17:24 由 267,613 B 增至 457,548 B（**+190 KB / 约 3.7 分钟**）', 'transition:unblock 13:17:33Z（main，按用户 HR-97269de32e5d5eeb 的授权直接解）'],
+      ['4', '10-12 20:58 / 12:58:36Z', 'T-20261011-214043', 'writer#3', '会话 session-… 的 session.v4.jsonl.zstd 在 30 秒内由 381,679 B → 392,396 B（**+10,717 B**）；后续三测 +14,158 B / +23,207 B（约 1.1 KB/s）', 'transition:unblock 12:59:38Z（main）'],
+      ['5', '10-12 21:16 / 13:16:50Z', 'T-20261011-214043', 'writer#3', '会话 session-… 于 21:13:45–21:17:24 由 267,613 B 增至 457,548 B（**+190 KB / 约 3.7 分钟**）', 'transition:unblock 13:17:33Z（main，按用户 HR-97269de32e5d5eeb 的授权直接解）'],
       ['6', '10-12 21:43 / 13:43:26Z', 'T-20261011-214043', 'writer#3', '同一病因（本条 audit 未单独记反证数字）', 'transition:unblock 14:24:14Z'],
-      ['7', '10-12 22:43 / 14:43:30Z', 'T-20261012-6884af', 'writer#1', '<session-id> 的日志在 22:43:36–22:43:49 的 **13 秒**内由 563,327 B → 575,960 B（+12,633 B）', 'transition:unblock 14:44:15Z（main）'],
-      ['8', '10-12 22:53 / 14:53:45Z', 'T-20261012-6884af', 'tester', '测试位会话 <session-id> 的日志一直写到 22:55:58（**冻结之后还在写 2 分钟**）', 'transition:unblock 15:02:02Z（main）'],
+      ['7', '10-12 22:43 / 14:43:30Z', 'T-20261012-6884af', 'writer#1', 'session-… 的日志在 22:43:36–22:43:49 的 **13 秒**内由 563,327 B → 575,960 B（+12,633 B）', 'transition:unblock 14:44:15Z（main）'],
+      ['8', '10-12 22:53 / 14:53:45Z', 'T-20261012-6884af', 'tester', '测试位会话 session-… 的日志一直写到 22:55:58（**冻结之后还在写 2 分钟**）', 'transition:unblock 15:02:02Z（main）'],
       ['9', '10-12 23:13 / 15:13:40Z', 'T-20261012-6884af', 'writer#1', '本单第 3 次；audit 备注提示「本次冻结的唤醒同样可能被 no-stable-identity 吞掉（需查审计有无 wake:delivered）」', 'transition:unblock 15:14:29Z（main）'],
       ['10', '10-12 23:14 / 15:14:01Z', 'T-20261011-214043', 'writer#3', '★ 这一次的冻结播报**被去重吞掉**（note=「目标会话里已有同一条…不再注入」）⇒ 主对话从未被告知', 'transition:unblock 15:14:38Z'],
       ['11', '10-12 23:19 / 15:19:32Z', 'T-20261011-214043', 'writer#3', '这次的「静默」成因是**模型输出层故障崩死**（见故障 4）', 'transition:unblock 15:21:07Z（紧急）'],
@@ -342,7 +342,7 @@ export const S2_FAILURES = {
 export const S3 = {
   id: 's3', num: '③', title: '完整插件架构图',
   intro: [
-    '生效副本：`<DSH_HOME>\\profiles\\desktop\\node_modules\\dsh-pipeline`（DSH 实际加载的那一份）。工程副本在 `<DSH_HOME>\\dsh_orb\\新任务-为-dsh-写一个插件-…\\dsh-pipeline\\`，本轮**未改**，仅作对照。',
+    '生效副本：`~\\.dsh\\profiles\\desktop\\node_modules\\dsh-pipeline`（DSH 实际加载的那一份）。工程副本在 `~\\.dsh\\dsh_orb\\新任务-为-dsh-写一个插件-…\\dsh-pipeline\\`，本轮**未改**，仅作对照。',
     '**模块结构（以实读目录为准）**：`index.js`（入口）+ `lib\\` 下 22 个 `.js` + `lib\\transport\\index.js` + `lib\\client.js`（客户端半边）+ `tests\\`（29 套自测）+ `cordis.patch.yml` + `package.json` + `install.ps1` / `rollback.ps1`。',
     '**实读的 lib 清单**（名字与字节数均实读）：boundaries.js 14,848 · client.js 14,903 · config.js 16,598 · context.js 23,530 · guard.js 88,064 · guard-factory.js 5,554 · handoff.js 99,046 · hashgate.js 22,383 · hostmsg.js 23,260 · intercept.js 29,727 · liveness.js 30,416 · roles.js 25,108 · security.js 17,450 · states.js 24,528 · store.js 325,426 · switch.js 5,991 · switch-routes.js 8,083 · testscope.js 11,355 · tiers.js 59,821 · tokens.js 17,020 · tools.js 230,154 · util.js 7,444 · wakeup.js 57,619 · transport\\index.js 57,321。',
     '**分层**：宿主半边（Node / Cordis 进程）↔ 客户端半边（浏览器，经典脚本，靠 `window.__ModuleLoader__.load` 注册）；角色层由 `lib\\roles.js` 的 `ROLES` 表承担，`kind` 分 control / execution / advisory 三档。',

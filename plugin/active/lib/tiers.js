@@ -1288,13 +1288,15 @@ export function compareDispatchSlots(roster, req = {}) {
 /**
  * ★ **开对话人数上限**的数据面（A3）。
  *
- * 上限值来自名单（`roster.dispatch_quota`，缺省 = 清单里的独立对话数）。
+ * 上限值来自名单（`roster.dispatch_quota`，缺省 = 清单里的独立对话数，**不含主对话**，与 buildRoster 的缺省同一口径）。
  * 纯函数：调用方把"当前已开出、还活着的会话数"数给它，它只回答"再开一个合不合法"。
  */
 export function checkDispatchQuota(roster, currentOpen, opts = {}) {
   const n = Number.isInteger(currentOpen) && currentOpen >= 0 ? currentOpen : 0
   const explicit = roster !== null && typeof roster === 'object' ? roster.dispatch_quota : undefined
-  const fromList = roster !== null && typeof roster === 'object' && Array.isArray(roster.conversations) ? roster.conversations.length : 0
+  const fromList = roster !== null && typeof roster === 'object' && Array.isArray(roster.conversations)
+    ? roster.conversations.filter((r) => r !== ROLE.MAIN).length
+    : 0
   const max = Number.isInteger(explicit) ? explicit : fromList
   const who = String(opts.who ?? '本次请求')
   return {

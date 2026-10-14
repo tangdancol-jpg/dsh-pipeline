@@ -1,6 +1,6 @@
 # B 路 · 交接物补席位信息（bug 单 P2-7 `from_seat`）实现报告
 
-- **改动文件（独占，只此一个）**：`<DSH_HOME>\profiles\desktop\node_modules\dsh-pipeline\lib\handoff.js`
+- **改动文件（独占，只此一个）**：`%USERPROFILE%\.dsh\profiles\desktop\node_modules\dsh-pipeline\lib\handoff.js`
 - **新增验证文件**：`...\dsh-pipeline\tests\handoff-seat-check.mjs`（新增，未改任何既有断言）
 - **另加一行注册**：`...\dsh-pipeline\tests\run-all.mjs` 的「按约定名发现」注册表（纯追加 1 条 + 注释）
 - **改前备份**：`...\dsh-pipeline\lib\handoff.js.bak-p27-20261014-193811`（113,706 B，SHA-256 `6D0F2D15…57CA4F`，与改前正式件逐字节相同）
@@ -17,7 +17,7 @@
 `handoff_id / task_id / kind / kind_zh / from_role / to_role / created_at / artifact_version / payload / content_hash`
 —— **确实没有任何席位字段**。行号与 bug 单基本吻合（改前实际落在 `1996-2015`，bug 单写 `1989-2008`，差的是上面那段 JSDoc）。
 
-**核实方式 ②（读真单，只读）**：直接读 `<DSH_HOME>\profiles\desktop\.pipeline\T-20261012-8cdee0\task.json`：
+**核实方式 ②（读真单，只读）**：直接读 `%USERPROFILE%\.dsh\profiles\desktop\.pipeline\T-20261012-8cdee0\task.json`：
 
 ```
 handoffs = 22

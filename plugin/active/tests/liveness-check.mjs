@@ -346,7 +346,7 @@ export async function runLivenessCheck() {
     // --- B1 反例：事故现场 ---
     const acc = {
       state: 'analyzing',
-      dispatched: [{ role: 'orchestrator', seat: null, agent_id: '<session-id>', at, at_ms: at }],
+      dispatched: [{ role: 'orchestrator', seat: null, agent_id: '00000000-0000-4000-8000-000000000101', at, at_ms: at }],
       handoffs: [],
       history: [],
       successions: [],
@@ -474,7 +474,7 @@ export async function runLivenessCheck() {
     const d1 = await h.store.recordDispatch(taskId, {
       role: 'orchestrator',
       seat: null,
-      agentId: '<uuid>',
+      agentId: '00000000-0000-4000-8000-000000000102',
       token: 'PT-465b3a2aadc0dee42f1ea750',
       atMs: deadAt,
       at: new Date(deadAt).toISOString(),
@@ -684,7 +684,7 @@ export async function runLivenessCheck() {
     // --- E1 反例（旧行为）：什么都不做 ⇒ 任务就停在「需求分析中」---
     const { h: h1, taskId: t1 } = await analyzingFixture()
     open.push(h1)
-    await h1.store.recordDispatch(t1, { role: 'orchestrator', seat: null, agentId: '<session-id>', atMs: Date.now() - 6 * MIN })
+    await h1.store.recordDispatch(t1, { role: 'orchestrator', seat: null, agentId: '00000000-0000-4000-8000-000000000103', atMs: Date.now() - 6 * MIN })
     rec.add(
       'E 事故回放',
       '★★ 反例（**旧行为的病**）：席位秒死后**没有任何角色调用工具** ⇒ 任务就停在「需求分析中」，机制不发一言',

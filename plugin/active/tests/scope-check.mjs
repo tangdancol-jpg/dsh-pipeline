@@ -563,7 +563,7 @@ export async function runScopeCheck() {
   //
   //    现场（真单 T-20261011-214043，原文照抄）：
   //      「[pipeline] 拒绝：**改动面超出了授权面**（shell 旁路）。
-  //        目标：<DSH_HOME>/profiles/desktop/node_modules/dsh-pipeline/index.js
+  //        目标：~/.dsh/profiles/desktop/node_modules/dsh-pipeline/index.js
   //        本次授权改动面：· entry　modify　index.js …」
   //
   //    病根：授权面 20 条与三个编写席分区写的都是**包内相对路径**（`index.js`、

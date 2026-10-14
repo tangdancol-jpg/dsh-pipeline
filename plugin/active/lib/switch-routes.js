@@ -20,7 +20,15 @@
  * 非环回的 remoteAddress 一律 403。理由：开关能整体关掉守门，
  * 那是一个安全相关的状态位，不该被局域网里的别人翻。
  *
- * 没有做的事（不要误以为有）：没有 CSRF token、没有鉴权挑战。
+ * 环回校验挡不住**浏览器跨站请求**：用户自己浏览器里打开的任意网页向本端口发请求，
+ * 来源地址同样是环回。所以写操作（POST）另有一道跨站闸（{@link crossSiteReason}）：
+ *   · 只收 `content-type: application/json` —— 跨站发 JSON 必须先过预检（OPTIONS），
+ *     而本路由对 OPTIONS 回 405，预检过不去；表单 / text/plain 这类免预检的写法直接拒；
+ *   · 带了 `Origin` 就必须与 `Host` 同源（`Origin: null` 也拒）；
+ *   · 带了 `Sec-Fetch-Site` 就只认 `same-origin` / `none`。
+ * 客户端 UI 走同源相对 fetch、本来就发 JSON，不受影响；不带 Origin 的本机脚本照常可用。
+ *
+ * 没有做的事（不要误以为有）：没有鉴权挑战。
  * 它依赖的是"这个端口本来就只绑定环回"这个前提（`webServer` 的默认 host）。
  * 如果你的 profile 把 webServer 配成对外监听，请把本路由关掉
  * （配置 `switchRoute: false`）。
@@ -57,6 +65,31 @@ export function sendJson(res, status, value) {
     'cache-control': 'no-store',
   })
   res.end(body)
+}
+
+/**
+ * 写操作的跨站闸：返回拒绝理由，放行返回 null。
+ * @param {{ headers?: Record<string, string|string[]|undefined> }} req
+ */
+export function crossSiteReason(req) {
+  const h = req.headers ?? {}
+  const ct = String(h['content-type'] ?? '').toLowerCase()
+  if (!ct.startsWith('application/json')) {
+    return '写操作只接受 content-type: application/json（挡掉浏览器免预检就能跨站发出的表单 / text/plain 请求）。'
+  }
+  const site = h['sec-fetch-site']
+  if (site !== undefined && site !== 'same-origin' && site !== 'none') {
+    return `拒绝跨站写操作（sec-fetch-site: ${String(site)}）。`
+  }
+  const origin = h.origin
+  if (origin !== undefined) {
+    let originHost = null
+    try { originHost = new URL(String(origin)).host.toLowerCase() } catch { /* "null" 或非法 ⇒ 视为跨站 */ }
+    if (originHost === null || originHost !== String(h.host ?? '').toLowerCase()) {
+      return `拒绝跨站写操作（origin ${String(origin)} 与 host ${String(h.host ?? '')} 不同源）。`
+    }
+  }
+  return null
 }
 
 /** 收请求体（带上限，超了就拒）。 */
@@ -134,6 +167,12 @@ export function createSwitchHandler(deps) {
 
       // --- 写 ---------------------------------------------------------------
       if (method === 'POST') {
+        const crossSite = crossSiteReason(req)
+        if (crossSite !== null) {
+          log(`拒绝了一次开关写请求：${crossSite}`)
+          sendJson(res, 403, { ok: false, error: crossSite })
+          return
+        }
         const raw = await readBody(req)
         if (raw.ok !== true) {
           sendJson(res, 413, { ok: false, error: raw.error })

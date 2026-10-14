@@ -3,9 +3,9 @@
   "ok": true,
   "command": "validate",
   "type": "workflow",
-  "input": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\_probe-tag\\W120_t25.json",
+  "input": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\_probe-tag\\W120_t25.json",
   "candidate": {
-    "path": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\_probe-tag\\W120_t25.json",
+    "path": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\_probe-tag\\W120_t25.json",
     "sha256": "651cab4c92d8cc08827b4d4a96502e1a63f7381e1f3c67a050deb8c6a6ea1265",
     "bytes": 16825
   },
@@ -14,7 +14,7 @@
     "command": "finalize",
     "arguments": [
       "workflow",
-      "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\_probe-tag\\W120_t25.json",
+      "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\_probe-tag\\W120_t25.json",
       "<output.html>",
       "--quality",
       "showcase",

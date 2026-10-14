@@ -3,9 +3,9 @@
   "ok": true,
   "command": "validate",
   "type": "workflow",
-  "input": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\_probe-fine\\Z7_id_plus_edges.json",
+  "input": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\_probe-fine\\Z7_id_plus_edges.json",
   "candidate": {
-    "path": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\_probe-fine\\Z7_id_plus_edges.json",
+    "path": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\_probe-fine\\Z7_id_plus_edges.json",
     "sha256": "3bc3ea39fefd26a615b0ffef2f0fef6cf81b3e5486ce92c5b84371c88e3118b4",
     "bytes": 16785
   },
@@ -14,7 +14,7 @@
     "command": "finalize",
     "arguments": [
       "workflow",
-      "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\_probe-fine\\Z7_id_plus_edges.json",
+      "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\_probe-fine\\Z7_id_plus_edges.json",
       "<output.html>",
       "--quality",
       "showcase",

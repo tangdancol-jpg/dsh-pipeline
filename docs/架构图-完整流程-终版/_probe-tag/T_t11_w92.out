@@ -3,9 +3,9 @@
   "ok": true,
   "command": "validate",
   "type": "workflow",
-  "input": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\_probe-tag\\T_t11_w92.json",
+  "input": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\_probe-tag\\T_t11_w92.json",
   "candidate": {
-    "path": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\_probe-tag\\T_t11_w92.json",
+    "path": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\_probe-tag\\T_t11_w92.json",
     "sha256": "7a9ee06d157788ebbbe571e3538b575def60369051311d197df93bba6c33b6ff",
     "bytes": 16810
   },
@@ -14,7 +14,7 @@
     "command": "finalize",
     "arguments": [
       "workflow",
-      "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\_probe-tag\\T_t11_w92.json",
+      "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\_probe-tag\\T_t11_w92.json",
       "<output.html>",
       "--quality",
       "showcase",

@@ -4,7 +4,7 @@
   "command": "validate",
   "stage": "render",
   "type": "workflow",
-  "input": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\_probe-bisect\\B_two_nodes_no_edge.json",
+  "input": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\_probe-bisect\\B_two_nodes_no_edge.json",
   "error": "Renderer failed before emitting a structured diagnostic.",
   "diagnostics": [
     {

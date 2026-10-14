@@ -3,9 +3,9 @@
   "ok": true,
   "command": "validate",
   "type": "workflow",
-  "input": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\main-path.workflow.json",
+  "input": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\main-path.workflow.json",
   "candidate": {
-    "path": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\main-path.workflow.json",
+    "path": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\main-path.workflow.json",
     "sha256": "f76683ef0f04bc8384e5ce63bb860bcdaf0221d7e929c0b2f7e835df79ea34ac",
     "bytes": 17718
   },
@@ -14,7 +14,7 @@
     "command": "finalize",
     "arguments": [
       "workflow",
-      "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\main-path.workflow.json",
+      "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\main-path.workflow.json",
       "<output.html>",
       "--quality",
       "showcase",

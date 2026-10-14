@@ -75,7 +75,7 @@ footer{color:var(--ink2);font-size:13.5px;text-align:center;padding:24px 0 0}
 <li><a href="#s-七-主路径的-账本痕迹-真实序列-从-t-20261012-8cdee0-实读">七、主路径的<strong>账本痕迹</strong>（真实序列，从 <code>T-20261012-8cdee0</code> 实读）</a></li>
 <li><a href="#s-八-附-怎么自己复核这份表">八、附：怎么自己复核这份表</a></li>
 </ol></nav>
-<p><strong>以什么为准</strong>：<code>dsh-pipeline</code> <strong>生效副本</strong>的源码 —— <code>lib/states.js</code>（状态与边）· <code>lib/handoff.js</code>（交接物 kind 与 schema）· <code>lib/roles.js</code>（谁能产出什么）· <code>lib/store.js</code>（守卫与执法）· <code>lib/guard.js</code>（守门）· <code>lib/tools.js</code>（工具与参数）· <code>lib/tiers.js</code>（角色清单/席位）；账本 <code>.pipeline\&lt;单号&gt;\audit.jsonl</code> / <code>handoffs\</code> / <code>records\</code> / <code>artifacts\</code>。 <strong>生效副本</strong>：<code>&lt;DSH_HOME&gt;\profiles\desktop\node_modules\dsh-pipeline</code> <strong>快照时间</strong>：2026-10-14 01:1x（本地 UTC+8）。<strong>本文所有行号都是本次实读的</strong>（今晚多次改过，旧文档里的行号一律不可信）。 <strong>本次实读到的规模</strong>：<strong>22 个状态</strong> · <strong>34 条状态转移</strong> · <strong>25 种交接物 kind</strong> · <strong>35 个守卫 case</strong>（<code>lib/store.js</code> 的 <code>checkPrecondition</code>）· <strong>31 个工具</strong>。</p>
+<p><strong>以什么为准</strong>：<code>dsh-pipeline</code> <strong>生效副本</strong>的源码 —— <code>lib/states.js</code>（状态与边）· <code>lib/handoff.js</code>（交接物 kind 与 schema）· <code>lib/roles.js</code>（谁能产出什么）· <code>lib/store.js</code>（守卫与执法）· <code>lib/guard.js</code>（守门）· <code>lib/tools.js</code>（工具与参数）· <code>lib/tiers.js</code>（角色清单/席位）；账本 <code>.pipeline\&lt;单号&gt;\audit.jsonl</code> / <code>handoffs\</code> / <code>records\</code> / <code>artifacts\</code>。 <strong>生效副本</strong>：<code>%USERPROFILE%\.dsh\profiles\desktop\node_modules\dsh-pipeline</code> <strong>快照时间</strong>：2026-10-14 01:1x（本地 UTC+8）。<strong>本文所有行号都是本次实读的</strong>（今晚多次改过，旧文档里的行号一律不可信）。 <strong>本次实读到的规模</strong>：<strong>22 个状态</strong> · <strong>34 条状态转移</strong> · <strong>25 种交接物 kind</strong> · <strong>35 个守卫 case</strong>（<code>lib/store.js</code> 的 <code>checkPrecondition</code>）· <strong>31 个工具</strong>。</p>
 <blockquote>
 <p>★★ <strong>两条贯穿全文的判据</strong> 1. <strong>「代码里有」≠「真跑过」</strong>。前者是源码，后者只能从账本看。本文每条都分开标：代码落点给 <code>文件:行</code>；跑没跑过给账本计数。<strong>枢纽那一整条链在账本里 0 命中</strong>（11 张单、907 行），见 §七。 2. <strong>「提交」与「打回」在代码里是两件事，但打回也走提交那条路</strong> —— 见 §〇。</p>
 </blockquote>
@@ -535,7 +535,7 @@ footer{color:var(--ink2);font-size:13.5px;text-align:center;padding:24px 0 0}
 145 2026-10-13T11:48:54Z  transition:close                actor=main          (passed→closed)</code></pre>
 <p><strong>这张单还顺带演示了两件事</strong>：① <strong>8 次 <code>transition:block</code> + 8 次 <code>unblock</code></strong> 全部由 <code>main</code> 发（机制误冻 → 主对话逐次解除）；② <strong><code>transition:*</code> 是唯一能看出"状态怎么走"的 action</strong> —— <code>handoff:*</code> 只说"交了什么"，<code>transition:*</code> 才说"走到哪"。</p>
 <p><strong>★ 照着 grep 自己那单走到哪了</strong>：</p>
-<pre class="code" data-lang="powershell"><code>$T = "&lt;DSH_HOME&gt;\profiles\desktop\.pipeline\&lt;单号&gt;"
+<pre class="code" data-lang="powershell"><code>$T = "%USERPROFILE%\.dsh\profiles\desktop\.pipeline\&lt;单号&gt;"
 # ① 状态怎么走的（只追加，一行一个事件）
 Select-String -Path "$T\audit.jsonl" -Pattern 'transition:' | ForEach-Object { $_.Line }
 # ② 交了什么、交给谁
@@ -551,22 +551,22 @@ Get-ChildItem "$T\handoffs" | Select-Object Name,Length
 </ul>
 <hr>
 <h2 id="s-八-附-怎么自己复核这份表">八、附：怎么自己复核这份表<a class="anchor" href="#s-八-附-怎么自己复核这份表" aria-label="锚点">#</a></h2>
-<pre class="code" data-lang="powershell"><code>$P = "&lt;DSH_HOME&gt;\profiles\desktop\node_modules\dsh-pipeline"
+<pre class="code" data-lang="powershell"><code>$P = "%USERPROFILE%\.dsh\profiles\desktop\node_modules\dsh-pipeline"
 
 # ① 25 种交接物 kind 与它们的方向
-node -e "import('file:///&lt;DSH_HOME&gt;/profiles/desktop/node_modules/dsh-pipeline/lib/handoff.js').then(m=&gt;{for(const[k,v]of Object.entries(m.HANDOFF_SCHEMAS))console.log(k,'|',v.zh,'| from=',JSON.stringify(v.from),'| to=',v.to)})"
+node -e "import('file:///%USERPROFILE%/.dsh/profiles/desktop/node_modules/dsh-pipeline/lib/handoff.js').then(m=&gt;{for(const[k,v]of Object.entries(m.HANDOFF_SCHEMAS))console.log(k,'|',v.zh,'| from=',JSON.stringify(v.from),'| to=',v.to)})"
 # ② 守门层的方向表（与上面必须逐字一致）
 Select-String -Path "$P\lib\guard.js" -Pattern 'HANDOFF_DIRECTION' -Context 0,40
 # ③ 全部状态与全部转移
-node -e "import('file:///&lt;DSH_HOME&gt;/profiles/desktop/node_modules/dsh-pipeline/lib/states.js').then(m=&gt;{console.log('状态',Object.keys(m.ST).length,'转移',m.TRANSITIONS.length);m.TRANSITIONS.forEach(t=&gt;console.log(t.from,'--'+t.event+'--&gt;',t.to,'by='+JSON.stringify(t.by),'guard='+t.guard))})"
+node -e "import('file:///%USERPROFILE%/.dsh/profiles/desktop/node_modules/dsh-pipeline/lib/states.js').then(m=&gt;{console.log('状态',Object.keys(m.ST).length,'转移',m.TRANSITIONS.length);m.TRANSITIONS.forEach(t=&gt;console.log(t.from,'--'+t.event+'--&gt;',t.to,'by='+JSON.stringify(t.by),'guard='+t.guard))})"
 # ④ 五道站点与它们的确认方（★ 注意 5 项 vs 4 项）
-node -e "import('file:///&lt;DSH_HOME&gt;/profiles/desktop/node_modules/dsh-pipeline/lib/states.js').then(m=&gt;{console.log('STATIONS',JSON.stringify(m.HUB_STATIONS));console.log('CONFIRMERS',JSON.stringify(m.HUB_STATION_CONFIRMERS));console.log('重画预算',m.HUB_DIAGRAM_REDRAW_BUDGET)})"
+node -e "import('file:///%USERPROFILE%/.dsh/profiles/desktop/node_modules/dsh-pipeline/lib/states.js').then(m=&gt;{console.log('STATIONS',JSON.stringify(m.HUB_STATIONS));console.log('CONFIRMERS',JSON.stringify(m.HUB_STATION_CONFIRMERS));console.log('重画预算',m.HUB_DIAGRAM_REDRAW_BUDGET)})"
 # ⑤ 主管的 6 个 action（★ 注意这里没有 reject_need）
 Select-String -Path "$P\lib\tools.js" -Pattern "enum: \['initiate'" -Context 2,2
 # ⑥ 全部守卫名
-node -e "const s=require('fs').readFileSync('&lt;DSH_HOME&gt;/profiles/desktop/node_modules/dsh-pipeline/lib/store.js','utf8');console.log([...s.matchAll(/case '([a-z_]+)':/g)].map(m=&gt;m[1]).join('\n'))"
+node -e "const s=require('fs').readFileSync('%USERPROFILE%/.dsh/profiles/desktop/node_modules/dsh-pipeline/lib/store.js','utf8');console.log([...s.matchAll(/case '([a-z_]+)':/g)].map(m=&gt;m[1]).join('\n'))"
 # ⑦ 账本：枢纽到底跑过没有
-Select-String -Path "&lt;DSH_HOME&gt;\profiles\desktop\.pipeline\*\audit.jsonl" -Pattern 'supervisor_initiate|station_confirm|pipeline_supervise' | Measure-Object
+Select-String -Path "%USERPROFILE%\.dsh\profiles\desktop\.pipeline\*\audit.jsonl" -Pattern 'supervisor_initiate|station_confirm|pipeline_supervise' | Measure-Object
 # ⑧ 跑测试（只读，临时目录）
 cd $P; node tests/gate-states-check.mjs        # 期望 55/55（覆盖"发起面只认主管 / 主管两站 / 两次确认"）
 cd $P; node tests/dispatch-channel-check.mjs   # 期望 47/47（覆盖"main 代发被拒 / 主管发起且待机可读回 / 架构图重画"）

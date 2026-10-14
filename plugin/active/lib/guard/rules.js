@@ -435,7 +435,7 @@ export const HANDOFF_DIRECTION = {
   diagram_rework: ['supervisor'],
   // ★ 两级升级梯第一级：执行/顾问角色 + 计划 AI → 需求分析
   //   （planner 的在册理由：它的「计划自检发现缺失」就是退回需求分析）
-  clarification_request: ['architect', 'security', 'writer', 'tester', 'reviewer', 'release', 'docs', 'performance', 'arbiter', 'diagrammer', 'planner'],
+  clarification_request: ['architect', 'security', 'writer', 'tester', 'reviewer', 'release', 'docs', 'performance', 'arbiter', 'diagrammer', 'planner', 'archivist'],
   // ★ 第一级的回复：只有需求分析能裁定
   clarification_reply: ['orchestrator'],
   design: ['architect'],
@@ -447,8 +447,10 @@ export const HANDOFF_DIRECTION = {
   human_note: ['human'],
   // ★ 人工介入请求：**除主对话之外**的角色才能发起。
   //   main 不产出这一类型 —— 它就在用户的对话框里，要问直接问，不需要绕一圈。
-  human_request: ['orchestrator', 'planner', 'architect', 'security', 'writer', 'tester', 'reviewer', 'release', 'docs', 'performance', 'arbiter', 'human'],
-  seat_handover: ['orchestrator', 'planner', 'architect', 'security', 'writer', 'tester', 'reviewer', 'release', 'docs', 'performance', 'arbiter', 'diagrammer'],
+  // ★ 主管 / 架构图 / 归档三个席位补进来：它们在 roles.js 里都声明了这一类，
+  //   而这里漏了 ⇒ 声明能产、实际交不出（主管"否掉预算用尽 ⇒ 升人工"那条唯一出口就断在这里）。
+  human_request: ['orchestrator', 'planner', 'architect', 'security', 'writer', 'tester', 'reviewer', 'release', 'docs', 'performance', 'arbiter', 'human', 'supervisor', 'diagrammer', 'archivist'],
+  seat_handover: ['orchestrator', 'planner', 'architect', 'security', 'writer', 'tester', 'reviewer', 'release', 'docs', 'performance', 'arbiter', 'diagrammer', 'supervisor', 'archivist'],
 }
 
 /** 单条拒绝理由的统一抬头 —— 拒绝原文要能被人一眼认出是谁拦的。 */

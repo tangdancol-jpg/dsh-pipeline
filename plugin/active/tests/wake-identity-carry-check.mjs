@@ -63,7 +63,7 @@ import { createHarness, disposeHarness } from './selftest-core.mjs'
 const MIN = 60 * 1000
 
 /**
- * ★ 本条要验的**四条名字**（逐字来自 `lib/wakeup.js:101-122` 的 `WAKE_AUDIT`）：
+ * ★ 本条要验的**四条名字**（逐字来自 `lib/wakeup/keys.js` 的 `WAKE_AUDIT`）：
  *   `wake:skipped` 那一支 C3 段已经跑过，这里跑剩下的四条。
  */
 const WAKE_NAMES = ['wake:delivered', 'wake:failed', 'wake:dedup', 'wake:escalated']

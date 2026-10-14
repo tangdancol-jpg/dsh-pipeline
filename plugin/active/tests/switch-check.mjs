@@ -34,14 +34,17 @@ import { SimulatedTransport } from '../lib/transport/index.js'
 // 假 req / res
 // ---------------------------------------------------------------------------
 
-/** 造一个假请求。`body` 给字符串或对象（对象会被 JSON 序列化）。 */
-function makeReq({ method = 'GET', url = STATE_PATH, body = null, remoteAddress = '127.0.0.1' } = {}) {
+/**
+ * 造一个假请求。`body` 给字符串或对象（对象会被 JSON 序列化）。
+ * POST 默认带 `content-type: application/json`（与客户端 UI 的真实请求一致）；`headers` 可覆盖。
+ */
+function makeReq({ method = 'GET', url = STATE_PATH, body = null, remoteAddress = '127.0.0.1', headers = undefined } = {}) {
   const text = body === null ? null : typeof body === 'string' ? body : JSON.stringify(body)
   const base = Readable.from(text === null ? [] : [Buffer.from(text, 'utf8')])
   return Object.assign(base, {
     method,
     url,
-    headers: {},
+    headers: headers ?? (method === 'POST' ? { 'content-type': 'application/json' } : {}),
     socket: { remoteAddress },
     connection: { remoteAddress },
   })
@@ -291,6 +294,23 @@ export async function runSwitchCheck() {
 
       const put = await callRoute(handler, { method: 'PUT', body: {} })
       add('R13 不支持的方法 → 405', put.statusCode === 405, `status=${put.statusCode} body=${put.body}`)
+
+      // ---- 跨站闸：环回校验挡不住"用户浏览器里打开的网页"，写操作另有一道 ----
+      const before = (await callRoute(handler, { method: 'GET' })).json().on
+      const plain = await callRoute(handler, { method: 'POST', body: { on: !before }, headers: { 'content-type': 'text/plain' } })
+      add('C1 text/plain 的 POST（浏览器免预检的跨站写法）→ 403，开关不动', plain.statusCode === 403 && (await callRoute(handler, { method: 'GET' })).json().on === before, `status=${plain.statusCode} body=${plain.body}`)
+      const form = await callRoute(handler, { method: 'POST', body: 'on=false', headers: { 'content-type': 'application/x-www-form-urlencoded' } })
+      add('C2 表单 POST → 403', form.statusCode === 403, `status=${form.statusCode}`)
+      const noCt = await callRoute(handler, { method: 'POST', body: { on: !before }, headers: {} })
+      add('C3 不带 content-type 的 POST → 403', noCt.statusCode === 403, `status=${noCt.statusCode}`)
+      const evil = await callRoute(handler, { method: 'POST', body: { on: !before }, headers: { 'content-type': 'application/json', host: '127.0.0.1:8080', origin: 'https://evil.example' } })
+      add('C4 Origin 与 Host 不同源 → 403，开关不动', evil.statusCode === 403 && (await callRoute(handler, { method: 'GET' })).json().on === before, `status=${evil.statusCode} body=${evil.body}`)
+      const nullOrigin = await callRoute(handler, { method: 'POST', body: { on: !before }, headers: { 'content-type': 'application/json', host: '127.0.0.1:8080', origin: 'null' } })
+      add('C5 Origin: null（沙箱页面）→ 403', nullOrigin.statusCode === 403, `status=${nullOrigin.statusCode}`)
+      const crossSite = await callRoute(handler, { method: 'POST', body: { on: !before }, headers: { 'content-type': 'application/json', 'sec-fetch-site': 'cross-site' } })
+      add('C6 sec-fetch-site: cross-site → 403', crossSite.statusCode === 403, `status=${crossSite.statusCode}`)
+      const same = await callRoute(handler, { method: 'POST', body: { on: before }, headers: { 'content-type': 'application/json; charset=utf-8', host: '127.0.0.1:8080', origin: 'http://127.0.0.1:8080', 'sec-fetch-site': 'same-origin' } })
+      add('C7 正例：同源的 JSON POST（客户端 UI 的真实形状）照常 200', same.statusCode === 200 && same.json().on === before, `status=${same.statusCode} body=${same.body}`)
 
       add('R14 isLoopback 判定表', [
         isLoopback('127.0.0.1') === true,

@@ -30,6 +30,7 @@ import {
 import { scanCommandWithScripts } from './scripts.js'
 import {
   agentIdOf,
+  bindingForAgent,
   owningSeat,
   describeSeat,
   describePartitions,
@@ -112,7 +113,8 @@ function decide(exec, deps) {
       '如果你是**新席位**：请用主对话在 pipeline_succession 返回里给你的那枚新令牌。'
     )
   }
-  const binding = agentId === null ? null : tokens.roleOfAgent(agentId, undefined)
+  // ★ 绑着多张单时挑"还没结束、最近绑定"的那张（P1-4 的作用域放大，见 bindingForAgent）
+  const binding = bindingForAgent(tokens, agentId, deps?.taskIndex ?? null)
 
   // 非流水线工具、且调用方没有绑定任何角色 → 与流水线无关，直接放行。
   // （守门只约束流水线参与者，绝不去管无关会话 —— 这是与其它插件共存的前提。）

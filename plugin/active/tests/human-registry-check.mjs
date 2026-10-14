@@ -728,7 +728,7 @@ export async function runHumanRegistryCheck() {
   //
   //  现场（真单 T-20261012-7b9408，2026-10-11T16:33–16:34）：盘上 `human_requests[]`
   //  里明明有一条 pending，主对话调收件箱却是「目前没有人工介入请求」。
-  //  读侧路径：`lib/tools.js:3495` → `store.listHumanRequests` → `loadTask` 的
+  //  读侧路径：`lib/tools/human.js` → `store.listHumanRequests` → `loadTask` 的
   //  `cache.get` 命中分支（内存实例优先、不对账）。
   //  成因：`appendHandoff` 先 `task.handoffs.push`、再 `await writeJsonAtomic` ——
   //  那个 await 就是让出点；而旧代码把"建登记"排在它**之后几百行**，中间还夹着

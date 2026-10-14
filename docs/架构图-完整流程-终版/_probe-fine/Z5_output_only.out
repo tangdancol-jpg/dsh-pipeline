@@ -3,9 +3,9 @@
   "ok": true,
   "command": "validate",
   "type": "workflow",
-  "input": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\_probe-fine\\Z5_output_only.json",
+  "input": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\_probe-fine\\Z5_output_only.json",
   "candidate": {
-    "path": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\_probe-fine\\Z5_output_only.json",
+    "path": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\_probe-fine\\Z5_output_only.json",
     "sha256": "414a22458a70ac0d3d6140021597f6f7e4d4cd296c159b554efad49c053791f4",
     "bytes": 16810
   },
@@ -14,7 +14,7 @@
     "command": "finalize",
     "arguments": [
       "workflow",
-      "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\_probe-fine\\Z5_output_only.json",
+      "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\_probe-fine\\Z5_output_only.json",
       "<output.html>",
       "--quality",
       "showcase",

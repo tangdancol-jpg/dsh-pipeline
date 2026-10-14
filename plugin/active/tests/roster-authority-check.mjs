@@ -327,9 +327,14 @@ export async function runRosterAuthorityCheck() {
   // =========================================================================
   {
     const R = fixture().roster
-    rec.add('E 上限次序', '★ A3：已开 9 / 上限 10 ⇒ 第 10 个放行', checkDispatchQuota(R, 9).ok === true, JSON.stringify(checkDispatchQuota(R, 9)))
-    const over = checkDispatchQuota(R, 10)
-    rec.add('E 上限次序', '★ A3：已开 10（第 11 个）⇒ 拒，理由里写明"上限由名单说了算"', over.ok === false && String(over.error).includes('第 11 个') && String(over.error).includes('上限是 10 个'), String(over.error ?? '').split('\n')[0])
+    // 缺省上限 = 名单里的席位会话数，**不含主对话**（主对话是用户开的，不是名单派出去的）
+    const seatCount = R.conversations.filter((r) => r !== 'main').length
+    rec.add('E 上限次序', '★ A3：缺省上限 = 席位会话数（不含主对话）', R.dispatch_quota === seatCount && seatCount === R.conversations.length - 1, `dispatch_quota=${R.dispatch_quota} 会话=${R.conversations.length}（含主对话）`)
+    rec.add('E 上限次序', `★ A3：已开 ${seatCount - 1} / 上限 ${seatCount} ⇒ 第 ${seatCount} 个放行`, checkDispatchQuota(R, seatCount - 1).ok === true, JSON.stringify(checkDispatchQuota(R, seatCount - 1)))
+    const over = checkDispatchQuota(R, seatCount)
+    rec.add('E 上限次序', `★ A3：已开 ${seatCount}（第 ${seatCount + 1} 个）⇒ 拒，理由里写明"上限由名单说了算"`, over.ok === false && String(over.error).includes(`第 ${seatCount + 1} 个`) && String(over.error).includes(`上限是 ${seatCount} 个`), String(over.error ?? '').split('\n')[0])
+    const { dispatch_quota: _q, ...legacy } = R
+    rec.add('E 上限次序', '★ A3：老名单没有 dispatch_quota ⇒ 兜底同样不含主对话（不会多放行一个）', checkDispatchQuota(legacy, seatCount).ok === false && checkDispatchQuota(legacy, seatCount - 1).ok === true, `兜底上限=${checkDispatchQuota(legacy, 0).max}`)
     const R3 = fixture({ dispatchQuota: 3 }).roster
     rec.add('E 上限次序', '★ A3：名单显式声明上限 3 ⇒ 以它为唯一依据（第 4 个拒、第 3 个放行）', R3.dispatch_quota === 3 && checkDispatchQuota(R3, 3).ok === false && checkDispatchQuota(R3, 2).ok === true, `dispatch_quota=${R3.dispatch_quota}`)
 

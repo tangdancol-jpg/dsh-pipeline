@@ -1,7 +1,7 @@
 # P0-2 · `notify_only` 第二层缺陷（`throwIfAborted`）修复实现报告
 
 - 日期：2026-10-14
-- 生效副本：`<DSH_HOME>\profiles\desktop\node_modules\dsh-pipeline`
+- 生效副本：`%USERPROFILE%\.dsh\profiles\desktop\node_modules\dsh-pipeline`
 - 只改了一个文件：`lib/transport/index.js`（`git diff --no-index --stat` = **1 file changed, 19 insertions(+), 2 deletions(-)**）
 - 测试新增一个套件：`tests/notify-only-delivery-check.mjs`（14 项），并在 `tests/run-all.mjs` 注册 **+1 行**
 - 状态：**代码已落地；活体（运行中插件）复验需重启 DSH 后完成** —— 见 §七，那条不是猜测，是实测。
@@ -16,8 +16,8 @@
 
 1. 开一张临时自测单 `T-20261014-p02v01`（`pipeline_task_open`）。
 2. 真派一个席位：`pipeline_dispatch { task_id: "T-20261014-p02v01", role: "orchestrator", permission: "read-only", mode: "standard" }`
-   - 宿主返回 **真实会话 id：`<session-id>`**（原话：「已新建**真实会话** <session-id>（不是子代理会话；读回 origin=undefined）」）
-   - 该单的 `task.json` → `dispatched[0].session_id = "<session-id>"`
+   - 宿主返回 **真实会话 id：`session-…`**（原话：「已新建**真实会话** session-…（不是子代理会话；读回 origin=undefined）」）
+   - 该单的 `task.json` → `dispatched[0].session_id = "session-…"`
 3. 立刻对它投一次 notify：
    `pipeline_dispatch { task_id: "T-20261014-p02v01", role: "orchestrator", notify_only: true, note: "【P0-2 复现探针】…" }`
 
@@ -38,7 +38,7 @@
 **第 47 行**（本次首次复现，文件当时共 47 行）：
 
 ```json
-{"t":"seat-wake","key":"T-20261014-p02v01|notify|seat:orchestrator|","task_id":"T-20261014-p02v01","kind":"notify","seat":"","role":"orchestrator","session":"<session-id>","ok":false,"note":"投递失败：Cannot read properties of undefined (reading 'throwIfAborted')","at":"2026-10-14T10:44:58Z"}
+{"t":"seat-wake","key":"T-20261014-p02v01|notify|seat:orchestrator|","task_id":"T-20261014-p02v01","kind":"notify","seat":"","role":"orchestrator","session":"session-…","ok":false,"note":"投递失败：Cannot read properties of undefined (reading 'throwIfAborted')","at":"2026-10-14T10:44:58Z"}
 ```
 
 键的形状 `T-…|notify|seat:orchestrator|` 与事故里那条
@@ -170,7 +170,7 @@ prompt(request: SessionPromptRequest, signal: AbortSignal): SessionPromptAck {
 | 项 | 值 |
 |---|---|
 | 任务 | `T-20261014-p02v01`（真实落盘在 `.pipeline/T-20261014-p02v01/`） |
-| **真实会话 id** | **`<session-id>`** |
+| **真实会话 id** | **`session-…`** |
 | 会话怎么来的 | `pipeline_dispatch` 真派活，宿主返回「已新建**真实会话**…（不是子代理会话）」，并读回了模式 `standard` 与权限档 `read-only` |
 | 投递方式 | `pipeline_dispatch { notify_only: true }`（活体，走真实 `ctx.sessionController`） |
 | 结果 | `ok:false`，`投递失败：Cannot read properties of undefined (reading 'throwIfAborted')` |
@@ -217,7 +217,7 @@ prompt(request: SessionPromptRequest, signal: AbortSignal): SessionPromptAck {
 `tests/notify-only-delivery-check.mjs` **完全密闭**：
 
 1. 夹具**自造**：自己在临时目录里建一份**合成任务文件**（假 `.pipeline` 任务 id）、一份**临时账本**、一份**临时审计**；跑完自行清理。
-2. **不读任何活体真单**：它从不触碰 `<DSH_HOME>\profiles\desktop\.pipeline\T-2026*`。
+2. **不读任何活体真单**：它从不触碰 `%USERPROFILE%\.dsh\profiles\desktop\.pipeline\T-2026*`。
 3. **不依赖运行中的插件**：不读线上账本、不依赖任何进程内的写入。
 4. 已核验：临时目录 **0 残留**；线上真账本里**没有**那个夹具 id 的任何痕迹。
 
@@ -287,10 +287,10 @@ prompt(request: SessionPromptRequest, signal: AbortSignal): SessionPromptAck {
 2. 打开「多AI 协调」开关：`pipeline_switch { on: true }`（或点右上角那个按钮）。
 3. 对那个**真实且仍在台账里的**席位投一次：
    `pipeline_dispatch { task_id: "T-20261014-p02v01", role: "orchestrator", notify_only: true, note: "复验" }`
-   **预期**：`ok:true`，且返回体里 `agent_id` = **`<session-id>`**。
+   **预期**：`ok:true`，且返回体里 `agent_id` = **`session-…`**。
 4. 看账本：`wake-ledger.jsonl` 新增一行 `"ok":true`，键仍是 `T-20261014-p02v01|notify|seat:orchestrator|`。
 5. 或直接跑新增套件：`node tests/notify-only-delivery-check.mjs`（期望 `总计：14/14 通过`）。
-6. 建议再确认一次**真席位真的收到**：那个会话（`<session-id>`）在侧栏里，应该出现一条带「【流水线 · 主对话留言】」抬头的运行时上下文消息。
+6. 建议再确认一次**真席位真的收到**：那个会话（`session-…`）在侧栏里，应该出现一条带「【流水线 · 主对话留言】」抬头的运行时上下文消息。
 
 ### 7.3 仍需重启才能观测的其它项（诚实边界）
 
@@ -306,8 +306,8 @@ prompt(request: SessionPromptRequest, signal: AbortSignal): SessionPromptAck {
     · 派活窗口只放 supervisor 一席，其余角色一个都没放宽
   验收时间：2026-10-14T11:2x（本地 19:2x）· 方式：DSH 重启后读只读导出
 - P0-2 实证：
-    · 正向：真席位真投递成功 —— `requestId=<session-id>`，`mode=queue`，
-            目标会话 `<session-id>`
+    · 正向：真席位真投递成功 —— `requestId=session-…`，`mode=queue`，
+            目标会话 `session-…`
     · 反向：裁定答复后机制【已唤醒发起席位「需求分析」】（昨夜此处必崩 throwIfAborted）
     · 账本：`wake-ledger.jsonl` 有对应 `ok:true` 一行
   验收时间：2026-10-14T11:2x · 方式：真单 T-20261011-5a871c 上真派席位 + 真投递
@@ -317,7 +317,7 @@ prompt(request: SessionPromptRequest, signal: AbortSignal): SessionPromptAck {
 
 ## 附：工程副本同步
 
-工程副本：`<DSH_HOME>\dsh_orb\新任务-为-dsh-写一个插件-实现用户要的-多对话-ai-协作开发流水线-主对\dsh-pipeline`
+工程副本：`%USERPROFILE%\.dsh\dsh_orb\新任务-为-dsh-写一个插件-实现用户要的-多对话-ai-协作开发流水线-主对\dsh-pipeline`
 
 - 工程副本是 **2026-10-11 的冻结快照**，其 `lib/transport/index.js` 是 1149 行的旧版（生效副本改前为 1170 行）。因此**没有整文件覆盖**（那会把 1.6 KB 与我无关的后续改动一起灌进去，违反"只同步你改的文件"），而是把**同一处 3 改**逐字应用到它身上。
 - 同步结果：`lib\transport\index.js` sha256 由 `f11c92d21b139285256f6ca7d8dfe03ce81cce2881e281460bdd037aa6c5a8d1` → **`62eeff75bc6f90985647afbf363abe3ffe7f33e52e66bebc8cc8ce8860f5dae4`**（58490 字节），`node --check` 通过；diff 统计与生效副本**逐字相同**：`1 file changed, 19 insertions(+), 2 deletions(-)`。

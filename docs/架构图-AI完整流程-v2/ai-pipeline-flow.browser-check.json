@@ -6,9 +6,9 @@
   "status": "pass",
   "visualReview": "not-requested",
   "provenance": "current",
-  "deliveryReceiptId": "<uuid>",
+  "deliveryReceiptId": "（UUID）",
   "artifact": {
-    "path": "<DSH_HOME>\\dsh_orb\\架构图-AI完整流程-v2\\ai-pipeline-flow.html",
+    "path": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-AI完整流程-v2\\ai-pipeline-flow.html",
     "sha256": "cb5cbbcb056c9407c33388b1e5a41b76c50ec144ddd312d04b861cea30917f07",
     "bytes": 794048
   },

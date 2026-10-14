@@ -172,16 +172,16 @@ export const ORPHAN_KINDS = Object.freeze([
  * ★★ **2026-10-14 补齐（P2-8 实测发现的真缺陷）：主对话侧那一半也必须剔**
  * ---------------------------------------------------------------------------
  * 上面那两条 `seat:wake-*` 是「机制投给**席位**」这半边的留痕；而**同一次投递**在
- * 「机制投给**主对话**」那半边也留痕，名字在 `lib/wakeup.js:101-122` 的 `WAKE_AUDIT`
- * 里定义，由同一份实现的 `note()`（`lib/wakeup.js:1101-1108`）经
- * `store.recordAudit`（`lib/store.js:7794`，它 `task.history.push(entry)`）写进 `history`：
+ * 「机制投给**主对话**」那半边也留痕，名字在 `lib/wakeup/keys.js` 的 `WAKE_AUDIT`
+ * 里定义，由同一份实现的 `note()`（`lib/wakeup/waker.js`）经
+ * `store.recordAudit`（`lib/store.js`，它 `task.history.push(entry)`）写进 `history`：
  *
  *   | 名字 | 出处 | 为什么必须剔 |
  *   | --- | --- | --- |
- *   | `wake:skipped` | `wakeup.js:1134`（`skip()`，"没投出去"的统一出口）| 本机两张真单 `history` 的**末行**就是它 |
- *   | `wake:delivered` | `wakeup.js:1459` | 投成功也是机制在说话，不是任务在进展 |
- *   | `wake:failed` | `wakeup.js:1408 / :1435` | 同上 |
- *   | `wake:dedup` | `wakeup.js:1281 / :1351 / :1370`（幂等吃掉）| 同上 |
+ *   | `wake:skipped` | `wakeup/waker.js`（`skip()`，"没投出去"的统一出口）| 本机两张真单 `history` 的**末行**就是它 |
+ *   | `wake:delivered` | `wakeup/waker.js` | 投成功也是机制在说话，不是任务在进展 |
+ *   | `wake:failed` | `wakeup/waker.js` | 同上 |
+ *   | `wake:dedup` | `wakeup/waker.js`（幂等吃掉）| 同上 |
  *   | `wake:escalated` | R1 的升级叫醒 | 同上 |
  *
  * **不剔的代价（实测，不是推测）**：孤儿身份是
@@ -195,10 +195,10 @@ export const ORPHAN_KINDS = Object.freeze([
  * P1-12 就是它：改前 42/46 随机红）。
  *
  * ★★ **刻意不剔的三类**（剔了会**削弱**判据，不是补齐）：
- *   · `wake:consumed`（`wakeup.js:114`）—— 它由 `markConsumed`（`wakeup.js:1594`）
+ *   · `wake:consumed`（`wakeup/keys.js`）—— 它由 `markConsumed`（`wakeup/waker.js`）
  *     写进**账本**，**根本不进 `task.history`**；而且它的语义是"主对话**真的**带着这条
  *     投递动了"，剔除等于把真进展判成噪音。
- *   · `seat:wake-consumed`（`wakeup.js:121`）/ `wake:consumed` 一族 —— 同理，
+ *   · `seat:wake-consumed`（`wakeup/keys.js`）/ `wake:consumed` 一族 —— 同理，
  *     它们是**接管**留痕（A28：送达 ≠ 接管），"有人真的动了手"正是活证据。
  *   · 任何**人工 / 席位真的做过**的动作（`transition:*` / `reattach` / 交接物 …）——
  *     一个字都不剔，判定窗照样被它们重新起算（`tests/orphan-rescue-check.mjs` 的

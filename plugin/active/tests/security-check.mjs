@@ -85,7 +85,7 @@ function expectOk(rec, name, res, mustContain = []) {
 // ---------------------------------------------------------------------------
 
 /** ★ 测试专用假密钥（不是真凭证）。 */
-const FAKE_KEY = '<redacted>'
+const FAKE_KEY = 'sk-test-FAKE0000KEY0000FOR0000UNITTEST'
 
 /**
  * 把任务推到「已通过」之前：编写交测试 → 测试交审核。
@@ -226,7 +226,7 @@ export async function runSecurityCheck() {
     void cur
     const artDir = join(fx.h.projectRoot, '.pipeline', fx.taskId, 'artifacts', 'v1')
     await mkdir(artDir, { recursive: true })
-    // 这段十六进制里**故意**塞了一个 11 位的 `1[3-9]\d{9}` 片段（<redacted>），
+    // 这段十六进制里**故意**塞了一个 11 位的 `1[3-9]\d{9}` 片段（`13333333333`），
     // 它前后都紧贴十六进制字母 ⇒ 是哈希，不是号码。
     const hexWithPhoneLikeRun = 'a1b2c3d4e5f60718293a4b5c6d7e8f901234567890abcdef13333333333deadbeef00'
     await writeFile(
@@ -244,7 +244,7 @@ export async function runSecurityCheck() {
     // 对照：真手机号照旧命中（别把这条修成"永远不报"）
     await writeFile(
       join(artDir, 'contact.md'),
-      '联系人电话：<redacted>（这是真的手机号，必须被扫出来）\n',
+      '联系人电话：13800138000（这是真的手机号，必须被扫出来）\n',
       'utf8',
     )
     const scan2 = await callTool(fx.h, 'pipeline_security_check', { task_id: fx.taskId, role_token: fx.tokens.reviewer }, fx.agents.reviewer)
@@ -303,7 +303,7 @@ export async function runSecurityCheck() {
     // 测试报告里夹带了一段"未脱敏的调试输出"
     await writeFile(
       join(repDir, 'test-report.md'),
-      '# 测试报告\n\n## 复现步骤\n\ncurl -H "Authorization: <redacted>" https://api.internal.example.net/v1/items\n\n以上是复现用的调试输出（未脱敏）。\n',
+      '# 测试报告\n\n## 复现步骤\n\ncurl -H "Authorization: Bearer FAKE-test-token-0000000000000000" https://api.internal.example.net/v1/items\n\n以上是复现用的调试输出（未脱敏）。\n',
       'utf8',
     )
 

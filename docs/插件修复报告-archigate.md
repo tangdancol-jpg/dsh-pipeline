@@ -1,13 +1,13 @@
 # dsh-archigate 两处缺陷修复报告
 
 - 日期：2026-10-13
-- 被修副本（生效副本）：`<DSH_HOME>\profiles\desktop\node_modules\dsh-archigate`
-- 验证脚本与原始日志留档：`<DSH_HOME>\dsh_orb\archigate-fix-verify\`（修复前三份原文在 `pristine\`）
+- 被修副本（生效副本）：`%USERPROFILE%\.dsh\profiles\desktop\node_modules\dsh-archigate`
+- 验证脚本与原始日志留档：`%USERPROFILE%\.dsh\dsh_orb\archigate-fix-verify\`（修复前三份原文在 `pristine\`）
 - ★ **未做活体验证**：改的是生效副本，插件模块是在 DSH 进程启动时加载的，**必须重载才生效**。本次所有验证都走 CLI / 直接 import 磁盘上的新代码，**没有**经过本会话已注册的 `diagram_deliver` 工具。
 
 > ★ **口径声明（2026-10-14 校正）**：本文件里「次数 / 条数 / 字节数」等一切可核对数字，**一律以账本为准**，且**必须标明是【哪一张单】的数字**。
-> **账本位置**：`<DSH_HOME>\profiles\desktop\.pipeline\<单号>\task.json`（席位失联冻结次数 = `liveness.escalations` 数组长度）与 `<单号>\audit.jsonl`（全部阻塞事件 = `transition:block` 行数；`note` 含「机制触发」的才是失联冻结）。
-> 凡**未标明单号**、或**未与账本逐条对齐**的计数，**视为不可信**。逐处对照见 `<DSH_HOME>\dsh_orb\文档数字校正报告.md`。
+> **账本位置**：`%USERPROFILE%\.dsh\profiles\desktop\.pipeline\<单号>\task.json`（席位失联冻结次数 = `liveness.escalations` 数组长度）与 `<单号>\audit.jsonl`（全部阻塞事件 = `transition:block` 行数；`note` 含「机制触发」的才是失联冻结）。
+> 凡**未标明单号**、或**未与账本逐条对齐**的计数，**视为不可信**。逐处对照见 `%USERPROFILE%\.dsh\dsh_orb\文档数字校正报告.md`。
 > **说明**：本文**不含**「误报冻结 / 失联次数」类计数（其 85 项自检、哈希等数字都是本文件自身的离线实测），故无可校正之处。
 
 改动文件哈希（SHA-256，前 16 位）：
@@ -70,8 +70,8 @@ geometry: { requested: false, note: 'auto_geometry 未开启（默认关），�
 **① 确定性最小验证（不经 archify/normify/浏览器）** —— 跑**真的** index.js handler，只把 `lib/pipeline.js` 换成 stub（loader hook），喂给它一个"交付成功但 `geometry={requested:false}`"的返回值：
 
 ```powershell
-node "<DSH_HOME>\dsh_orb\archigate-fix-verify\harness-a.mjs" "<DSH_HOME>\dsh_orb\archigate-fix-verify\pristine\index.js.orig"
-node "<DSH_HOME>\dsh_orb\archigate-fix-verify\harness-a.mjs" "<DSH_HOME>\profiles\desktop\node_modules\dsh-archigate\index.js"
+node "%USERPROFILE%\.dsh\dsh_orb\archigate-fix-verify\harness-a.mjs" "%USERPROFILE%\.dsh\dsh_orb\archigate-fix-verify\pristine\index.js.orig"
+node "%USERPROFILE%\.dsh\dsh_orb\archigate-fix-verify\harness-a.mjs" "%USERPROFILE%\.dsh\profiles\desktop\node_modules\dsh-archigate\index.js"
 ```
 
 修复前（pristine 副本）实收：
@@ -112,7 +112,7 @@ EXIT_NEW=0
 cd …\archigate-old
 node bin/archigate.mjs deliver --spec …\spec-archigate.json --out-dir …\out-old-nogeo --project dsh-archigate --root-dir …\ws --repo-root …\dsh-archigate
 # 修复后的生效副本
-cd "<DSH_HOME>\profiles\desktop\node_modules\dsh-archigate"
+cd "%USERPROFILE%\.dsh\profiles\desktop\node_modules\dsh-archigate"
 node bin/archigate.mjs deliver --spec …\spec-archigate.json --out-dir …\out-nogeo --project dsh-archigate --root-dir …\ws --repo-root .
 ```
 
@@ -152,17 +152,17 @@ if (sourceFontPx < targetProjectedPx) {
 | `lib/geometry-solver.js:283-288` | 删掉 `sourceFontPx < targetProjectedPx ⇒ ok:false` 早退；保留参数非正数校验；`maxViewBoxW = floor(stageW × font / target)` 不变。注释重写为「按实际投影字号 = 源字号 × 缩放比，缩放比可 > 1」并写明本口径是**乐观**口径、只用于定宽度预算。 |
 | `bin/archigate.mjs:599-609` | 自检里那条把 bug 当规格的断言 `字号低于目标 → 明确判无解`（原 `:596-599`）**改写**为核对收紧后的具体预算：`target 8.5 → 1266`、`target 12 → 897`（比原来只查 `ok === false` 更严，不是放宽）。 |
 
-★ **`projectedTextPx` 里的 `min(1, …)` clamp 一个字没动**。理由（可复核）：archify 侧同一 clamp 出现在 `renderers/shared/<redacted>.mjs:16`、`bin/visual-check.mjs:1643`、`scripts/check-render-output.mjs:1113-1119`；而 archify **真正强制**的是 6px 硬地板（`check-render-output.mjs:1125-1126` 的 `hardFloorMet`，`:1149` 的 `issue: worst && hardFloorMet === false ? worst : null`），`requestedTargetMet` **只报不判**。我无法证明放宽 clamp 不会放松那道闸门 ⇒ 按约束**只改比较口径，不动 clamp**。
+★ **`projectedTextPx` 里的 `min(1, …)` clamp 一个字没动**。理由（可复核）：archify 侧同一 clamp 出现在 `renderers/shared/***.mjs:16`、`bin/visual-check.mjs:1643`、`scripts/check-render-output.mjs:1113-1119`；而 archify **真正强制**的是 6px 硬地板（`check-render-output.mjs:1125-1126` 的 `hardFloorMet`，`:1149` 的 `issue: worst && hardFloorMet === false ? worst : null`），`requestedTargetMet` **只报不判**。我无法证明放宽 clamp 不会放松那道闸门 ⇒ 按约束**只改比较口径，不动 clamp**。
 
 ### 验证
 
 **① 判据层（离线、确定性）**
 
 ```powershell
-node "<DSH_HOME>\dsh_orb\archigate-fix-verify\probe-b-before.mjs"
-node "<DSH_HOME>\dsh_orb\archigate-fix-verify\probe-b-after.mjs"
-node "<DSH_HOME>\dsh_orb\archigate-fix-verify\probe-wf-before.mjs"
-node "<DSH_HOME>\dsh_orb\archigate-fix-verify\probe-wf-after.mjs"
+node "%USERPROFILE%\.dsh\dsh_orb\archigate-fix-verify\probe-b-before.mjs"
+node "%USERPROFILE%\.dsh\dsh_orb\archigate-fix-verify\probe-b-after.mjs"
+node "%USERPROFILE%\.dsh\dsh_orb\archigate-fix-verify\probe-wf-before.mjs"
+node "%USERPROFILE%\.dsh\dsh_orb\archigate-fix-verify\probe-wf-after.mjs"
 ```
 
 修复前：

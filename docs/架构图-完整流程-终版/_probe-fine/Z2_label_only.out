@@ -3,9 +3,9 @@
   "ok": true,
   "command": "validate",
   "type": "workflow",
-  "input": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\_probe-fine\\Z2_label_only.json",
+  "input": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\_probe-fine\\Z2_label_only.json",
   "candidate": {
-    "path": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\_probe-fine\\Z2_label_only.json",
+    "path": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\_probe-fine\\Z2_label_only.json",
     "sha256": "fd0664c105fce7ec15f78f205a0d453f3d75f104fe3bbf0fab7ce69eaf70796b",
     "bytes": 16811
   },
@@ -14,7 +14,7 @@
     "command": "finalize",
     "arguments": [
       "workflow",
-      "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\_probe-fine\\Z2_label_only.json",
+      "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\_probe-fine\\Z2_label_only.json",
       "<output.html>",
       "--quality",
       "showcase",

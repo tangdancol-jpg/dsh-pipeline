@@ -38,6 +38,7 @@
 import { basename } from 'node:path'
 
 import { ROLE, ROLES, roleLabel } from '../roles.js'
+import { PACKAGE_ROOT } from '../util.js'
 
 /**
  * ★★ P0-2：**永不向宿主递 `undefined` 的 signal**。
@@ -592,7 +593,9 @@ function groupTitleOf(cfg, task, root) {
   const profileName = process.env.DSH_PROFILE && process.env.DSH_PROFILE.length > 0 ? process.env.DSH_PROFILE : null
   const base = basename(root)
   const looksLikeWorkspaceOnly =
-    (profileDir !== null && pathKeyLite(root) === pathKeyLite(profileDir)) || (profileName !== null && base === profileName)
+    (profileDir !== null && pathKeyLite(root) === pathKeyLite(profileDir)) ||
+    (profileName !== null && base === profileName) ||
+    looksLikeProfileDir(root)
   if (!looksLikeWorkspaceOnly && base.length > 0) return { title: base, source: 'basename(project_root)', isFallback: false }
   const id = typeof task?.id === 'string' && task.id.length > 0 ? task.id : null
   return {
@@ -600,6 +603,19 @@ function groupTitleOf(cfg, task, root) {
     source: id === null ? 'basename(project_root)·兜底' : 'task.id·兜底（工作目录不算项目名）',
     isFallback: true,
   }
+}
+
+/**
+ * 不靠环境变量认 profile 目录（插件进程里 `DSH_PROFILE_DIR` / `DSH_PROFILE` 常常取不到，
+ * 只靠它们时这条判据在真机上等于没有）：
+ *   ① 路径形状 `…/.dsh/profiles/<名字>`；
+ *   ② 本插件装在 `<profile>/node_modules/dsh-pipeline` ⇒ 往上两级就是 profile 目录。
+ */
+function looksLikeProfileDir(p) {
+  const k = pathKeyLite(p)
+  if (/\/\.dsh\/profiles\/[^/]+$/.test(k)) return true
+  const installed = pathKeyLite(PACKAGE_ROOT).match(/^(.*)\/node_modules\/[^/]+$/)
+  return installed !== null && k === installed[1]
 }
 
 /** 极简路径归一（只用于"这两个路径是不是同一个"，不引入依赖）。 */
@@ -940,8 +956,8 @@ export class SessionTransport {
     // ③ 建组：**派活那一刻**就落对（ensure），不靠事后整理。
     const group = await ensureProjectGroup(ctx, cfg, spec)
     // ③b ★ **建组这件事不许静默**：宿主的 workspace 记录会被换掉 —— 本单现场实测，同一个项目根
-    //     （profiles\desktop）的分组 id 从 <uuid> 变成
-    //     <uuid>（旧记录已不在 .dsh\storages\workspace.json 里），
+    //     （profiles\desktop）的分组 id 从 （UUID） 变成
+    //     （UUID）（旧记录已不在 .dsh\storages\workspace.json 里），
     //     此后同一张单的各角色会话就会**跨在两个组里**，而账上没有任何痕迹。
     //     判据只用宿主 create 已返回的 `created`（拿不到就是 undefined ⇒ 恒不触发，不会误报）。
     if (group.created === true) {

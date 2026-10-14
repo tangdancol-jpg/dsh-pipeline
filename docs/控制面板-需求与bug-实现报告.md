@@ -9,7 +9,7 @@
 | 约束 | 做到没有 | 怎么核 |
 | --- | --- | --- |
 | 零依赖（只用 Node 内置模块，✗ 不许 `npm install`） | ✅ | `server.mjs` 只 import `node:http` / `node:fs` / `node:path` / `node:net` / `node:crypto` / `node:child_process` / `node:url`；没有 `package.json`、没有 `node_modules` |
-| 只监听 `127.0.0.1`（✗ 不许对外） | ✅ | `server.listen(port, '127.0.0.1')`；实测从本机局域网 IP `<LAN-IP>:18240` 连**连不上** |
+| 只监听 `127.0.0.1`（✗ 不许对外） | ✅ | `server.listen(port, '127.0.0.1')`；实测从本机局域网 IP `192.168.x.x:18240` 连**连不上** |
 | 只读：面板不许有任何写入接口（纯 GET） | ✅ | `POST/PUT/DELETE/PATCH/HEAD` 一律 **405**（`allow: GET`）；只有 `/` 一个路由，其余 **404** |
 | 不得装、不得重启 DSH；不得改插件、不得改 `.pipeline\` | ✅ | 本次**未安装任何东西、未重启 DSH、未改插件两棵树、未碰 `.pipeline\`**（面板只**读**那两个 md） |
 | ✗ 不许在页面或报告里回显完整密钥 | ✅ | 页面里**一个密钥字符都没有**；本报告只给**前 6 位**；完整值只在 `dashboard-keys.json` |
@@ -58,7 +58,7 @@
 ① **P0-1 / P0-2 标【已修完并活体验收通过】**（两份报告各自的「★ 2026-10-14 补记：已活体验收通过」即依据：
 
 - P0-1：`pipeline_boundaries` 的 R10 已含入口 `handoff_to_supervisor`（by `main`）+ ②b/②c 两个确认点，确认点合计 **6 道**，派活窗口只放 supervisor 一席；
-- P0-2：真席位真投递成功 `requestId=<session-id>`、`mode=queue`；反向「裁定答复后机制已唤醒发起席位「需求分析」」；账本有对应 `ok:true` 一行）。
+- P0-2：真席位真投递成功 `requestId=session-…`、`mode=queue`；反向「裁定答复后机制已唤醒发起席位「需求分析」」；账本有对应 `ok:true` 一行）。
 
 ② **新增 / 补齐今天这一批的条目与状态**（每条都带**状态行 + 一句证据**，全部有报告可核）：
 
@@ -174,7 +174,7 @@ md 的 ## 小节 18 个 · html 的 h2 18 个 · html 缺 0 个   ← 旧 html �
 
 ## 二、面板怎么跑
 
-### 2.1 文件清单（全部落在工作区 `<DSH_HOME>\dsh_orb\`）
+### 2.1 文件清单（全部落在工作区 `%USERPROFILE%\.dsh\dsh_orb\`）
 
 | 文件 | 字节数 | 说明 |
 | --- | --- | --- |
@@ -188,16 +188,16 @@ md 的 ## 小节 18 个 · html 的 h2 18 个 · html 缺 0 个   ← 旧 html �
 
 ```bat
 :: 启动（首次运行会自动生成密钥并探测空闲端口）
-<DSH_HOME>\dsh_orb\dashboard\start.cmd
+%USERPROFILE%\.dsh\dsh_orb\dashboard\start.cmd
 
 :: 停止
-<DSH_HOME>\dsh_orb\dashboard\stop.cmd
+%USERPROFILE%\.dsh\dsh_orb\dashboard\stop.cmd
 ```
 
 等价的手工命令（不用 .cmd 时）：
 
 ```bat
-cd /d <DSH_HOME>\dsh_orb\dashboard
+cd /d %USERPROFILE%\.dsh\dsh_orb\dashboard
 node server.mjs --init     :: 只在第一次跑；生成 dashboard-keys.json（三把随机钥匙 + 探测到的空闲端口）
 node server.mjs            :: 启动面板
 node server.mjs --print    :: 只打印 URL / 端口 / 三把钥匙的掩码，不启服务
@@ -212,7 +212,7 @@ node server.mjs --print    :: 只打印 URL / 端口 / 三把钥匙的掩码，�
 **访问地址**：
 
 ```
-http://<面板端口>/?k=<你的密钥>
+http://127.0.0.1:18240/?k=<你的密钥>
 ```
 
 ### 2.4 三个角色的访问方式
@@ -221,9 +221,9 @@ http://<面板端口>/?k=<你的密钥>
 
 | 角色 | 是谁 | 访问方式 |
 | --- | --- | --- |
-| `main` | 主对话 | `http://<面板端口>/?k=<main 的钥匙>` |
-| `orchestrator` | 需求分析 | `http://<面板端口>/?k=<orchestrator 的钥匙>` |
-| `supervisor` | 主管 | `http://<面板端口>/?k=<supervisor 的钥匙>` |
+| `main` | 主对话 | `http://127.0.0.1:18240/?k=<main 的钥匙>` |
+| `orchestrator` | 需求分析 | `http://127.0.0.1:18240/?k=<orchestrator 的钥匙>` |
+| `supervisor` | 主管 | `http://127.0.0.1:18240/?k=<supervisor 的钥匙>` |
 
 也支持**请求头**方式（适合脚本 / 别的 agent 调）：
 
@@ -247,7 +247,7 @@ x-dsh-key: <你的密钥>
 ## 三、★ 密钥怎么发
 
 - **怎么生成的**：`crypto.randomBytes(16).toString('hex')` ⇒ **三把各自独立的 32 位十六进制随机串**（互不相同、不可预测）。
-- **存在哪**：`<DSH_HOME>\dsh_orb\dashboard-keys.json`（★ **完整值只在这个文件里**）。
+- **存在哪**：`%USERPROFILE%\.dsh\dsh_orb\dashboard-keys.json`（★ **完整值只在这个文件里**）。
 - **权限（写死）**：生成时执行 `chmod 600` **+** Windows 上 `icacls <file> /inheritance:r` 去掉继承、`/grant:r <当前用户>:F` 只留当前用户。
 
 > ★ **一处必须如实说清的地方（别被 `chmod 600` 这四个字骗了）**：
@@ -257,8 +257,8 @@ x-dsh-key: <你的密钥>
 >
 > | 文件 | ACL |
 > | --- | --- |
-> | `bug待修复单-20261014.md`（普通文件） | **4 条继承项**（`SYSTEM:(I)(F)` · `Administrators:(I)(F)` · `<user>:(I)(F)` · 另一个 SID） |
-> | **`dashboard-keys.json`**（本文件） | **只剩 1 条、且不带 `(I)` 继承标记**：`<redacted>\<user>:(F)` |
+> | `bug待修复单-20261014.md`（普通文件） | **4 条继承项**（`SYSTEM:(I)(F)` · `Administrators:(I)(F)` · `%USERNAME%:(I)(F)` · 另一个 SID） |
+> | **`dashboard-keys.json`**（本文件） | **只剩 1 条、且不带 `(I)` 继承标记**：`***\%USERNAME%:(F)` |
 >
 > ⇒ **继承被切断、其它账户全部清掉、只留当前用户** —— 这一条是**真的生效了**（可自行 `icacls` 复核）。
 > `chmod 600` 保留在代码里是为了**跨平台**（Linux/macOS 上它就是真正的执法面）。
@@ -340,8 +340,8 @@ supervisor    key=2df0af... => HTTP 200 | 33788 B | x-dsh-role=supervisor
   <table class="src">
     <thead><tr><th>数据源文件</th><th>mtime（文件最后修改）</th><th>字节数</th><th>sha256</th></tr></thead>
     <tbody>
-      <tr><td class="p"><DSH_HOME>\dsh_orb\需求清单与进度-20261014\需求清单与进度.md</td><td class="m">2026-10-14 20:06:05</td><td class="m">33,657</td><td class="h">71553240879d049120f6b9c6a610edbb4733e5032e144334a9e90fce62f8a6fd</td></tr>
-      <tr><td class="p"><DSH_HOME>\dsh_orb\bug待修复单-20261014.md</td><td class="m">2026-10-14 20:06:18</td><td class="m">35,710</td><td class="h">800866e86b539fdbdabdb85de012cf9b5e545eed0590ec458fa0abfdf25b71bd</td></tr>
+      <tr><td class="p">%USERPROFILE%\.dsh\dsh_orb\需求清单与进度-20261014\需求清单与进度.md</td><td class="m">2026-10-14 20:06:05</td><td class="m">33,657</td><td class="h">71553240879d049120f6b9c6a610edbb4733e5032e144334a9e90fce62f8a6fd</td></tr>
+      <tr><td class="p">%USERPROFILE%\.dsh\dsh_orb\bug待修复单-20261014.md</td><td class="m">2026-10-14 20:06:18</td><td class="m">35,710</td><td class="h">800866e86b539fdbdabdb85de012cf9b5e545eed0590ec458fa0abfdf25b71bd</td></tr>
     </tbody>
   </table>
   <p class="readat">★ 本页是 <b>每次请求现读</b>这两个文件生成的 —— 上面两个文件一改，<b>刷新即最新</b>（不需要重新部署）。<br>
@@ -399,7 +399,7 @@ supervisor    key=2df0af... => HTTP 200 | 33788 B | x-dsh-role=supervisor
 | 未知路径 | `/api` `/write` `/admin` `/dashboard-keys.json` `/..%2Fdashboard-keys.json` ⇒ **404** | 5/5 ✅ |
 | 外链 0 | `http(s)` 绝对链接 0 · `<link>` 0 · `<script>` 0 · `src=` 0 · `@import` 0 | 5/5 ✅ |
 | 页面内容 | 33 条 / 17 条 / 七个需求小节 / P0·P1·P2 分组 / sha256 / 来源标注 / 底部两块 | 18/18 ✅ |
-| **只监听本机** | 从局域网 IP `<LAN-IP>:18240` **连不上** | ✅ |
+| **只监听本机** | 从局域网 IP `192.168.x.x:18240` **连不上** | ✅ |
 | 启动 / 停止脚本 | `start.cmd` 起得来（pid 落盘、端口在听）；`stop.cmd` 收得掉（进程杀掉 + pid 文件删除） | ✅ |
 
 ---

@@ -1367,6 +1367,26 @@ export async function runHashGateCheck() {
         `pass=${neg.pass}　undeclared=${neg.counts.undeclared}\n命中：${neg.violations.map((x) => `${x.how}:${x.path}`).join('、')}\n${neg.summary}`,
       )
 
+      // ---- ★★ 豁免收回（P1-5 残余）：编写席**自己**产出的 *-last-run.txt 不算测试台产物 ----
+      {
+        const P = 'tests/sneaky-last-run.txt'
+        const SHA = 'a'.repeat(64)
+        const abs = (p) => `/proj/${String(p)}`.toLowerCase()
+        const fake = { added: [{ path: P, sha256: SHA }], modified: [], removed: [], unauthorized: [], counts: { added: 1, modified: 0, removed: 0, unauthorized: 0 } }
+        const row = (over) => ({ t: 'seat-write', at: '2026-10-15T00:00:00Z', task_id: 'T-SELF', role: 'writer', seat: 'writer#1', source: 'guard.write-allowed', paths: [{ key: abs(P), sha256: null }], ...over })
+        const run = (ledger) => hashGateVerdict(fake, [], { absOfDeclared: abs, absOfTouched: abs, writeLedger: ledger, writeLedgerTaskId: 'T-SELF' })
+        const control = run([])
+        rec.add('D 豁免收回', '★ 对照：没人写过、没人申报过 ⇒ 当作测试台产物豁免（pass）', control.pass === true && control.counts.machine_artifacts === 1, control.summary)
+        const declared = run([row({ source: 'handoff.dev_to_test', paths: [{ key: abs(P), sha256: SHA }] })])
+        rec.add('D 豁免收回', '★★ 编写席申报过、哈希一致 ⇒ 豁免收回（落回"声明不实"）', declared.pass === false && declared.withdrawn_machine_artifacts.length === 1 && declared.violations.some((x) => x.how === 'undeclared_change' && x.path === P), JSON.stringify(declared.withdrawn_machine_artifacts))
+        const touched = run([row({})])
+        rec.add('D 豁免收回', '★★ 编写席**从没申报**、但守门看见它用写类工具写过 ⇒ 豁免同样收回（P1-5 残余的那条形态）', touched.pass === false && touched.withdrawn_machine_artifacts.length === 1 && touched.withdrawn_machine_artifacts[0].why.includes('写类工具写过'), JSON.stringify(touched.withdrawn_machine_artifacts))
+        const byTester = run([row({ role: 'tester', seat: null })])
+        rec.add('D 豁免收回', '★ 反例：写它的是测试席（测试台本来就该写运行产物）⇒ 照旧豁免', byTester.pass === true && byTester.counts.machine_artifacts === 1, byTester.summary)
+        const otherTask = run([row({ task_id: 'T-OTHER' })])
+        rec.add('D 豁免收回', '★ 反例：别的单的编写席写过 ⇒ 不算本单的产物，照旧豁免', otherTask.pass === true && otherTask.counts.machine_artifacts === 1, otherTask.summary)
+      }
+
       // ---- ★ 反例 2：**落在授权面之外**的机器产物照样是越界（豁免吞不掉越界）----
       await mkdir(`${root}/outside`, { recursive: true })
       await writeFile(`${root}/outside/x-check-last-run.txt`, '越界目录里的机器产物\n', 'utf8')

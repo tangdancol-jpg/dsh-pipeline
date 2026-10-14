@@ -90,7 +90,7 @@ export const ROLE = {
  * 全部角色及其职责/权限。
  *
  * `writes` 描述「该角色允许写文件的位置」，取值与守门的 `writeClassOf()`
- * （`lib/guard.js:133`；它声明的枚举在 `:131`）返回的类别**是同一套** ——
+ * （`lib/guard/rules.js` 的 `writeClassOf`，枚举在它上方）返回的类别**是同一套** ——
  * 守门认的就是这几个词：
  *   · `'readonly'` 一字节都不许写（`main` / `orchestrator` / `planner` / `supervisor`）
  *   · `'workdir'`  项目源码树（编写角色的正当工作区；`writer` / `human`）
@@ -162,7 +162,8 @@ export const ROLES = {
     en: 'Planner',
     kind: 'control',
     writes: 'readonly',
-    handoffKinds: ['plan', 'orchestration', 'full_test_review', 'human_request', 'clarification_reply', 'seat_handover',
+    // ★ 不含 clarification_reply：裁定只有需求分析能出（方向表与 pipeline_clarify_reply 都只认 orchestrator）
+    handoffKinds: ['plan', 'orchestration', 'full_test_review', 'human_request', 'seat_handover',
       // ★ T-20261011-56a37e：计划位 → 测试位的「任务内容预登记」（测试**提前**知情）。
       //   它是本单新增的唯一一条"提前交付"通道，方向由类型固定（planner → tester）。
       'prebrief'],
@@ -198,7 +199,8 @@ export const ROLES = {
      *    该类型落地后补进这张白名单 —— **在那之前不许先写一个不存在的类型**：
      *    "表里有个谁都不认识的类型"正是能力漂移的入口。
      */
-    handoffKinds: ['human_request', 'clarification_reply', 'seat_handover',
+    // ★ 不含 clarification_reply：裁定只有需求分析能出（方向表与 pipeline_clarify_reply 都只认 orchestrator）
+    handoffKinds: ['human_request', 'seat_handover',
       // ★★ T-20261011-56a37e（主管枢纽）：
       //   · `station_confirm` —— 确认留痕里**主管那一侧**的那一份（①②是它单独确认，
       //     ③④是它与需求位的**双确认**之一，②c 是架构图的**二次确认**）；
@@ -336,18 +338,18 @@ export const ROLES = {
     writes: 'own-dir',
     /**
      * ⚠️ **2026-10-14：`'compilation'` 从这张白名单里去掉了** —— 它不是一个存在的类型：
-     *   `HANDOFF_SCHEMAS`（`lib/handoff.js:704` 起，25 个 kind）里**没有** `compilation`，
-     *   真提交会被 `UNKNOWN_HANDOFF` 拒（`lib/store.js:3565-3567`；`lib/handoff.js:1346-1349` 同理）。
+     *   `HANDOFF_SCHEMAS`（`lib/handoff/schemas.js`，25 个 kind）里**没有** `compilation`，
+     *   真提交会被 `UNKNOWN_HANDOFF` 拒（`lib/store/submit.js`；`lib/handoff/validate.js` 同理）。
      *   这正是本文件 `:184-185` 亲口警告过的那个陷阱：「在那之前不许先写一个不存在的类型 ——
      *   "表里有个谁都不认识的类型"正是能力漂移的入口。」
      *
      *   ★ 修法**只能是删掉这个不存在的类型**，不能"照 schema 的形状补一个 compilation 出来" ——
      *     那等于给留档角色新增一条能力，不属于任何一轮"对齐"的授权范围。
      *     留档角色真正的产出通道是**工具**、不是交接物：`pipeline_compile_requirement`
-     *     （`lib/tools.js:3482`，`【只有留档 AI】`）汇总出 `requirement.md` + 结构化 JSON。
+     *     （`lib/tools/records.js`，`【只有留档 AI】`）汇总出 `requirement.md` + 结构化 JSON。
      *
      * ⚠️ 另有一条**未修、只报备**的落差（同一族，但补它 = 新增能力）：
-     *   下面这三类虽然都是**真类型**，但 `HANDOFF_DIRECTION`（`lib/guard.js:549/561/562`）
+     *   下面这三类虽然都是**真类型**，但 `HANDOFF_DIRECTION`（`lib/guard/rules.js`）
      *   的名单里**都没有 `archivist`** ⇒ 留档角色目前实际交不出**任何一份**交接物。
      *   要修得单独授权（它要么是补方向表，要么是给该角色换一条产出路径）。
      */

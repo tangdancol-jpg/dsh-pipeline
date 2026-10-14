@@ -130,7 +130,7 @@ export const S1 = {
       quote: [
         '用户原话（照抄）：「把「澄清答复后不唤醒席位」+「失联误报」两条一起修（落点已在授权面内）。修完再回头推 214043，以后每轮不用人守着。」',
         '★ 用户并明确要求：**走管道自身完成本次修复**（正统路径），**不得绕开管道**用旁路工具落地。',
-        '缺陷 1 实测反证 A（照抄）：「席位 <session-id>… 于 20:53:25 派出，20:58:30 被判失联并冻结任务；而同一时刻主对话实测该会话日志 session.v4.jsonl.zstd **30 秒内从 381,679 B 增至 392,396 B（+10,717 B）** ⇒ 席位**正在活动**。」',
+        '缺陷 1 实测反证 A（照抄）：「席位 session-…… 于 20:53:25 派出，20:58:30 被判失联并冻结任务；而同一时刻主对话实测该会话日志 session.v4.jsonl.zstd **30 秒内从 381,679 B 增至 392,396 B（+10,717 B）** ⇒ 席位**正在活动**。」',
         '缺陷 2 实测反证（照抄）：「席位会话日志自 21:03:01 起**冻结不动**；主对话于 21:05:36–21:06:21 观测 45 秒，size 恒为 600,357 B、mtime 恒为 21:03:01 ⇒ **无任何路径去叫醒它**。」',
       ],
       sub: [
@@ -151,7 +151,7 @@ export const S1 = {
           note: 'B2 判据的**两条根因在补丁之后依然在磁盘上**；且真单上这条修复「没有拦住」误判。',
           ev: [
             '已落的：lib/liveness.js 第四条判据（会话日志 size/mtime 增长，源码注释「★ B2：第四条判据 —— 会话日志还在长吗？（优先级最高，因为它是最硬的"它还在动"）」）；DEFAULT_ACTIVITY_MIN_BYTES=1024；DEFAULT_ACTIVITY_MAX_MS=2min；DEFAULT_SILENCE_CONFIRMATIONS=2。',
-            '★ 反证 A（实读 audit 14:44:15Z 的 unblock 备注原文）：「B2 那条「补会话活动判据」的修复**这次没有拦住误判**（会话 id 是 session-… 形状，本应命中）。」实测：<session-id> 的日志在 22:43:36–22:43:49 的 13 秒内由 563,327 B 增至 575,960 B（+12,633 B）。',
+            '★ 反证 A（实读 audit 14:44:15Z 的 unblock 备注原文）：「B2 那条「补会话活动判据」的修复**这次没有拦住误判**（会话 id 是 session-… 形状，本应命中）。」实测：session-… 的日志在 22:43:36–22:43:49 的 13 秒内由 563,327 B 增至 575,960 B（+12,633 B）。',
             '★ 根因仍在（源码行号 2026-10-12 23:5x 实读）：lib/store.js:401 `if (root === null) return { …, gate_applicable: false }`；lib/liveness.js:373 `const gateOn = confirmations >= 2 && opts.gateApplicable === true`；lib/liveness.js:432 `quiet_streak: silentHere ? quiet + 1 : 0`（pending 分支在 :413 把 silentHere 置 false ⇒ 计数永远回 0 ⇒ 永远累加不到 confirmations=2）。',
             '当前状态：本单 state = "developing"，正在返工轮里；routers 卡在「修改测试目录内已有文件」的授权面语义（用户 15:18:05Z 已裁定「允许：由计划 AI 扩权」）。',
           ],

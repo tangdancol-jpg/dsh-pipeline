@@ -7,12 +7,12 @@
   "quality": "showcase",
   "startedAt": "2026-10-13T17:48:46.449Z",
   "specification": {
-    "path": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\_probe-split-noauto\\main-path.candidate.json",
+    "path": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\_probe-split-noauto\\main-path.candidate.json",
     "sha256": "0377c5b2abc7a7679f7c9e39221fb130e32b7bf403e6059f08e14b61ce4ffb2b",
     "bytes": 17263
   },
   "artifact": {
-    "path": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\_probe-split-noauto\\main-path.html"
+    "path": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\_probe-split-noauto\\main-path.html"
   },
   "stages": {
     "validate": {
@@ -21,11 +21,11 @@
       "durationMs": null,
       "command": [
         "D:\\tool\\Deepseek\\Deepseek harness\\DeepSeek Harness.exe",
-        "<DSH_HOME>\\skills\\archify\\bin\\archify.mjs",
+        "%USERPROFILE%\\.dsh\\skills\\archify\\bin\\archify.mjs",
         "deliver",
         "workflow",
-        "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\_probe-split-noauto\\main-path.candidate.json",
-        "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\_probe-split-noauto\\main-path.html",
+        "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\_probe-split-noauto\\main-path.candidate.json",
+        "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\_probe-split-noauto\\main-path.html",
         "--quality",
         "showcase",
         "--json"
@@ -34,11 +34,11 @@
         "schemaVersion": 1,
         "ok": false,
         "command": "deliver",
-        "receiptId": "<uuid>",
+        "receiptId": "（UUID）",
         "stage": "render",
         "type": "workflow",
-        "input": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\_probe-split-noauto\\main-path.candidate.json",
-        "output": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\_probe-split-noauto\\main-path.html",
+        "input": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\_probe-split-noauto\\main-path.candidate.json",
+        "output": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\_probe-split-noauto\\main-path.html",
         "error": "Renderer failed before emitting a structured diagnostic.",
         "diagnostics": [
           {
@@ -85,8 +85,8 @@
     }
   ],
   "evidence": {
-    "receipt": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\_probe-split-noauto\\main-path.finalize.json",
-    "summaryReceipt": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\_probe-split-noauto\\main-path.finalize-summary.json"
+    "receipt": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\_probe-split-noauto\\main-path.finalize.json",
+    "summaryReceipt": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\_probe-split-noauto\\main-path.finalize-summary.json"
   },
   "visualReview": "not-requested",
   "failedStage": "validate",

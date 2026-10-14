@@ -3,10 +3,10 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 
-const DIR = '<DSH_HOME>/dsh_orb/架构图-完整流程-含被拒后果/'
+const DIR = '~/.dsh/dsh_orb/架构图-完整流程-含被拒后果/'
 const BASE = DIR + '完整流程.workflow.json'
 const TMP = DIR + '_probe.json'
-const ARCHIFY = '<DSH_HOME>/skills/archify/bin/archify.mjs'
+const ARCHIFY = '~/.dsh/skills/archify/bin/archify.mjs'
 
 const MUST = new Set([
   'e_open', 'e_initiate', 'e_need_to_supervisor', 'e_agree_need', 'e_diagram_submitted',

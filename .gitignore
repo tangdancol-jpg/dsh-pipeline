@@ -27,6 +27,7 @@ desktop.ini
 *.orig
 *.wip-*
 *-last-run.txt
+last-run.txt
 *run-all.txt
 *run-all-after.txt
 *snapshot*

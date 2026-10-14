@@ -152,7 +152,7 @@ export function createStoreBase(ctx) {
    * 「任务 … 目前没有人工介入请求。」—— 过一会儿再调又正常了。
    *
    * 读侧的路径查清了（这是上一轮**没覆盖**的那半边）：
-   *   · `lib/tools.js:3495` 收件箱 → `store.listHumanRequests({ taskId })`
+   *   · `lib/tools/human.js` 收件箱 → `store.listHumanRequests({ taskId })`
    *   · `lib/store.js` 的 `listHumanRequests` → `task.human_requests`
    *   · `lib/store.js` 的 `loadTask`：`const cached = cache.get(taskId); if (cached !== undefined) return cached`
    *     ⇒ **内存实例优先、且从不与盘对账**。
@@ -178,7 +178,7 @@ export function createStoreBase(ctx) {
    *   调用方（`transition` / `submitHandoff` / …）一律是**先改内存对象、再落盘**。
    *   而 `persist()` 早先只管写盘、不管回滚 ⇒ 写盘一失败（真单 T-20261011-214043
    *   的一次 `unblock`：`writeJsonAtomic → fs.rename` 抛 **EPERM**，
-   *   调用链 `store.js:693 persist → store.js:1139 transition → lib/tools.js:2084`），
+   *   调用链 `store/base.js 的 persist → store/lifecycle.js 的 transition → tools/dispatch.js`），
    *   形状就是「**内存已经改了、盘上没改**」——
    *   而且**不会自愈**：`cache` 从不失效，下一次 `loadTask` 命中缓存拿到的正是
    *   那份没落盘的内存 ⇒ 同一个 `unblock` 第二次回的是「已是开发中，不接受 unblock」。

@@ -1,6 +1,6 @@
 // 放大镜：把生成的架构 SVG 的某个 viewBox 区域单独渲染出来，用于人工核对排版
 import fs from 'node:fs'
-const OUT = '<DSH_HOME>\\dsh_orb\\产出交付文档-需求清单-详细进度-完整插件架构图-派单流程图-以架构图方式呈现'
+const OUT = '~\\.dsh\\dsh_orb\\产出交付文档-需求清单-详细进度-完整插件架构图-派单流程图-以架构图方式呈现'
 const SHOT = OUT + '\\_work\\shot'
 const h = fs.readFileSync(OUT + '\\交付文档.html', 'utf8')
 const svgs = [...h.matchAll(/<svg[\s\S]*?<\/svg>/g)].map((x) => x[0])

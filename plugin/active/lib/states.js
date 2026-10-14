@@ -165,6 +165,8 @@ export const ROLES_CAN_ASK_CLARIFICATION = [
   // ★ 本轮新增：计划 AI。它的「计划自检发现缺失」就是**退回需求分析**，
   //   走的必须是与其它角色**同一条**澄清梯（用户明确要求"不要另起一套并行机制"）。
   'planner',
+  // ★ 归档席位在 roles.js 里声明了 clarification_request，名单里原先漏了
+  'archivist',
 ]
 
 /** 中文名（状态一栏要给人看，所以单独一份映射）。 */
@@ -226,6 +228,9 @@ export const ROLES_CAN_RAISE_HUMAN = [
   'performance',
   'arbiter',
   'human',
+  // ★ 架构图与归档两个席位在 roles.js 里都声明了 human_request，名单里原先漏了
+  'diagrammer',
+  'archivist',
 ]
 
 /**
@@ -593,6 +598,11 @@ export const TRANSITIONS = [
   // --- 开发 ---------------------------------------------------------------
   { from: ST.READY_DEV, event: 'dispatch_writer', to: ST.DEVELOPING, by: ['main'], note: '主对话派活给编写' },
   { from: ST.DEVELOPING, event: 'dev_submitted', to: ST.READY_TEST, by: ['writer'], guard: 'dev_to_test', note: '★ 编写交测试（唯一出口）' },
+  // ★ P1-3 / P1-13 的代发半边（A 路报告 §6.3 方案 A1）：编写席位交完最后一份交付就结束回合、
+  //   不发上面那一步时，由主对话代按出口。**另起一个事件**而不是把 main 加进上面那条的 by：
+  //   守卫与那条完全同源（全部席位到齐、哈希闸门、改动面……一个都不少），
+  //   审计里 actor 记 main、事件名也不同 ⇒ 事后分得清"席位自己发的"与"主对话代发的"。
+  { from: ST.DEVELOPING, event: 'main_dev_submitted', to: ST.READY_TEST, by: ['main'], guard: 'dev_to_test', note: '★ 主对话代发「编写交测试」（守卫与 dev_submitted 同源）' },
   // ⚠️ 这一条**刻意不挂** rework_budget：
   //    预算在「打回」那一刻就已经扣过了。如果这里再扣一次，就会出现
   //    "第 2 次打回成功 → 但再也派不出编写 → 任务永久卡在已打回编写"的死结。

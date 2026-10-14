@@ -20,20 +20,20 @@
 ## 1. 关键路径（照抄可用）
 
 ### dsh-pipeline（未装）
-- 源码：`<DSH_HOME>\dsh_orb\新任务-为-dsh-写一个插件-实现用户要的-多对话-ai-协作开发流水线-主对\dsh-pipeline`
+- 源码：`%USERPROFILE%\.dsh\dsh_orb\新任务-为-dsh-写一个插件-实现用户要的-多对话-ai-协作开发流水线-主对\dsh-pipeline`
 - 含：`index.js` / `lib/`（roles·states·tiers·handoff·tools·guard·tokens·store·transport）/ `tests/` / `README.md` / `ARCHITECTURE.md` / `REPORT.md` / `install.ps1` / `rollback.ps1`
 
 ### dsh-archigate（已装 0.5.0）
-- 源码：`<DSH_HOME>\dsh_orb\写一个-dsh-插件-把-normify-建树校验-archify-渲染交付-这\dsh-archigate`
-- 安装副本：`<DSH_HOME>\profiles\desktop\node_modules\dsh-archigate`（与源码逐文件哈希一致；node_modules 内有 4 份 `.bak-*` 可回滚）
-- 结构数据：`<HOME>\Documents\deepseek-harness\default-workspace\normify-dsh-archigate`（32 模块）、`…\normify-dsh-pipeline`（20 模块）
+- 源码：`%USERPROFILE%\.dsh\dsh_orb\写一个-dsh-插件-把-normify-建树校验-archify-渲染交付-这\dsh-archigate`
+- 安装副本：`%USERPROFILE%\.dsh\profiles\desktop\node_modules\dsh-archigate`（与源码逐文件哈希一致；node_modules 内有 4 份 `.bak-*` 可回滚）
+- 结构数据：`%USERPROFILE%\Documents\deepseek-harness\default-workspace\normify-dsh-archigate`（32 模块）、`…\normify-dsh-pipeline`（20 模块）
 
 ### 交付产物（HTML + 收据）
 - 架构图（8 组件）/ 小白版 / 带解释版：`…\dsh_orb\任务-收尾并复验一个已写好的-dsh-插件-dsh-archigate-然后-用\archify-deliver\out\` 与 `…\dsh_orb\dsh-archigate-arch\`
 - **流程图 v1/v2/v3**：`…\dsh_orb\dsh-pipeline-flow\`（v3 = 25/25 节点机制级命中；收据在 `.receipts\`）
 
 ### profile 三个配置（改动前必须备份）
-`<DSH_HOME>\profiles\desktop\{cordis.yml, cordis.patch.yml, package.json}`
+`%USERPROFILE%\.dsh\profiles\desktop\{cordis.yml, cordis.patch.yml, package.json}`
 - `cordis.yml` 现在是**空根**（注释写明 "Edit cordis.patch.yml, not this file"）—— **不要往里写**
 - 现有 bundles 13 项（含 `dsh-archigate`）；`dsh-pipeline` **出现 0 次**（未装）
 
@@ -71,16 +71,16 @@
 
 | 会话 | 在做什么 |
 |---|---|
-| `<session-id>` | dsh-pipeline 追加需求，**队列 5 轮**：①建筑图角色+编写 1~3 席位 ②两级升级梯 ③安全确认 ④需求留档+水位继任 ⑤留档 AI + 编排继任广播 |
+| `session-…` | dsh-pipeline 追加需求，**队列 5 轮**：①建筑图角色+编写 1~3 席位 ②两级升级梯 ③安全确认 ④需求留档+水位继任 ⑤留档 AI + 编排继任广播 |
 | 其余 | `a9dbc5e5`（archigate 0.5.0，已完成）、`2de77f0c`（流程图 v1~v3，已完成）、`a770b287`/`ac1232f3`/`dda53e5a`（架构图与小白版，已完成）—— 均 idle |
 
-**⚠️ 注意**：`<session-id>` 自己也可能上下文变长 → 若产出质量下滑，按 §5.2 拆会话。
+**⚠️ 注意**：`session-…` 自己也可能上下文变长 → 若产出质量下滑，按 §5.2 拆会话。
 
 ---
 
 ## 5. 待办（按优先级）
 
-1. **等 `<session-id>` 当前轮结束** → **逐条验收**（核源码与自测，不要只信汇报）→ 输出"已完成/未完成"清单。
+1. **等 `session-…` 当前轮结束** → **逐条验收**（核源码与自测，不要只信汇报）→ 输出"已完成/未完成"清单。
 2. **拆会话**：把剩余轮次交给新会话（用本档 + 仓库内 README/REPORT 交接）。
 3. **安装 dsh-pipeline**（`install.ps1`，UTF-8 with BOM；先备份 profile）→ **重启 DSH** → archigate 0.5.0 同时生效。
 4. **装完必做的正例反例实测**（缺一不可）：
@@ -119,7 +119,7 @@
 2. 守门"原文兜底判据"曾把**文档正文里提到的子命令名**当成真调用（假阳性，0.6.0 已修）；写文档时仍建议避免把命令名与 archify 挨着写。
 3. 裸 `archify` + **零参数**的调用漏拦（只打印 usage、不产出交付物，低危）；变量持有 CLI 名（`node "$CLI" …`）**本来就拦不住**，与改动无关。
 4. archigate 的 JS 改动**需重启 DSH 生效**（0.6.0 已就位）。
-5. `<session-id>` 产出量很大（`REPORT.md` 222 KB），接手时**优先读 README 与 REPORT 最新节**，不要从第一节顺序读。
+5. `session-…` 产出量很大（`REPORT.md` 222 KB），接手时**优先读 README 与 REPORT 最新节**，不要从第一节顺序读。
 
 ## 9. 下一步（不变）
 
@@ -145,7 +145,7 @@
 
 ### 可用数字（供以后设计图用）
 - **最小可行节点数 ≈ 25**（与 v3 同量级），且必须沿用 v3 那套几何家族（状态轨 + 3 执行角色 + 少量出口，gate 类降级为边标签）
-- `browser-check` 的 `MIN_PROJECTED_NODE_TEXT_PX = 6`（`renderers/shared/<redacted>.mjs:5`）
+- `browser-check` 的 `MIN_PROJECTED_NODE_TEXT_PX = 6`（`renderers/shared/***.mjs:5`）
 - `layout/constraint`：连线直线段 **≥24px**；`clean-flow`：与无关组件 **≥2px 净空**
 - `workflow` v2 自路由：端点 stub **≥8px**、中间转折段 **≥16px**
 
@@ -161,7 +161,7 @@
 ## 11. 本轮进展（2026-10-11 07:1x）—— 图线已交付 · 第 6 轮在跑
 
 ### 11.1 「留档与继任」独立图：**已交付，以 v2 为准**
-- 产物：`<DSH_HOME>\dsh_orb\dsh-pipeline-flow\dsh-pipeline-留档与继任.v2.html`（**812,715 B**，sha256 `75cfcd48ad44ddf809c5df5e525637a845a7108ec061d7f084a0edb68ccd9253`）
+- 产物：`%USERPROFILE%\.dsh\dsh_orb\dsh-pipeline-flow\dsh-pipeline-留档与继任.v2.html`（**812,715 B**，sha256 `75cfcd48ad44ddf809c5df5e525637a845a7108ec061d7f084a0edb68ccd9253`）
 - 收据：`…\dsh-pipeline-flow\.receipts\2026-10-10T23-12-47-139Z.json`（22,972 B）；旁证 `…v2.finalize-summary.json` / `…v2.browser-check.json` / `…v2.delivery.json`
 - 四道闸门全 pass · diagnostics 0 · 映射 **25/25**（显式映射与 sources 两条路一致，0 unmapped / 0 dangling）
 - v1（812,985 B / `065b29dd…`）原样保留作对照；v1 规格曾被动过，已按收据里的 `origin_sha256` 还原，哈希未变
@@ -179,7 +179,7 @@
 0.2.0 的映射闸门只读 `spec.components`，对 workflow 规格读出 **0/0（假绿）**。本轮交付是拿 0.6.0 源码的 `mapComponents` 对同一份 `tree.json` 复验的（证据：`dsh-pipeline-records-succession.v1.gate.json` / `.v2.gate.json`）。
 → **"必须重启"不是可选项**：不重启，交付门用的是旧判据。
 
-### 11.4 插件线：第 6 轮追加需求（**进行中**，会话 `<session-id>`）
+### 11.4 插件线：第 6 轮追加需求（**进行中**，会话 `session-…`）
 改 `…\dsh_orb\新任务-为-dsh-写一个插件-…-主对\dsh-pipeline` 源码，队列含三批追加：
 1. **拆角色**：`orchestrator` 收窄为**纯需求分析**；新增 **`planner`（计划 AI）** —— 出计划、自检计划有无缺失、**分配 AI**（分配权从 orchestrator 移走）
 2. **澄清前置**：需求分析第 1 轮后**必须**把"不清楚处"交主对话 → **用户人工确认** → 才递交 planner；planner 发现计划缺失 → 退回需求分析 → 答不了 → 主对话 → 人工
@@ -217,7 +217,7 @@
 
 **待用户拍板**：**P8** 基线重取权限 · **P9** 钩子层运行时状态 · **P10** `Stop` 缝 · **P11** 自定义测试入口 · **P12** 凭据有效期。**P13 已完成（已核）**：不扣打回预算 + 连续 3 次不过自动交人工；开关 `hashGateEscalateAfter` 默认 3、**0 = 关闭**；**撤回不归零**（唯一归零点 = 一次真通过的提交或用户答复本机制发出的人工请求）；升级后同一任务 `dev_to_test` **拒收**（`HASH_GATE_ESCALATED`），答复后**重新武装**。
 
-**会话**：旧线 `<session-id>` **已退役**（上下文 63%，按本项目 55% 继任 / 65% 硬限的规矩）；继任 `<session-id>` 正在做 P13。
+**会话**：旧线 `session-…` **已退役**（上下文 63%，按本项目 55% 继任 / 65% 硬限的规矩）；继任 `session-…` 正在做 P13。
 
 **下一步**：装（**先备份 profile 三件**）→ **重启 DSH**（同时把 archigate 0.2.0 → 0.6.0 换掉）→ 正例反例实测。装之前不要同时有另一个流程写 profile。
 ### 12.1 核验补记（2026-10-11 08:20，独立复算）
@@ -236,7 +236,7 @@
   - `node_modules\dsh-pipeline` 已就位（`lib` / `skills` / `tests` / README / ARCHITECTURE / install.ps1 / rollback.ps1），约 2.0 MB
   - `dsh.profile.bundles` **13 → 14** 项，末位是 `dsh-pipeline`
   - `cordis.patch.yml` 与备份**逐行对比：+14 行 / −0 行** —— 只 append 了自己那一条，**没碰别人的条目**
-  - Skill 已装：`<DSH_HOME>\skills\stop-ladder\SKILL.md`
+  - Skill 已装：`%USERPROFILE%\.dsh\skills\stop-ladder\SKILL.md`
 - **必须重启才有用**：插件本体（工具 / 守门 / 拦截缝）在 DSH 启动时装载；stop-ladder Skill 下次会话即可见
 - **重启后的验收三步**（脚本自带清单）：
   1. 日志里找：`[pipeline] dsh-pipeline … 已加载：29 个 pipeline_* 工具已注册；… 多AI 协调开关=开`
@@ -244,7 +244,7 @@
   3. 任意对话调一次 `pipeline_selftest`（不带参数）—— 它会当场跑正例全流程 + 反例 + 分档验证，并原样打出每条拒绝理由
 - ⚠️ **文档小错（无功能影响）**：`install.ps1` 的提示文本写着"17 个工具"，**实际是 29**（`index.js:312` 用动态计数，实测 29：含 `pipeline_plan` / `pipeline_full_test` / `pipeline_boundaries` / `pipeline_change_audit` 等）。待下一轮顺手改掉那句提示。
 - **回滚（复制即用）**：
-  `powershell -NoProfile -ExecutionPolicy Bypass -File "<DSH_HOME>\profiles\desktop\node_modules\dsh-pipeline\rollback.ps1" -Stamp 20261011-082157 -Profile desktop`
+  `powershell -NoProfile -ExecutionPolicy Bypass -File "%USERPROFILE%\.dsh\profiles\desktop\node_modules\dsh-pipeline\rollback.ps1" -Stamp 20261011-082157 -Profile desktop`
 - **重启会结束当前 Computer Use 会话** —— 重启后请新开会话，按本档 + `pipeline_selftest` 做实测（§5.4 的正例反例清单）。
 
 **仍未做**：`normify-dsh-pipeline` 结构数据未同步第 6 轮新角色（`planner` / 层分工 / 拦截等），待单独跑一轮补模块。
@@ -252,7 +252,7 @@
 
 ## 14. 架构图交付 + **0.6.0 首次生效**（2026-10-11 09:21）
 
-- 产物：`<DSH_HOME>\dsh_orb\dsh-pipeline-arch\dsh-pipeline-architecture.html`（**819,398 B**，sha256 `d6fa2f170115c3e5faf2392a77cecbc1b6a243ad2e2d6c549977d9b0a4640fb2`）
+- 产物：`%USERPROFILE%\.dsh\dsh_orb\dsh-pipeline-arch\dsh-pipeline-architecture.html`（**819,398 B**，sha256 `d6fa2f170115c3e5faf2392a77cecbc1b6a243ad2e2d6c549977d9b0a4640fb2`）
 - 收据：`…\dsh-pipeline-arch\.receipts\2026-10-11T01-21-21-459Z.json`（36,098 B）；规格 sha256 `a069eef7b87e99c4cea8b7b3b1c0d79f31c4fd574c6aa464eb2650809fb504d7`
 - **收据里 `tool_version: "0.6.0"`** —— **重启生效了**，§11.3 那个"运行时 0.2.0 ⇒ 映射闸门 0/0 假绿"的问题**到此结束**
 - 四道闸门：validate / deliver / check / browser-check = **全 pass**，diagnostics **0**；类型 `architecture`
@@ -383,7 +383,7 @@ pipeline_dispatch { task_id: "T-20261011-4a2dc7", role: "orchestrator", reassign
 
 **回滚**：
 - askcard：从 `bundles` 删 `dsh-askcard-row` + 删 profile patch 里那条 `- insert:` 块 + 删 `node_modules\dsh-askcard-row`；三件套整份还原用 `profiles\desktop\*.bak-20261011-164028`
-- dsh-pipeline：`powershell -NoProfile -ExecutionPolicy Bypass -File "<DSH_HOME>\profiles\desktop\node_modules\dsh-pipeline\rollback.ps1" -Stamp 20261011-082157 -Profile desktop`
+- dsh-pipeline：`powershell -NoProfile -ExecutionPolicy Bypass -File "%USERPROFILE%\.dsh\profiles\desktop\node_modules\dsh-pipeline\rollback.ps1" -Stamp 20261011-082157 -Profile desktop`
 ---
 
 ## 17. 收工状态（2026-10-11 18:3x）—— **下次启动照这页走**
@@ -464,7 +464,7 @@ pipeline_dispatch { task_id: "T-20261011-4a2dc7", role: "orchestrator", reassign
 
 > ⚠️ **编号说明**：本档现有的最后一节标题写作「## 11. archigate 大图容量结论」，那是**重复编号**（它时间上排在第 18 位）。本节按顺延写作 **§18**。引用本档时请按**标题文字**定位，不要按编号。
 >
-> **本节内容一律引自账本**：账本根 = `<DSH_HOME>\profiles\desktop\.pipeline\<task_id>\`（`task.json` + `handoffs\` + `artifacts\` + `audit.jsonl` + `records\` + `reports\`）。凡账本里查不到的，本节明确写「账本内未找到」，不补印象。
+> **本节内容一律引自账本**：账本根 = `%USERPROFILE%\.dsh\profiles\desktop\.pipeline\<task_id>\`（`task.json` + `handoffs\` + `artifacts\` + `audit.jsonl` + `records\` + `reports\`）。凡账本里查不到的，本节明确写「账本内未找到」，不补印象。
 
 ### 18.1 五张单：状态与位置（逐单可核）
 
@@ -505,7 +505,7 @@ pipeline_dispatch { task_id: "T-20261011-4a2dc7", role: "orchestrator", reassign
 
 | 优先级 | 待修项 | 证据线索 |
 |---|---|---|
-| P1 | **失联检测误报** —— 补「会话还在活动」判据 | 账本 6 次自动阻塞里**至少 4 次被明确记为误报**：`5a871c` 13:47:39Z（audit 43 行原文「是静默计时的**误判**（原计划会话 <session-id> 当时活着，随后成功交了计划）」）· `214043` 13:48:10Z（裁定原文「【一、事实认定：**误判成立**，你这一席没有失联】」）· `5a871c` 16:59:37Z（`handoffs\010`「属静默计时误判」）· `5a871c` 12:20:45Z（12:25:26 解除备注「属"纯干活不产证据"被 5 分钟阈值**误杀**」）。判据形态与单内缓解口径见 `214043\handoffs\025`。★ 当时明确挡回「顺手改判据」：「改判据属新增需求，须先过用户、再由计划位补授权与验收」 |
+| P1 | **失联检测误报** —— 补「会话还在活动」判据 | 账本 6 次自动阻塞里**至少 4 次被明确记为误报**：`5a871c` 13:47:39Z（audit 43 行原文「是静默计时的**误判**（原计划会话 session-… 当时活着，随后成功交了计划）」）· `214043` 13:48:10Z（裁定原文「【一、事实认定：**误判成立**，你这一席没有失联】」）· `5a871c` 16:59:37Z（`handoffs\010`「属静默计时误判」）· `5a871c` 12:20:45Z（12:25:26 解除备注「属"纯干活不产证据"被 5 分钟阈值**误杀**」）。判据形态与单内缓解口径见 `214043\handoffs\025`。★ 当时明确挡回「顺手改判据」：「改判据属新增需求，须先过用户、再由计划位补授权与验收」 |
 | P1 | **打回必须带原因 + 禁止继续** | 单 `T-20261012-7b9408`（`analyzing`，6 处取舍已答 `16:36:34Z`）。★ 用户答复把第 5 条**否掉**了 —— 见 18.4-② |
 | P2 | **跨工作区写要人工批准 + 审批不流转到主对话** | 账本里能核到的只有「**3 笔审批**」这个数：`T-20261011-5a871c\audit.jsonl` 17:13:23Z 解除备注原文「（跨两棵树写盘，期间宿主按操作弹了 **3 次审批**，用户已全部批准）」。**但 `approval:allowed-once` 这个字样在本节搜索范围内一处都没有**（`.pipeline\` 全量 · `.dsh\sessions`（78 MB / 101 个近期文件）· `.dsh\logs`（0 MB））⇒ 这条目前只有「3 笔审批」可信，「审批不流转到主对话」**没有可核证据** |
 | P2 | **守门把「任务文本」误判成「代码正文」** | **账本内未找到对应条目**。最接近的是两张同需求老单的需求原文（`T-20261011-4a2dc7` / `T-20261011-a5fe41`）：主对话读 DSH 日志的 shell 被守门拦下，拒绝原文「主对话不得通过 shell 读取项目代码…原因：主对话与代码正文隔离」——那是「**拦截正确、但动手前不知道**」的形态，与「任务文本被误判」不是同一条 |
@@ -539,11 +539,11 @@ pipeline_task_open { task_id: "<task_id>", reattach: true }
 
 ### 18.6 关键路径（照抄可用）
 
-- **生效副本**（重启后由它加载）：`<DSH_HOME>\profiles\desktop\node_modules\dsh-pipeline`
-- **源码树**：`<DSH_HOME>\dsh_orb\新任务-为-dsh-写一个插件-实现用户要的-多对话-ai-协作开发流水线-主对\dsh-pipeline`
-- **账本**：`<DSH_HOME>\profiles\desktop\.pipeline\` —— 五个在推的：`T-20261011-214043`（32 份 handoffs / 8 份制品 / 6 份基线 / 17.97 MB task.json）、`T-20261011-5a871c`（11 份 handoffs / 3 份制品）、`T-20261011-56a37e`、`T-20261012-7b9408`、`T-20261011-63633e`
-- **交接档本体**：`<DSH_HOME>\dsh_orb\DSH-多AI流水线-交接档.md`（＋桌面副本 `<HOME>\Desktop\DSH-多AI流水线-交接档.txt`，两侧**逐字节相同**）
-- **两个产物目录**：`<DSH_HOME>\dsh_orb\dsh-pipeline-arch\`、`<DSH_HOME>\dsh_orb\dsh-pipeline-flow\`
+- **生效副本**（重启后由它加载）：`%USERPROFILE%\.dsh\profiles\desktop\node_modules\dsh-pipeline`
+- **源码树**：`%USERPROFILE%\.dsh\dsh_orb\新任务-为-dsh-写一个插件-实现用户要的-多对话-ai-协作开发流水线-主对\dsh-pipeline`
+- **账本**：`%USERPROFILE%\.dsh\profiles\desktop\.pipeline\` —— 五个在推的：`T-20261011-214043`（32 份 handoffs / 8 份制品 / 6 份基线 / 17.97 MB task.json）、`T-20261011-5a871c`（11 份 handoffs / 3 份制品）、`T-20261011-56a37e`、`T-20261012-7b9408`、`T-20261011-63633e`
+- **交接档本体**：`%USERPROFILE%\.dsh\dsh_orb\DSH-多AI流水线-交接档.md`（＋桌面副本 `%USERPROFILE%\Desktop\DSH-多AI流水线-交接档.txt`，两侧**逐字节相同**）
+- **两个产物目录**：`%USERPROFILE%\.dsh\dsh_orb\dsh-pipeline-arch\`、`%USERPROFILE%\.dsh\dsh_orb\dsh-pipeline-flow\`
 
 ## 19. 2026-10-12 夜 · 修复档（询问卡 / 插件 14 条缺陷 / 主对话重认领）
 
@@ -567,20 +567,20 @@ pipeline_task_open { task_id: "<task_id>", reattach: true }
 | at | actor | action | 内容 / 原文要点 |
 |---|---|---|---|
 | `12:51:32Z` | main | `transition:unblock` | 重启后重认领，解除冻结，按 §18.1-① 继续收尾（「本次不做任何技术裁定，只做路由」） |
-| `12:53:25.015Z` | channel | `channel:dispatched` | 派 writer#3，真实会话 `<session-id>`，preset `computer-use`，permission **`workspace-write`** |
+| `12:53:25.015Z` | channel | `channel:dispatched` | 派 writer#3，真实会话 `session-…`，preset `computer-use`，permission **`workspace-write`** |
 | `12:58:36Z` | main | `transition:block` | ★ **机制触发**（不是人叫停）：席位失联：编写（writer#3）　静默阈值 5 分 |
 | `12:58:58Z` | writer | `artifact:register` | 制品 **v9**（13,146 B；`sha256 90d1f3a5…`）—— 即：**冻结落下 22 秒后席位照旧交件** |
 | `12:59:13Z` | writer | `handoff:clarification_request` | 第 **`033`** 条澄清（`H-d917fdc907404429` / `CQ-33c294308dc32000`） |
 | `12:59:38Z` | main | `transition:unblock` | 解除的是**一次误报冻结**；现场采集证据：该会话日志 30 秒内 381,679 → 392,396 B（**+10,717 B**）⇒ 席位正在活动 |
 | `13:02:48Z` | writer | `handoff:clarification_request` | 第 **`034`** 条澄清（`H-bc5892f191e17a4f` / `CQ-c297e393b0e702de`，`blocking: true`） |
-| `13:03:02.221Z` | channel | `channel:dispatched` | 派 orchestrator 席位 `<session-id>`，permission `read-only` |
+| `13:03:02.221Z` | channel | `channel:dispatched` | 派 orchestrator 席位 `session-…`，permission `read-only` |
 | `13:05:48Z` / `13:05:54Z` | orchestrator | `handoff:human_request` | 两条人工请求（`HR-97269de32e5d5eeb` / `HR-a72b1cd1650d4794`），各带一条 `clarify:escalate`（澄清梯升级到主对话） |
 | `13:09:13Z` / `13:09:14Z` | main | `human:relay` | 两条请求经主对话转告用户（`relay_channel: "chat"`） |
 | `13:10:14Z` | main | `human:reply` ×2 | 用户**点选**答复（`reply_channel: "selected"`）：①「由主对话立刻落实（推荐）」②「允许以文档型交付登记（推荐）」（确认码 `HC-469025fc`） |
 | `13:10:23Z` | main | `transition:human_reply` | 补做状态恢复：同批第 2 条尚未记录导致首次恢复失败，两条齐后重放 ⇒ 回「开发中」 |
 | `13:10:28Z` | main | **`baseline:take`** | 重取改动基线 **`BL-54e64ac83008edc9`**，`file_count: 15995`，清单指纹 `991493b4cbf1aa04442fa3e0ad1f60b1b6cae036e9ff622e2d33da80c72ce808`（实测：基线文件 2,779,759 B，mtime 2026/10/12 21:10:28 本地） |
 | `13:10:28Z` | main | `gate:hash_reset` | `prev_streak: 0 → now_streak: 0`；备注原文：「三类越界判定与"声明不实"判定**一个字没放宽**」 |
-| `13:11:01.317Z` | channel | `channel:dispatched` | 再派 writer#3，**新会话** `<session-id>`（`workspace-write`） |
+| `13:11:01.317Z` | channel | `channel:dispatched` | 再派 writer#3，**新会话** `session-…`（`workspace-write`） |
 | **`13:16:50Z`** | main | `transition:block` | ★ **又一次机制触发失联冻结**（`agent: null`）—— 落在席位正干活中间 |
 | `13:17:33Z` | main | `transition:unblock` | 按用户裁定解除该误冻（依据：该会话 21:13:45–21:17:24 由 267,613 B 增至 457,548 B，**+190 KB / 约 3.7 分钟**） |
 | `13:18:28Z` / `13:19:53Z` | writer | `handoff:clarification_request` | **`037`**（`H-5f7d8b502f34a0c7` / `CQ-a62975f9f2354fa2`）与 **`038`**（`H-26218d4b6c048096` / `CQ-538b6f28bfadb02e`）—— 与「本单在线的 orchestrator 席位已收工且**不会被唤醒**」有关 |
@@ -589,7 +589,7 @@ pipeline_task_open { task_id: "<task_id>", reattach: true }
 | `13:32:15Z` | writer | `artifact:register` | 制品 **v10**（9,491 B；`sha256 a4f2c25e…`） |
 | `13:32:42Z` | writer | `gate:hash` | `pass: true, streak: 0, threshold: 3`；`counts`：`added 1 / modified 0 / removed 0 / unauthorized 0 / undeclared 0` |
 | `13:32:42Z` | writer | `handoff:dev_to_test` | **`039-dev_to_test.json`** = `H-33307933afa8d3e9`，`artifact_version: "v10"`；同日 `seat:submit` 记 `writer#3` `done 1/3`、`within_scope: true` |
-| `13:37:37.445Z` | channel | `channel:dispatched` | 又派 writer#3（会话 `<session-id>`，preset `standard`，`read-only`） |
+| `13:37:37.445Z` | channel | `channel:dispatched` | 又派 writer#3（会话 `session-…`，preset `standard`，`read-only`） |
 | `13:43:26Z` | main | `transition:block` | ★ 又一条**机制触发**失联冻结（`agent: null`）—— 本单末条账本记录 |
 
 ★ **上述「21:16:50Z 误冻」与 `039` 的准确关系（照实写，不顺着口径写）**：账本里 `13:16:50Z`（＝本地 21:16:50）那次机制冻结**确凿存在**，而且它落下时席位正在活动（当晚**同形机制误冻两次**：`12:58:36Z` 与 `13:16:50Z`）；但**账本不支持**「这一次误冻直接挡掉了一份**已提交的** `dev_to_test`」这种说法 —— 本单当晚真正走成出口的 `dev_to_test`（`H-33307933afa8d3e9`）发生在 **`13:32:42Z`**，而 `13:25:55Z` 的解冻备注原文写的是「把**尚未交出**的交付提上去」。⇒ 宜写作：「**当晚两次失联机制误冻（`12:58:36Z` / `13:16:50Z`）都落在席位干活中间，打断了本单交测试的节奏；真正的 `dev_to_test` 到 `13:32:42Z` 才走成**」。
@@ -638,7 +638,7 @@ pipeline_task_open { task_id: "<task_id>", reattach: true }
 | 根因 | `dsh-client-ui-tool\lib\client.js` 的 `AskQuestionRow` 在 **`state === "running"` 分支（第 2238–2240 行）是全文 9 处 `transcript` 赋值中唯一缺失的那一处** ⇒ `askQuestion = null` ⇒ 走兜底；且宿主 `AskQuestionCard`（35 行）**根本不画 `button`** ⇒ **配置层无解** |
 | 修法 | 新建客户端插件 `node_modules\dsh-askcard-row\`，**遮蔽同一 keyed 槽位**（`priority: -1`），自绘「问题文本 + 选项按钮」；insert 块写在 `node_modules\dsh-orb\cordis.patch.yml` 第 **79–89** 行 |
 | 实测坐标 | 插件目录共 **5 个文件**：`client.js` **32,438 B** / `cordis.patch.yml` 856 B / `index.js` 1,079 B / `package.json` 944 B / `README.md` 10,929 B。orb patch 同时从 3,618 → **4,428 B** |
-| 结果 | **已生效**（**转述**：用户重启 + 刷新后，卡片正文变成「问题文本 + 一排可点选项按钮」，无裸 JSON）。截图**实测存在**（1,543,318 B）：`<DSH_HOME>\attachments\v1\objects\97\9753d6f6a83c035d464da74284217bdf61beced9218cc1c5afcc09db8325154f` |
+| 结果 | **已生效**（**转述**：用户重启 + 刷新后，卡片正文变成「问题文本 + 一排可点选项按钮」，无裸 JSON）。截图**实测存在**（1,543,318 B）：`%USERPROFILE%\.dsh\attachments\v1\objects\97\9753d6f6a83c035d464da74284217bdf61beced9218cc1c5afcc09db8325154f` |
 | ⚠️ **剩余未修** | **点选项无反应**（用户原话「有框但是我点不了，无反应」）—— 这比插件 README 预告的「会叫回作答卡、还需再点一下」**更差**，**连那半步都没发生**。已派新会话修（**截至本档写作时仍在跑**） |
 
 **报告与验证脚本（实测坐标）**
@@ -737,13 +737,13 @@ pipeline_task_open { task_id: "<task_id>", reattach: true }
 
 ### 19.6 关键路径（照抄可用）
 
-- **询问卡插件（本轮新建）**：`<DSH_HOME>\profiles\desktop\node_modules\dsh-askcard-row\`（`client.js` 32,438 B / `cordis.patch.yml` 856 B / `index.js` 1,079 B / `package.json` 944 B / `README.md` 10,929 B）
+- **询问卡插件（本轮新建）**：`%USERPROFILE%\.dsh\profiles\desktop\node_modules\dsh-askcard-row\`（`client.js` 32,438 B / `cordis.patch.yml` 856 B / `index.js` 1,079 B / `package.json` 944 B / `README.md` 10,929 B）
 - **① 号待修的两个把手**：`profiles\desktop\cordis.patch.yml:122`（`guardMainReadsCode: true`）· `.pipeline\switch.json`（`on`）
 - **orb 配置**：`profiles\desktop\node_modules\dsh-orb\cordis.patch.yml`（现值 4,428 B；`tool-ask-user` 的 `config` 在 **53–57** 行；`dsh-askcard-row` 的 insert 块在 **79–89** 行）—— 备份链 `.bak-20261012-204944` 3,546 B → `.bak-20261012-214924` 3,618 B
 - **插件缺陷修复材料**：`dsh_orb\插件缺陷修复规格-20261012.md` · `dsh_orb\任务-修复-dsh-pipeline-插件的-14-条缺陷-用户已裁定-本次只修\changes.md`
 - **询问卡两层材料**：`dsh_orb\任务-诊断-dsh-web-gui-的-询问卡无气泡-故障-产出根因-可落地修法\diagnosis.md` · `dsh_orb\修-dsh-web-gui-的-询问卡正文-渲染-第二层缺陷-上一轮已经做过一次\{报告-第二层-询问卡正文渲染.md, verify-askcard-wiring.cjs}`
 - **B1 时间线取证用的两个备份**：`node_modules\dsh-pipeline\lib\store.js.bak-20261012-010449`（**不含**）· `store.js.bak-t3led-20261012201047`（**已含**）
-- **账本**：`<DSH_HOME>\profiles\desktop\.pipeline\` —— 现值 **10 个任务目录**（§18.1 写的 9 个 ＋ 新增 `T-20261012-6884af`）
+- **账本**：`%USERPROFILE%\.dsh\profiles\desktop\.pipeline\` —— 现值 **10 个任务目录**（§18.1 写的 9 个 ＋ 新增 `T-20261012-6884af`）
 
 ### 19.7 「§1–§18 一字未动」的自证方法
 

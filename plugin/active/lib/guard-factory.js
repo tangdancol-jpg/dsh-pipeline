@@ -27,8 +27,8 @@
 import { appendFileSync, existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { DEFAULT_WRITE_TOOLS, agentIdOf, guardDecision, owningChangeScopeEntry } from './guard.js'
-import { WRITE_LEDGER_FILE_NAME, WRITE_LEDGER_KIND, parseWriteLedger } from './hashgate.js'
+import { DEFAULT_WRITE_TOOLS, agentIdOf, bindingForAgent, guardDecision, owningChangeScopeEntry } from './guard.js'
+import { GUARD_WRITE_ALLOWED_SOURCE, WRITE_LEDGER_FILE_NAME, WRITE_LEDGER_KIND, parseWriteLedger } from './hashgate.js'
 import { fullHash, isInside, pathKey, resolveAgainstAnchor } from './util.js'
 
 /** 内部异常时的拒绝文案（要能一眼看出是插件 bug，而不是模型操作错）。 */
@@ -109,7 +109,7 @@ const PRIMARY_PATH_KEYS = ['file_path', 'filepath', 'path', 'target_file', 'note
 /** 台账行的来源标记（本判据写的那两种）。 */
 export const GUARD_LEDGER_SOURCES = {
   /** 写入被放行（凭据见 `why`）—— 凭据③"本单写过它"就靠这些行。 */
-  allowed: 'guard.write-allowed',
+  allowed: GUARD_WRITE_ALLOWED_SOURCE,
   /** 写入被拒（未申报的写入）—— 拒也要留痕。 */
   blocked: 'guard.write-blocked',
   /** 本判据自己出错的留痕（fail-open，但**不静默**）。 */
@@ -338,7 +338,7 @@ function undeclaredWriteReason(exec, deps, index) {
     if (tokens === undefined || tokens === null || typeof tokens.roleOfAgent !== 'function') return undefined
     const agentId = agentIdOf(exec)
     // ★ 只约束**流水线参与者**：别的会话（用户自己的对话、别的插件、别的项目）一律不管。
-    const binding = agentId === null ? null : tokens.roleOfAgent(agentId, undefined)
+    const binding = bindingForAgent(tokens, agentId, index)
     if (binding === null || typeof binding?.taskId !== 'string') return undefined
 
     const task = index.get(binding.taskId)
@@ -457,7 +457,7 @@ function undeclaredWriteReason(exec, deps, index) {
     //   理由：它是**附加**判据，一条 bug 若按 fail-closed 处理会把全部写入挡死
     //   （比"少拦一次"严重得多）；但绝不静默 —— 见下面这行 warn 与台账行。
     try {
-      const tid = String(deps?.tokens?.roleOfAgent?.(agentIdOf(exec), undefined)?.taskId ?? '')
+      const tid = String(bindingForAgent(deps?.tokens, agentIdOf(exec), index)?.taskId ?? '')
       const t = index.get(tid)
       if (t !== null && t !== undefined) {
         appendLedgerRow(pathKey(t.pipelineDir ?? join(pathKey(t.projectRoot ?? ''), '.pipeline')), {

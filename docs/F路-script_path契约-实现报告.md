@@ -1,7 +1,7 @@
 # F 路 · `script_path` 契约（★ 只做文案那一半）—— 实现报告
 
 > **任务**：把 dsh-ops 可参考清单 §2 结论一**第 1 名**（§1.6 `script_path` 契约）里"文案与指引"那一半做进 dsh-pipeline。
-> **依据**：`<DSH_HOME>\dsh_orb\dsh-ops-可参考清单.md` §2 结论一第 1 名 + §1.6 + §4.8/4.9。
+> **依据**：`%USERPROFILE%\.dsh\dsh_orb\dsh-ops-可参考清单.md` §2 结论一第 1 名 + §1.6 + §4.8/4.9。
 > **参考实现**：`_ref-dsh-ops\lib\shells.js:933-942`（工具描述）+ `lib\policy.js:62`（提示词）。
 > **本轮范围**：✅ 文案与指引；❌ **守门那一半（C3 盲区）一个字都没动**（`lib/guard-factory.js` 有会话正在改它，见第四节"不实施"）。
 > **产物日期**：2026-10-14　**执行者**：F 路（文案半）
@@ -112,7 +112,7 @@
 ### 改前备份（落插件目录内、**不在加载路径**）
 
 ```
-<DSH_HOME>\profiles\desktop\node_modules\dsh-pipeline\_backup-f-script-path-20261014-195601\
+%USERPROFILE%\.dsh\profiles\desktop\node_modules\dsh-pipeline\_backup-f-script-path-20261014-195601\
   ├─ index.js
   ├─ lib\intercept.js
   └─ STAMP.txt
@@ -298,7 +298,7 @@ for (const p of hitPaths) {
 **跑法**（两次都是同一条命令，同一个 node）：
 
 ```powershell
-cd <DSH_HOME>\profiles\desktop\node_modules\dsh-pipeline
+cd %USERPROFILE%\.dsh\profiles\desktop\node_modules\dsh-pipeline
 node tests/run-all.mjs --quiet          # 汇总写进 tests/last-run.txt
 ```
 

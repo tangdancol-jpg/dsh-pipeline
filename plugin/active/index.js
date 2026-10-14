@@ -81,6 +81,7 @@ import { mountSwitchRoute, ROUTE_PREFIX, STATE_PATH } from './lib/switch-routes.
 import { createTokenStore } from './lib/tokens.js'
 // ★★ E 路 ③：角色常量（"主对话不收紧工具面"这条口径要按**同一个**角色 id 判）。
 import { ROLE, ROLES, roleLabel } from './lib/roles.js'
+import { TERMINAL_STATES } from './lib/states.js'
 import { buildTools, createSeatNotifier } from './lib/tools.js'
 import { createTransport, probeSessionChannel } from './lib/transport/index.js'
 import { createChannelAudit } from './lib/liveness.js'
@@ -269,7 +270,8 @@ export function apply(ctx, rawConfig) {
       hubStandby: Array.isArray(task.hub?.standby)
         ? task.hub.standby.map((s) => ({ role: String(s?.role ?? ''), wake_point: String(s?.wake_point ?? ''), status: s?.status === 'woken' ? 'woken' : 'standby' }))
         : [],
-      devDelivered: (Array.isArray(task.handoffs) ? task.handoffs : []).some((h) => h?.kind === 'dev_to_test') }))
+      devDelivered: (Array.isArray(task.handoffs) ? task.handoffs : []).some((h) => h?.kind === 'dev_to_test'),
+      terminal: TERMINAL_STATES.includes(task.state) }))
 
     /**
      * ★★ **A27(b)：重启后认出既有席位**（用户裁定 ② 的"席位侧那半"）。
@@ -748,7 +750,10 @@ export function apply(ctx, rawConfig) {
            * ★ R1：**未被消费的投递不得从此静默消失** —— 由唤醒器发一条**可配对读出
            *   的升级事件**（不是把原事件原地重放）。它只在"没被消费且没升过级"时发，
            *   一旦被消费即不再发（判据在 `wakeup.escalateUnconsumed`）。
+           * ★ P0-3 收口：终态单不进升级链 —— 终态没有合法事件，主对话"消费"不了它，
+           *   发出去只会是一条永远没人接的升级（A 路报告 §6.2 的已知边界）。
            */
+          if (TERMINAL_STATES.includes(task.state)) continue
           await wakeup.escalateUnconsumed(entry.id, { olderThanMs: config.wakeUnconsumedMs, limit: 2, reason: 'patrol:unconsumed' })
         }
       },

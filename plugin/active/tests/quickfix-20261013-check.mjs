@@ -256,7 +256,7 @@ function withEnv(patch, fn) {
   // ②-6 findSessionLog 认候选数组（逐个试，命中即返回）。
   const rootA = mkTmp('qf2-a')
   const rootB = mkTmp('qf2-b')
-  const sidB = '<session-id>'
+  const sidB = 'session-00000000-0000-4000-8000-000000000301'
   plantLog(rootB, sidB, 4096, Date.now())
   const hit = findSessionLog([join(rootA, 'never-created'), rootB], sidB)
   ok(
@@ -270,7 +270,7 @@ function withEnv(patch, fn) {
   //      `sampleSessionActivity` 必须采到（samples 非空、gate_applicable true）。
   {
     const root = mkTmp('qf2-e2e')
-    const sid = '<session-id>'
+    const sid = 'session-00000000-0000-4000-8000-000000000302'
     plantLog(root, sid, 563_327, Date.now())
     const task = {
       id: 'T-qf-2',
@@ -293,7 +293,7 @@ function withEnv(patch, fn) {
       const t = {
         id: 'T-qf-2b',
         dispatched: [
-          { role: 'writer', seat: 'writer#1', agent_id: '<session-id>', at_ms: Date.now() - 600_000 },
+          { role: 'writer', seat: 'writer#1', agent_id: 'session-00000000-0000-4000-8000-000000000303', at_ms: Date.now() - 600_000 },
         ],
       }
       return sampleSessionActivity(t, Date.now(), undefined)
@@ -317,7 +317,7 @@ function withEnv(patch, fn) {
       context_reports: [],
       successions: [],
       dispatched: [
-        { role: 'writer', seat: 'writer#1', agent_id: '<session-id>', at_ms: T0 - 600_000 },
+        { role: 'writer', seat: 'writer#1', agent_id: 'session-00000000-0000-4000-8000-000000000304', at_ms: T0 - 600_000 },
       ],
       liveness: { escalations: [], samples: {}, quiet: {} },
     }
@@ -345,7 +345,7 @@ function withEnv(patch, fn) {
   // ②-10 采样出来的样本能被 `sampleSessionLog` 正确读出 size/mtime（判据只吃这两个数）。
   {
     const root = mkTmp('qf2-sample')
-    const sid = '<session-id>'
+    const sid = 'session-00000000-0000-4000-8000-000000000305'
     const file = plantLog(root, sid, 1234, Date.now())
     const s = sampleSessionLog(file, T0)
     ok(

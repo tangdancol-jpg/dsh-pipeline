@@ -1,6 +1,6 @@
 // 重建节点/边：① 修正列序（枢纽路径：架构图先于计划）；② 机制底座的对外出口全部走 col0（唯一在 seats 车道空着的列）。
 import { readFileSync, writeFileSync } from 'node:fs'
-const DIR = '<DSH_HOME>/dsh_orb/架构图-完整流程-含被拒后果/'
+const DIR = '~/.dsh/dsh_orb/架构图-完整流程-含被拒后果/'
 const BASE = DIR + '完整流程.workflow.json'
 const src = JSON.parse(readFileSync(BASE, 'utf8'))
 

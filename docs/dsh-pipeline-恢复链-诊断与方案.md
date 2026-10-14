@@ -3,8 +3,8 @@
 | 项 | 值 |
 | --- | --- |
 | 诊断对象 | `dsh-pipeline` 0.1.0（DSH 插件，Host 半边） |
-| 安装副本（宿主实际加载） | `<DSH_HOME>\profiles\desktop\node_modules\dsh-pipeline` |
-| 源码副本 | `<DSH_HOME>\dsh_orb\新任务-为-dsh-写一个插件-实现用户要的-多对话-ai-协作开发流水线-主对\dsh-pipeline` |
+| 安装副本（宿主实际加载） | `%USERPROFILE%\.dsh\profiles\desktop\node_modules\dsh-pipeline` |
+| 源码副本 | `%USERPROFILE%\.dsh\dsh_orb\新任务-为-dsh-写一个插件-实现用户要的-多对话-ai-协作开发流水线-主对\dsh-pipeline` |
 | DSH 本体 | `D:\tool\Deepseek\Deepseek harness\resources\app.asar`（121MB 单文件） |
 | 排查方式 | **只读**。未修改任何文件、未重启 DSH、未打开「多AI 协调」开关、未跑任何流水线任务 |
 | 副本一致性 | 两份副本 `lib/**`、`index.js`、`package.json`、`cordis.patch.yml` 逐文件 SHA-256 比对：**完全一致**，无差异 |
@@ -46,7 +46,7 @@
 
 这是本次排查里最需要先钉死的一条结论：**不存在"东西在盘上、却被判无效"的情况。**
 
-落盘的任务台账是完好的——实测读取 `<DSH_HOME>\profiles\desktop\.pipeline\T-20261011-4a2dc7\task.json`，`state: "analyzing"`、`history` 两条、`acceptance_from_user` 五条全在。它没有被损坏、没有被判无效，只是**没有任何身份能走到它面前去操作它**。
+落盘的任务台账是完好的——实测读取 `%USERPROFILE%\.dsh\profiles\desktop\.pipeline\T-20261011-4a2dc7\task.json`，`state: "analyzing"`、`history` 两条、`acceptance_from_user` 五条全在。它没有被损坏、没有被判无效，只是**没有任何身份能走到它面前去操作它**。
 
 真正没落盘的是**绑定**和**令牌表**这两样，它们从来就不在盘上。
 
@@ -411,13 +411,13 @@ asar 头部结构（用 Node 直接读，无需第三方工具）：
 - 数据段起点 `dataStart = 16 + jsonLen = 3392064`
 - 每个文件的**真实字节位置 = `dataStart + entry.offset`**（`offset` 是相对数据段起点的）
 - 校验：打包文件最后一个 `offset + size` 恰好等于 121348951（asar 总长）⇒ 偏移约定正确
-- ⚠️ 必须跳过 `unpacked: true` 的条目，它们的 `offset` 无意义（本机第一个打包文件是 `/dsh/<redacted>.json`，offset=0）
+- ⚠️ 必须跳过 `unpacked: true` 的条目，它们的 `offset` 无意义（本机第一个打包文件是 `/dsh/***.json`，offset=0）
 
 **（2）插件侧证据**：`lib/hostmsg.js:43`、`:118-122`；`lib/intercept.js:342`、`:364`；`config.js:87`（`intercept` 默认 true）。
 
 **（3）磁盘取证 —— 反证"不是读盘时炸的"**
 
-我把本机**全部 49 个会话文件**（`<DSH_HOME>\sessions`，另有 `storages/session_projcache/sessions`、`_session-backups`）全部解压并逐行校验：
+我把本机**全部 49 个会话文件**（`%USERPROFILE%\.dsh\sessions`，另有 `storages/session_projcache/sessions`、`_session-backups`）全部解压并逐行校验：
 
 - 会话文件是**多帧 zstd**（每追加一次就是一个新 frame）。`zlib.zstdDecompressSync` 和 `createZstdDecompress()` **都只解第一帧**，会严重漏读（我第一次就中招：某文件 3041 字节只解出 291 字节、1 行）。正确做法是按 zstd 魔数 `28 B5 2F FD` 切帧、逐帧解压再拼接。
 - 结果：**49455 行，0 行无法解析**（说明解码完整无误）。
@@ -464,7 +464,7 @@ ctx.on("agent/pre-step", async ({ agent, signal }, next) => {
 
 `lib/hostmsg.js` **本身就是为了修上一个 bug 才写的**。它的文件头注释（`hostmsg.js:8-24`）记录了 2026-10-11 的事故链：原来在 `agent/pre-step` 里塞的是**裸对象** `{ role:'user', content: seatBriefing(...) }`——**没有 `source`**，且 `content` 是字符串。宿主 `dsh-session-reference#prepareDirectMessages` 无守卫地读 `message.source.kind`（`if (message.source.kind !== "user") return [message];`）⇒ `TypeError: Cannot read properties of undefined (reading 'kind')` ⇒ 整个 turn 以 error 收尾。
 
-**我在磁盘上抓到了这次事故的现场**（会话 `<uuid>`）：
+**我在磁盘上抓到了这次事故的现场**（会话 `（UUID）`）：
 
 ```
 {"type":"turn/start","seq":5,"time":1791706560157,"data":{"turn":1}}
@@ -641,7 +641,7 @@ P3    令牌表落盘                                          ← 不做，用 
 
 4. **`app.asar.unpacked` 目录我没有细看。** 只确认了 `libreoffice-kit.exe` 在里面（这也是我一开始偏移映射出错的原因——`unpacked: true` 的条目 `offset` 无意义）。如果那里面还有会影响会话格式的补丁文件，我没查。
 
-5. **我的插件穷尽性扫描只到 3 层深。** 扫的是 `<DSH_HOME>\profiles\desktop\node_modules`（排除 `node_modules` 子目录与 `.bak-*`），命中 `kind: 'plugin'` 的只有 `dsh-pipeline` 与 `dsh-better-sidebar`（后者已修）。如果还有别处（其它 profile、全局安装位置、`app.asar.unpacked` 里的插件）在注入消息，我没有覆盖。
+5. **我的插件穷尽性扫描只到 3 层深。** 扫的是 `%USERPROFILE%\.dsh\profiles\desktop\node_modules`（排除 `node_modules` 子目录与 `.bak-*`），命中 `kind: 'plugin'` 的只有 `dsh-pipeline` 与 `dsh-better-sidebar`（后者已修）。如果还有别处（其它 profile、全局安装位置、`app.asar.unpacked` 里的插件）在注入消息，我没有覆盖。
 
 6. **`format v4` 我只看了两个包。** `dsh-session-format-v3-to-v4` 与 `dsh-session-persistence-jsonl`（`lib/index.js` + `lib/worker.cjs`）。基座包 `@deepseek-ai/dsh-session-format` 我**没有展开**——理论上它可能还有一份同语义的校验，我没验证。
 

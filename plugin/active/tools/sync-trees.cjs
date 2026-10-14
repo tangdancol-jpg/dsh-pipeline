@@ -6,7 +6,7 @@
  * `reports/writer/sync-trees.cjs`，第 20–21 行把两棵树**写死**：
  *
  *   · `ACTIVE` = 生效副本  `<profile>/node_modules/dsh-pipeline`
- *   · `SOURCE` = 源码树    `<DSH_HOME>\dsh_orb\新任务-…\dsh-pipeline`  ← **区外**
+ *   · `SOURCE` = 源码树    `~\.dsh\dsh_orb\新任务-…\dsh-pipeline`  ← **区外**
  *
  * 而 `--write` 会把生效副本里本单改动的 7 个文件**逐个复制进源码树** ——
  * 也就是"本单只被授权改区内（profile 内）的文件，脚本却替它写到了区外"。

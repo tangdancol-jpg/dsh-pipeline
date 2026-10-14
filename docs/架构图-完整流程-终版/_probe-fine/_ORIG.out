@@ -3,9 +3,9 @@
   "ok": true,
   "command": "validate",
   "type": "workflow",
-  "input": "<DSH_HOME>\\dsh_orb\\写一份-archify-规格文件-ai-完整流程-流程图-应然的目标形态-缺失的\\ai-pipeline-flow.workflow.json",
+  "input": "%USERPROFILE%\\.dsh\\dsh_orb\\写一份-archify-规格文件-ai-完整流程-流程图-应然的目标形态-缺失的\\ai-pipeline-flow.workflow.json",
   "candidate": {
-    "path": "<DSH_HOME>\\dsh_orb\\写一份-archify-规格文件-ai-完整流程-流程图-应然的目标形态-缺失的\\ai-pipeline-flow.workflow.json",
+    "path": "%USERPROFILE%\\.dsh\\dsh_orb\\写一份-archify-规格文件-ai-完整流程-流程图-应然的目标形态-缺失的\\ai-pipeline-flow.workflow.json",
     "sha256": "405de5971a7caaf1b36a6f360de5db27dc4ef699af51c7050a859be7131c85a6",
     "bytes": 16818
   },
@@ -14,7 +14,7 @@
     "command": "finalize",
     "arguments": [
       "workflow",
-      "<DSH_HOME>\\dsh_orb\\写一份-archify-规格文件-ai-完整流程-流程图-应然的目标形态-缺失的\\ai-pipeline-flow.workflow.json",
+      "%USERPROFILE%\\.dsh\\dsh_orb\\写一份-archify-规格文件-ai-完整流程-流程图-应然的目标形态-缺失的\\ai-pipeline-flow.workflow.json",
       "<output.html>",
       "--quality",
       "showcase",

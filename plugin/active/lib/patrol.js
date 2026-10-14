@@ -112,12 +112,12 @@ export const MISSING_TRANSITION_KIND = 'missing-transition'
  *
  * 判据一律与**状态机/守卫同源**（不另造一套口径）：
  *   · `dev_submitted`（`states.js:595`，by `writer`，guard `dev_to_test`）
- *     ⇒ 守卫要求"**全部编写席位都已提交**"（`store.js:2471` 的
+ *     ⇒ 守卫要求"**全部编写席位都已提交**"（`store/shared.js` 的
  *       `checkAllSeatsSubmitted`）⇒ 本腿也只在**全部到齐**时才判，
  *       否则就是在催一个还没干完的席位（假报）；
  *   · `test_passed` / `test_failed`（`states.js:605/606`，by `tester`）
  *     ⇒ 守卫要求 `test_to_review` 交接物 + **制品版本对得上**
- *       （`store.js:2475-2488`）—— **通过还是不通过是测试位的结论，机制不替它判**，
+ *       （`store/precondition.js`）—— **通过还是不通过是测试位的结论，机制不替它判**，
  *       所以这一腿同时列出两个候选事件；
  *   · `review_ok` / `review_ng_*`（`states.js:620-622`，by `reviewer`）
  *     ⇒ 结论**就在交接物里**（`payload.conclusion`）⇒ 这一腿能指名道姓。
@@ -150,7 +150,7 @@ export const UNDELIVERED_TRANSITION_LEGS = Object.freeze([
 ])
 
 /**
- * 与 `store.writerSeatsOf`（`store.js:371`）**同口径**：单席位也走这里。
+ * 与 `store.writerSeatsOf`（`store/shared.js`）**同口径**：单席位也走这里。
  * 唯一的加固：分区里缺 `seat` 时退回默认席位（读不到就不猜）。
  */
 export function writerSeatsOfTask(task) {
@@ -220,7 +220,7 @@ export function undeliveredTransitionOf(task, leg, { now = Date.now(), dwellMs =
    * ★★ **两种形态都判，但措辞必须分开**（这是实测 `T-20261011-5a871c` 教的一件事）：
    *   · **到齐**（`missing_seats` 为空）⇒ 「**出口没按**」：东西齐了、那一步没人发；
    *   · **没到齐** ⇒ 「**这一轮只交到 m/N**」：`dev_submitted` 的守卫要求
-   *     **全部席位到齐**（`store.js:2471` 的 `checkAllSeatsSubmitted`）⇒ 那一步
+   *     **全部席位到齐**（`store/shared.js` 的 `checkAllSeatsSubmitted`）⇒ 那一步
    *     **现在根本发不出去**，该叫的是**还差的那几个席位**。
    *   ★ 两种都**必须报**：实测那张卡单正是"没到齐（1/3）"，而它当时
    *     **一条播报都没有** —— 这就是本条要治的漏报。
@@ -281,7 +281,7 @@ export function undeliveredTransitionOf(task, leg, { now = Date.now(), dwellMs =
   if (h === null || enteredAt === null || h.at <= enteredAt) return null // 不是本轮的交付 ⇒ 不判
   const version = latestArtifactVersion(task)
   const hVersion = typeof h.h?.artifact_version === 'string' && h.h.artifact_version.length > 0 ? h.h.artifact_version : null
-  // ★ 与守卫同口径：交接物针对的不是当前有效制品 ⇒ 那条迁移**本来就过不去** ⇒ 不催（`store.js:2481/2495`）
+  // ★ 与守卫同口径：交接物针对的不是当前有效制品 ⇒ 那条迁移**本来就过不去** ⇒ 不催（`store/precondition.js`）
   if (version !== null && hVersion !== null && hVersion !== version) return null
 
   let expected
@@ -485,9 +485,12 @@ export function patrolFindings(spec = {}) {
      */
     const advice = hit.complete
       ? `**叫醒该席位补发**（重派 / \`pipeline_dispatch { notify_only: true }\` 提醒它发 ` +
-        `\`pipeline_transition { event: "${hit.expected_events[0]}" }\`${hit.expected_events.length > 1 ? `，若结论是另一条就发 ${hit.expected_events.slice(1).map((e) => `\`${e}\``).join(' / ')}` : ''}）`
+        `\`pipeline_transition { event: "${hit.expected_events[0]}" }\`${hit.expected_events.length > 1 ? `，若结论是另一条就发 ${hit.expected_events.slice(1).map((e) => `\`${e}\``).join(' / ')}` : ''}）` +
+        (hit.key === 'dev_submitted'
+          ? '；或由**主对话直接代发** `pipeline_transition { event: "main_dev_submitted" }`（守卫与 dev_submitted 同源，审计记为主对话代发）'
+          : '')
       : `**先叫醒还差的那几个席位**（${hit.missing_seats.join('、')}）把他们那份交了 —— ` +
-        `\`pipeline_transition { event: "${hit.expected_events[0]}" }\` 现在**发不出去**（守卫要求全部席位到齐，\`store.js:2471\`）；` +
+        `\`pipeline_transition { event: "${hit.expected_events[0]}" }\` 现在**发不出去**（守卫要求全部席位到齐，\`store/precondition.js\`）；` +
         `到齐之后再让任一编写席位补发那一步`
     candidates.push({
       /**

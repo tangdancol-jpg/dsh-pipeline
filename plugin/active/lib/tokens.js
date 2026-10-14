@@ -319,6 +319,21 @@ export function createTokenStore(opts = {}) {
       return { ok: true, restored: true, reason: `已按派活台账认出席位「${role}${rec.seat === null ? '' : `#${rec.seat}`}」（会话 ${agentId}）。` }
     },
 
+    /**
+     * 这个会话手上的**全部**绑定（每张单一条），带签发时刻。
+     * 由调用方决定该用哪一张（守门用 `lib/guard/seats.js` 的 `bindingForAgent`）。
+     */
+    bindingsOfAgent(agentId) {
+      if (typeof agentId !== 'string' || agentId.length === 0) return []
+      sweep()
+      const out = []
+      for (const rec of tokens.values()) {
+        if (rec.agentId !== agentId) continue
+        out.push({ taskId: rec.taskId, role: rec.role, seat: rec.seat, token: rec.token, issuedAt: rec.issuedAt })
+      }
+      return out
+    },
+
     /** 按 agent id 反查它在本任务里的角色与席位（守门判据用）。 */
     roleOfAgent(agentId, taskId) {
       if (typeof agentId !== 'string' || agentId.length === 0) return null

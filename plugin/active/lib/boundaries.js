@@ -174,11 +174,11 @@ export const RULES = [
       '正解是**两份 from_role 不同、各自令牌产出**的记录，都绑同一制品版本、都在最近一次打回之后、' +
       '且不得跨站点复用同一份（照抄既有 effectiveReviewOk 的强度，不弱于它）。' +
       '★ 归因更正（2026-10-14）：这三条**不是** `handoff:validateStationConfirm` 判的 —— ' +
-      '那个函数只判四件事（站点合法性 `lib/handoff.js:615-620`、证据标识 `:621-634`、' +
-      '脱敏正文无代码 `:635-643`、夹带判据 `:644-653`），**不绑版本、不查打回序号、不防跨站复用**。' +
-      '三条的真实执法在 **`store:hubValidConfirms`**（`lib/store.js:1155-1169`：`:1158` 只取' +
-      '最近一次打回之后的、`:1163` 站点字段必须正是这一站、`:1165` 制品版本必须等于本站当前目标），' +
-      '入口是 `store:hubStationGate`（`:1176`）。**判据没有缺，改的只是归因。**',
+      '那个函数（`lib/handoff/scans.js`）只判四件事（站点合法性、证据标识、' +
+      '脱敏正文无代码、夹带判据），**不绑版本、不查打回序号、不防跨站复用**。' +
+      '三条的真实执法在 **`store:hubValidConfirms`**（`lib/store/hub.js`：只取' +
+      '最近一次打回之后的、站点字段必须正是这一站、制品版本必须等于本站当前目标），' +
+      '入口是同一文件的 `store:hubStationGate`。**判据没有缺，改的只是归因。**',
     enforce:
       'handoff:HANDOFF_SCHEMAS.station_confirm + handoff:validateStationConfirm(证据标识/脱敏证据正文) ' +
       '+ store:hubStationGate/hubValidConfirms(绑版本/打回后/不跨站复用) ' +
@@ -288,7 +288,7 @@ export const ADVISORY_LIMITS = [
  * ---------------------------------------------------------------------------
  * 为什么它们必须从"按角色收紧"里移出去（2026-10-14 回归修复）
  * ---------------------------------------------------------------------------
- * `pipeline_transition` 在守门里的白名单是 `['main','human']`（`lib/guard.js:926`），
+ * `pipeline_transition` 在守门里的白名单是 `['main','human']`（`lib/guard/rules.js` 的 `PIPELINE_TOOL_ROLES`），
  * 于是工具面把它当成"编写 / 测试 / 审核 / 计划 / 主管都会被拒的工具"**藏掉了**。
  * 但它的真实判据**不在那一行**：它执行的是状态机的**逐事件**边 ——
  * `TRANSITIONS[].by`（`lib/states.js:595` 的 `dev_submitted: by ['writer']`、
@@ -356,7 +356,7 @@ function normalizeEventLevel(v) {
  * 所以这里的权威只有一个：**守门自己的判据**。做法是把
  * `guardDecision()`（`lib/guard.js` 导出的公开判据）拿**一个匿名调用方**问一遍 ——
  * 它对"按角色白名单管着的工具"会吐出那句
- * `允许角色：main / human`（`lib/guard.js:729` / `:738`），
+ * `允许角色：main / human`（`lib/guard/decide.js` 的 `decide`），
  * 于是白名单**从判词里读出来**，而不是从源码里抄出来。
  *
  * 三条纪律（全部是**安全方向**的）：
@@ -525,7 +525,7 @@ export function deriveToolFace({ toolNames = [], judge = null, roles = null, eve
 /**
  * 从守门的判词里读出**角色白名单**。
  *
- * 判词形状（`lib/guard.js:729` / `:738`）：
+ * 判词形状（`lib/guard/decide.js` 的 `decide`）：
  *   `[pipeline] 角色越权被拦下。\n工具：X\n允许角色：main / human\n当前角色：writer\n…`
  *
  * ★ **认不出返回 `null`**（= 不按角色收紧），而不是返回空数组 ——
@@ -697,7 +697,7 @@ export function boundaryManifest(opts = {}) {
        *   里**没有这个 case**（它只认 `hub_station_need_agree` / `hub_station_diagram_confirm` /
        *   `hub_station_review_confirm` 三个站点闸）。第③道真正的落点是状态机上
        *   `dispatch_reviewer → ready_review` 挂的那枚 guard **`dispatch_reviewer_gate`**
-       *   （`lib/states.js:396` → `lib/store.js:2444-2449`，内部就是
+       *   （`lib/states.js` → `lib/store/precondition.js` 的 `checkPrecondition`，内部就是
        *   `hubStationGate(task, HUB_STATIONS.TEST_CONFIRM)`）。
        *   ★ **只改名字，判据行为一个字节没动。**
        */
@@ -867,10 +867,10 @@ export function boundaryManifest(opts = {}) {
        * 「待机期不许抢跑」的产物面三条判据（安全预审阻断项 B3 的原话）。
        *
        * ★ 符号名更正（2026-10-14）：文件名写作 **`hubStandbyBlocksWrite`** ——
-       *   定义在 `lib/guard.js:1705-1712`，**唯一的调用点**在 `:809-823`（文件面：
+       *   定义在 `lib/guard/seats.js`，**唯一的调用点**在 `lib/guard/decide.js`（文件面：
        *   待机席位写自己目录的报告）。
        *   改前写的是 `hubStandbyProductGate`，**`guard.js` 里没有这个符号**。
-       *   ⚠️ 下面第 3 条（测试面）的执法在 `lib/guard.js:1392-1415`，是**另一段内联判据**
+       *   ⚠️ 下面第 3 条（测试面）的执法在 `lib/guard/shell.js` 的 `scanShellCommand`（4g2 段），是**另一段内联判据**
        *   （读 `task.hubEnabled` / `task.devDelivered`），**不调用** `hubStandbyBlocksWrite` ——
        *   两条判据同族但不同源，别把它们当成一个函数。
        *   ★ **只改名字，判据行为一个字节没动。**

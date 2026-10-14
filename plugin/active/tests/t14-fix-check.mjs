@@ -145,7 +145,7 @@ export async function runT14FixCheck() {
   {
     /**
      * 当晚实测（规格 B2 原文，主对话现场观测）：
-     *   席位 `<session-id>` 被判失联的**同一时段**，
+     *   席位 `session-…` 被判失联的**同一时段**，
      *   它的会话日志 `session.v4.jsonl.zstd` **30 秒内从 381,679 B 增至 392,396 B（+10,717 B）**。
      * ⇒ 修复后的判据**必须**判它为「还活着」。
      */
@@ -169,7 +169,7 @@ export async function runT14FixCheck() {
       history: [],
       context_reports: [],
       successions: [],
-      dispatched: [{ role: 'writer', seat: 'writer#1', agent_id: '<session-id>', at: new Date(T0 - 600_000).toISOString(), at_ms: T0 - 600_000 }],
+      dispatched: [{ role: 'writer', seat: 'writer#1', agent_id: 'session-00000000-0000-4000-8000-000000000501', at: new Date(T0 - 600_000).toISOString(), at_ms: T0 - 600_000 }],
       liveness: { escalations: [], samples: { 'writer#1': prev }, quiet: {} },
     }
     const live = seatLiveness(task, T0 + 30_000, {

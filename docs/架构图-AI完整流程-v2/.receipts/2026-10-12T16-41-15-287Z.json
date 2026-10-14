@@ -7,15 +7,15 @@
   "started_at": "2026-10-12T16:41:12.616Z",
   "project": {
     "slug": "dsh-pipeline",
-    "dir": "<DSH_HOME>\\profiles\\desktop\\normify-dsh-pipeline",
-    "root_dir": "<HOME>\\Documents\\deepseek-harness\\default-workspace",
+    "dir": "%USERPROFILE%\\.dsh\\profiles\\desktop\\normify-dsh-pipeline",
+    "root_dir": "%USERPROFILE%\\Documents\\deepseek-harness\\default-workspace",
     "how_resolved": "dir",
-    "repo_root": "<DSH_HOME>\\profiles\\desktop\\node_modules\\dsh-pipeline",
+    "repo_root": "%USERPROFILE%\\.dsh\\profiles\\desktop\\node_modules\\dsh-pipeline",
     "head": null,
     "head_error": "fatal: not a git repository (or any of the parent directories): .git"
   },
   "normify": {
-    "package_dir": "<DSH_HOME>\\profiles\\desktop\\node_modules\\@dsh-external\\dsh-normify",
+    "package_dir": "%USERPROFILE%\\.dsh\\profiles\\desktop\\node_modules\\@dsh-external\\dsh-normify",
     "version": "0.5.4",
     "require_bilingual": true,
     "refresh": {
@@ -507,7 +507,7 @@
       "id": "flow.architecture",
       "fingerprint": "8aa485d1c0cd7b04fc51529751714cc21bc6896e1753d7990a67c2dacaa87211",
       "state": null,
-      "revision": "<redacted>",
+      "revision": "***",
       "source_paths": [
         "lib/security.js",
         "lib/intercept.js"
@@ -520,7 +520,7 @@
       "id": "flow.archiving",
       "fingerprint": "3c9fd7135995dee3c8bd1062aff03bfbdf4e1ef7a66163969bcedefa0ad373f8",
       "state": null,
-      "revision": "<redacted>",
+      "revision": "***",
       "source_paths": [
         "lib/store.js"
       ],
@@ -532,7 +532,7 @@
       "id": "flow.closeout",
       "fingerprint": "9eb336d2699862fe8e51a31d4b9b15c5c445ffd7b7bd55714663359a51c39af7",
       "state": null,
-      "revision": "<redacted>",
+      "revision": "***",
       "source_paths": [
         "lib/tools.js"
       ],
@@ -544,7 +544,7 @@
       "id": "flow.execution",
       "fingerprint": "4510d72dafc4b54cdcb0ae7ecc4c73a2a9f02684c3f6de1645ce6f2c5deae25e",
       "state": null,
-      "revision": "<redacted>",
+      "revision": "***",
       "source_paths": [
         "lib/tokens.js",
         "lib/guard.js",
@@ -559,7 +559,7 @@
       "id": "flow.intake",
       "fingerprint": "3f1b55fe17f5d13e5727d12104aabcdfdb12931af3903ffb9891e46adfc3a5ab",
       "state": null,
-      "revision": "<redacted>",
+      "revision": "***",
       "source_paths": [
         "lib/config.js",
         "lib/switch.js",
@@ -573,7 +573,7 @@
       "id": "flow.planning",
       "fingerprint": "91ca90a88e301e3e4bdbbf4cb174000cf2855f3c37c9a23492de366df3bfb888",
       "state": null,
-      "revision": "<redacted>",
+      "revision": "***",
       "source_paths": [
         "lib/tiers.js",
         "lib/roles.js",
@@ -587,7 +587,7 @@
       "id": "flow.plumbing",
       "fingerprint": "pending",
       "state": null,
-      "revision": "<redacted>",
+      "revision": "***",
       "source_paths": [],
       "components": [
         "n_plumbing"
@@ -597,7 +597,7 @@
       "id": "flow.plumbing.guard",
       "fingerprint": "23302ab7dd9a8fe259f08dd4a6ca410a70f1b8b4a2dd39a46db4404e56399a3d",
       "state": null,
-      "revision": "<redacted>",
+      "revision": "***",
       "source_paths": [
         "lib/guard.js",
         "lib/guard-factory.js"
@@ -610,7 +610,7 @@
       "id": "flow.plumbing.hashing",
       "fingerprint": "125d9bc82b0bf032e681cbee869fc000ce62c050ecd26512c6ed37b0f1a09354",
       "state": null,
-      "revision": "<redacted>",
+      "revision": "***",
       "source_paths": [
         "lib/hashgate.js"
       ],
@@ -622,7 +622,7 @@
       "id": "flow.plumbing.hostmsg",
       "fingerprint": "2e394e9d9e43b59d491191b8de5ffc72ddf6bf916b63a0a2d35965f5efcefab3",
       "state": null,
-      "revision": "<redacted>",
+      "revision": "***",
       "source_paths": [
         "lib/hostmsg.js"
       ],
@@ -634,7 +634,7 @@
       "id": "flow.plumbing.ledger",
       "fingerprint": "pending",
       "state": "planned",
-      "revision": "<redacted>",
+      "revision": "***",
       "source_paths": [],
       "components": [
         "n_ledger"
@@ -644,7 +644,7 @@
       "id": "flow.plumbing.liveness",
       "fingerprint": "b2ca5963259a6987f9ea5e5b597d745b8d299c1878e0bcc00be2ebce04c97a8d",
       "state": null,
-      "revision": "<redacted>",
+      "revision": "***",
       "source_paths": [
         "lib/liveness.js"
       ],
@@ -656,7 +656,7 @@
       "id": "flow.plumbing.patrol",
       "fingerprint": "pending",
       "state": "planned",
-      "revision": "<redacted>",
+      "revision": "***",
       "source_paths": [],
       "components": [
         "n_patrol"
@@ -666,7 +666,7 @@
       "id": "flow.plumbing.reattach",
       "fingerprint": "pending",
       "state": "planned",
-      "revision": "<redacted>",
+      "revision": "***",
       "source_paths": [],
       "components": [
         "n_reattach"
@@ -676,7 +676,7 @@
       "id": "flow.plumbing.states",
       "fingerprint": "18d769643423134a93dff5ce7cc650adf9d258fa5931a89165be357157e15b1f",
       "state": null,
-      "revision": "<redacted>",
+      "revision": "***",
       "source_paths": [
         "lib/states.js"
       ],
@@ -688,7 +688,7 @@
       "id": "flow.plumbing.tokens",
       "fingerprint": "dd7e041495381d5da4fa8610e619ad9aff52440485e2e5a2cd55ddab597334c3",
       "state": null,
-      "revision": "<redacted>",
+      "revision": "***",
       "source_paths": [
         "lib/tokens.js"
       ],
@@ -700,7 +700,7 @@
       "id": "flow.plumbing.wakeup",
       "fingerprint": "6b3aca7137f6d156116fd70d22526b2170839b81cb0ee82fb12ebec908ca64ea",
       "state": null,
-      "revision": "<redacted>",
+      "revision": "***",
       "source_paths": [
         "lib/wakeup.js"
       ],
@@ -712,7 +712,7 @@
       "id": "flow.requirement",
       "fingerprint": "6c8a02f1e888fa201d0a21f8c87844d16703e31e3f322f9b8dd8a932c7b3b6d6",
       "state": null,
-      "revision": "<redacted>",
+      "revision": "***",
       "source_paths": [
         "lib/handoff.js",
         "lib/context.js"
@@ -725,7 +725,7 @@
       "id": "flow.supervision",
       "fingerprint": "pending",
       "state": "planned",
-      "revision": "<redacted>",
+      "revision": "***",
       "source_paths": [],
       "components": [
         "n_supervision"
@@ -735,7 +735,7 @@
       "id": "flow.verification",
       "fingerprint": "d57f8ec76a9910149582b7be743b9a48191125f1cdb700283b42a688f8f3a2af",
       "state": null,
-      "revision": "<redacted>",
+      "revision": "***",
       "source_paths": [
         "lib/states.js",
         "lib/handoff.js"
@@ -747,9 +747,9 @@
   ],
   "spec": {
     "origin": "file",
-    "origin_path": "<DSH_HOME>\\dsh_orb\\写一份-archify-规格文件-ai-完整流程-流程图-应然的目标形态-缺失的\\ai-pipeline-flow.workflow.json",
+    "origin_path": "%USERPROFILE%\\.dsh\\dsh_orb\\写一份-archify-规格文件-ai-完整流程-流程图-应然的目标形态-缺失的\\ai-pipeline-flow.workflow.json",
     "origin_sha256": "405de5971a7caaf1b36a6f360de5db27dc4ef699af51c7050a859be7131c85a6",
-    "resolved_path": "<DSH_HOME>\\dsh_orb\\架构图-AI完整流程-v2\\ai-pipeline-flow.candidate.json",
+    "resolved_path": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-AI完整流程-v2\\ai-pipeline-flow.candidate.json",
     "resolved_sha256": "9d1cd8fd20a14e1fb25613618a317148fe2c1c723d5bdc7b4a09904f1b25a621",
     "diagram_type": "workflow",
     "quality": "showcase"
@@ -867,7 +867,7 @@
         "outcome": "validate-pass"
       }
     ],
-    "report": "图型：workflow   可行：是\n容量推导：undefined×undefined = 120 个节点（workflow：6 列 × 4 泳道 × 5 层）\n          workflow 的列数写死 6（workflow-compiler.mjs:201），横向容量作者改不动；容量 = 6 列 × 泳道数 × 每格堆叠深度 = 120。\n几何：盒子 92×68，列距 28，行距 32，6 列 × 8 泳道\n      viewBox 764×1316（比 0.581），舞台 930（legacy-930），缩放 1.0000 → 投影 8.000px\n\n约束核对：\n  OK   [hard-floor-projected-text] 要求 ≥ 6px（archify 地板，不改） / 实际 8.000px\n        出处：<redacted>.mjs:5 MIN_PROJECTED_NODE_TEXT_PX\n  OK   [target-projected-text] 要求 ≥ 7px（本次目标，留边际） / 实际 8.000px\n        出处：本工具的目标值（archify 只要求 6）\n  OK   [min-source-font] 要求 语义文字最小源码字号 ≥ 下限（边标签写死 8/8） / 实际 assumed 8px\n        出处：render-architecture.mjs:877 / workflow-compiler.mjs:4734（font-size=\"8\" 写死）\n  OK   [stage-width] 要求 viewBox 宽 ≤ 1062px（= stage 930 × 8 / 7） / 实际 764px\n        出处：<redacted>.mjs:2-4 —— DESKTOP_READER_MIN_WIDTH(960) - DESKTOP_READER_HORIZONTAL_CHROME(30) = 930px。凡是吃不到 declared-wide 的（含全部 workflow / dataflow / sequence / lifecycle），以及宽高比 < 1.55 的 architecture，都落回这里。\n  OK   [single-figure-height] 要求 viewBox 高 ≤ 1600px / 实际 1316px\n        出处：archify 对 architecture 没有纵向硬上限；1600 是本工具的工程上限 —— 按实测舞台宽 1346px 折算，viewBox 高 1600 的画面约 1521px 高（≈1.7 屏），再多就不叫「能读」。可用 max_viewbox_height 覆盖。\n  OK   [node-separation] 要求 盒间距 ≥ 8px / 实际 colGap 28 / rowGap 32\n        出处：render-architecture.mjs:485 / workflow-compiler.mjs:3020（<8px 即 error）\n  OK   [capacity] 要求 节点数 ≤ 120 / 实际 20（推导，见 capacity.note）\n        出处：workflow 的列数写死 6（workflow-compiler.mjs:201），横向容量作者改不动；容量 = 6 列 × 泳道数 × 每格堆叠深度 = 120。\n  OK   [workflow-columns] 要求 列数 = 6（写死，不可配） / 实际 6\n        出处：workflow-compiler.mjs:201 const columnCount = 6\n  OK   [workflow-intrinsic-height] 要求 必须声明 intrinsic-height（宽高比 < 1.55） / 实际 0.581\n        出处：workflow-compiler.mjs:4754-4759（三条件）+ visual-check.mjs:1878-1886\n  OK   [workflow-lane-gap] 要求 泳道间距 ≥ 20（跨泳道边要求 ≥ 32） / 实际 32\n        出处：workflow-compiler.mjs:110 / :588 / :3791\n\n降级/操作建议：\n  · aspect ratio 0.581 < 1.55, so the renderer MUST declare intrinsic-height or composition/viewport-height fires. The three conditions (workflow-compiler.mjs:4754-4759): (1) schema_version = 2; (2) do NOT write meta.viewBox; (3) at least one lane+column cell holds two stacked nodes - this layout stacks depth 2 in lane 0. Condition (3) also switches on independent per-lane heights (workflow-compiler.mjs:536-542), which is what makes a single deep lane affordable instead of making every lane that tall.\n  · Fewer cross-column edges means readable-v2 finds routes more often. workflow/solver-budget-exhausted has three emit sites (workflow-compiler.mjs:3804 / :4607 / :4836; the last is the <=3 round feedback replay at :4856).\n  · Removing authored route pins (via / labelAt / channelX / channelY / fromSide / toSide) is archify own advice (workflow-compiler.mjs:1545 / :1829 / :2463) - it lets readable-v2 use its verified automatic candidate. That is a DEGRADATION and is recorded in the receipt.",
+    "report": "图型：workflow   可行：是\n容量推导：undefined×undefined = 120 个节点（workflow：6 列 × 4 泳道 × 5 层）\n          workflow 的列数写死 6（workflow-compiler.mjs:201），横向容量作者改不动；容量 = 6 列 × 泳道数 × 每格堆叠深度 = 120。\n几何：盒子 92×68，列距 28，行距 32，6 列 × 8 泳道\n      viewBox 764×1316（比 0.581），舞台 930（legacy-930），缩放 1.0000 → 投影 8.000px\n\n约束核对：\n  OK   [hard-floor-projected-text] 要求 ≥ 6px（archify 地板，不改） / 实际 8.000px\n        出处：***.mjs:5 MIN_PROJECTED_NODE_TEXT_PX\n  OK   [target-projected-text] 要求 ≥ 7px（本次目标，留边际） / 实际 8.000px\n        出处：本工具的目标值（archify 只要求 6）\n  OK   [min-source-font] 要求 语义文字最小源码字号 ≥ 下限（边标签写死 8/8） / 实际 assumed 8px\n        出处：render-architecture.mjs:877 / workflow-compiler.mjs:4734（font-size=\"8\" 写死）\n  OK   [stage-width] 要求 viewBox 宽 ≤ 1062px（= stage 930 × 8 / 7） / 实际 764px\n        出处：***.mjs:2-4 —— DESKTOP_READER_MIN_WIDTH(960) - DESKTOP_READER_HORIZONTAL_CHROME(30) = 930px。凡是吃不到 declared-wide 的（含全部 workflow / dataflow / sequence / lifecycle），以及宽高比 < 1.55 的 architecture，都落回这里。\n  OK   [single-figure-height] 要求 viewBox 高 ≤ 1600px / 实际 1316px\n        出处：archify 对 architecture 没有纵向硬上限；1600 是本工具的工程上限 —— 按实测舞台宽 1346px 折算，viewBox 高 1600 的画面约 1521px 高（≈1.7 屏），再多就不叫「能读」。可用 max_viewbox_height 覆盖。\n  OK   [node-separation] 要求 盒间距 ≥ 8px / 实际 colGap 28 / rowGap 32\n        出处：render-architecture.mjs:485 / workflow-compiler.mjs:3020（<8px 即 error）\n  OK   [capacity] 要求 节点数 ≤ 120 / 实际 20（推导，见 capacity.note）\n        出处：workflow 的列数写死 6（workflow-compiler.mjs:201），横向容量作者改不动；容量 = 6 列 × 泳道数 × 每格堆叠深度 = 120。\n  OK   [workflow-columns] 要求 列数 = 6（写死，不可配） / 实际 6\n        出处：workflow-compiler.mjs:201 const columnCount = 6\n  OK   [workflow-intrinsic-height] 要求 必须声明 intrinsic-height（宽高比 < 1.55） / 实际 0.581\n        出处：workflow-compiler.mjs:4754-4759（三条件）+ visual-check.mjs:1878-1886\n  OK   [workflow-lane-gap] 要求 泳道间距 ≥ 20（跨泳道边要求 ≥ 32） / 实际 32\n        出处：workflow-compiler.mjs:110 / :588 / :3791\n\n降级/操作建议：\n  · aspect ratio 0.581 < 1.55, so the renderer MUST declare intrinsic-height or composition/viewport-height fires. The three conditions (workflow-compiler.mjs:4754-4759): (1) schema_version = 2; (2) do NOT write meta.viewBox; (3) at least one lane+column cell holds two stacked nodes - this layout stacks depth 2 in lane 0. Condition (3) also switches on independent per-lane heights (workflow-compiler.mjs:536-542), which is what makes a single deep lane affordable instead of making every lane that tall.\n  · Fewer cross-column edges means readable-v2 finds routes more often. workflow/solver-budget-exhausted has three emit sites (workflow-compiler.mjs:3804 / :4607 / :4836; the last is the <=3 round feedback replay at :4856).\n  · Removing authored route pins (via / labelAt / channelX / channelY / fromSide / toSide) is archify own advice (workflow-compiler.mjs:1545 / :1829 / :2463) - it lets readable-v2 use its verified automatic candidate. That is a DEGRADATION and is recorded in the receipt.",
     "constants": {
       "note": "以下每个数都来自 archify 源码；本插件只读不改。6px 地板与 960 最小宽度是闸门的立身之本，本插件**刻意不去改**。",
       "min_projected_node_text_px": 6,
@@ -884,7 +884,7 @@
     }
   },
   "artifact": {
-    "path": "<DSH_HOME>\\dsh_orb\\架构图-AI完整流程-v2\\ai-pipeline-flow.html",
+    "path": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-AI完整流程-v2\\ai-pipeline-flow.html",
     "bytes": 794048,
     "sha256": "cb5cbbcb056c9407c33388b1e5a41b76c50ec144ddd312d04b861cea30917f07"
   },
@@ -893,13 +893,13 @@
       "step": "archify validate（几何第 1 轮探针）",
       "argv": [
         "D:\\tool\\Deepseek\\Deepseek harness\\DeepSeek Harness.exe",
-        "<DSH_HOME>\\skills\\archify\\bin\\archify.mjs",
+        "%USERPROFILE%\\.dsh\\skills\\archify\\bin\\archify.mjs",
         "validate",
         "workflow",
         "ai-pipeline-flow.candidate.json",
         "--json"
       ],
-      "cwd": "<DSH_HOME>\\dsh_orb\\架构图-AI完整流程-v2",
+      "cwd": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-AI完整流程-v2",
       "exit_code": 0,
       "duration_ms": 279
     },
@@ -907,7 +907,7 @@
       "step": "archify finalize",
       "argv": [
         "D:\\tool\\Deepseek\\Deepseek harness\\DeepSeek Harness.exe",
-        "<DSH_HOME>\\skills\\archify\\bin\\archify.mjs",
+        "%USERPROFILE%\\.dsh\\skills\\archify\\bin\\archify.mjs",
         "finalize",
         "workflow",
         "ai-pipeline-flow.candidate.json",
@@ -916,7 +916,7 @@
         "--quality",
         "showcase"
       ],
-      "cwd": "<DSH_HOME>\\dsh_orb\\架构图-AI完整流程-v2",
+      "cwd": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-AI完整流程-v2",
       "exit_code": 0,
       "duration_ms": 2169
     }
@@ -928,7 +928,7 @@
     "normify": "0.5.4"
   },
   "archify": {
-    "receipt": "<DSH_HOME>\\dsh_orb\\架构图-AI完整流程-v2\\ai-pipeline-flow.finalize-summary.json",
+    "receipt": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-AI完整流程-v2\\ai-pipeline-flow.finalize-summary.json",
     "gates": {
       "validate": "pass",
       "deliver": "pass",

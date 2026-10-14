@@ -187,6 +187,12 @@ export const WRITE_LEDGER_FILE_NAME = 'write-ledger.jsonl'
 /** 台账行类型标记（读的时候据此**丢弃**不是台账的行 —— 坏行不许污染判据）。 */
 export const WRITE_LEDGER_KIND = 'seat-write'
 
+/**
+ * 守门放行一次写类工具调用时追加的观察行的 `source`（`lib/guard-factory.js` 写、这里读）。
+ * 观察行**不带产出哈希**，所以不参与任何放宽；它只被 {@link seatTouchOf} 用来**收回**机器产物豁免。
+ */
+export const GUARD_WRITE_ALLOWED_SOURCE = 'guard.write-allowed'
+
 /** 台账行的来源标记（"这条归属是怎么来的"）。 */
 export const WRITE_LEDGER_SOURCES = {
   /** 编写席的 `dev_to_test.change_manifest`（席位**自己交上来的改动面**）。 */
@@ -373,6 +379,26 @@ export function seatClaimOf(index, key, sha256) {
 }
 
 /**
+ * 本单这些角色**用写类工具真的写过**这条路径吗（守门的放行观察行）。
+ *
+ * 与 {@link seatClaimOf} 互补：那条认"申报过、哈希对得上"，这条认"守门亲眼看见它写过"。
+ * ★ 只用于**收回**机器产物豁免（方向只会更严）：编写不申报、把产物起名成
+ *   `tests/<随便什么>-last-run.txt` 的形态，只要是写类工具写的，就躲不过去。
+ *   shell 里的写入守门看不见，这一条照样拦不到。
+ *
+ * @param {Map<string, object[]>} index - `buildSeatWriteIndex` 的产物
+ * @param {string} key - 规范绝对键
+ * @returns {object|null}
+ */
+export function seatTouchOf(index, key) {
+  const k = String(key ?? '').trim().toLowerCase()
+  if (k.length === 0) return null
+  const list = index instanceof Map ? index.get(k) : null
+  if (!Array.isArray(list)) return null
+  return list.find((c) => c.source === GUARD_WRITE_ALLOWED_SOURCE) ?? null
+}
+
+/**
  * 从 `store.changeAudit()` 的结果算出闸门判定。
  *
  * @param {object} audit - changeAudit 的返回值
@@ -531,14 +557,20 @@ export function hashGateVerdict(audit, manifest = [], opts = {}) {
       //    按哈希认领过**（它在自己某次 `dev_to_test` 里声明过这条路径，且当前内容与
       //    那次产出的哈希一致），那它就不是"测试台自己写的运行产物"，而是**编写的产物**
       //    ⇒ 豁免**收回**，落回下面的"声明不实"对账。**只会更严，不会更松**。
+      //    再加一条（同样只会更严）：本单编写席**用写类工具真的写过**它（守门放行观察行）
+      //    ⇒ 即使从没申报过，也不是测试台的运行产物 ⇒ 豁免收回。
       const claim = seatClaimOf(writerClaimIndex, tKey, item.sha256)
-      if (claim === null) {
+      const touch = claim === null ? seatTouchOf(writerClaimIndex, tKey) : null
+      if (claim === null && touch === null) {
         ignoredMachineArtifacts.push({ path: p, why: '机器产物（测试台自己写的运行产物）：不属于任何席位，不该逼谁为它背书' })
         continue
       }
+      const who = (c) => `**本单的${c.role}${c.seat === null ? '' : `（${c.seat}）`}**`
       withdrawnMachineArtifacts.push({
         path: p,
-        why: `这条路径被**本单的${claim.role}${claim.seat === null ? '' : `（${claim.seat}）`}**在 ${claim.at ?? '(时间未记)'} 声明过，且当前内容的 sha256 与那次产出的**逐字节一致** ⇒ 它不是"测试台自己写的运行产物"，豁免收回`,
+        why: claim !== null
+          ? `这条路径被${who(claim)}在 ${claim.at ?? '(时间未记)'} 声明过，且当前内容的 sha256 与那次产出的**逐字节一致** ⇒ 它不是"测试台自己写的运行产物"，豁免收回`
+          : `这条路径被${who(touch)}在 ${touch.at ?? '(时间未记)'} 用写类工具写过（守门放行留痕 ${GUARD_WRITE_ALLOWED_SOURCE}）⇒ 它不是"测试台自己写的运行产物"，豁免收回`,
       })
     }
     // 目录级声明（授权的是一个目录）也算覆盖到了里面

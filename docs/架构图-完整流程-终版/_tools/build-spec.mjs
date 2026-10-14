@@ -29,7 +29,7 @@ for (const e of doc.edges) if (rewired[e.id]) [e.from, e.to] = rewired[e.id]
 
 // ---------- 改动 2：每条边补「被拒 / 失败后果」标签 ----------
 // 标签规格：≤19 unit（全角按 2 计）≈ 91px。完整口径（用户的原文案）落在 cards 里，画布上只留短句：
-//   composition/<redacted> 的硬数字是 viewBox 宽 ≤ 1085px，长标签会把画布撑宽、把投影字号压到 6px 地板以下。
+//   composition/*** 的硬数字是 viewBox 宽 ≤ 1085px，长标签会把画布撑宽、把投影字号压到 6px 地板以下。
 const LABELS = {
   e_open: '不受理 ⇒ 停 pending',
   e_dispatch_orchestrator: '答不了 ⇒ 升级用户',

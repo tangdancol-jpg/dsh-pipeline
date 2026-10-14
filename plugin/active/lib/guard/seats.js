@@ -153,7 +153,7 @@ export function isProtectedPath(task, absPath) {
  * @param {object[]|null} [input.changeScope] - `task.change_scope`（计划的授权改动面）
  * @param {string|null} [input.scopeAnchor] - ★ 授权面锚点（裸相对路径按它解析，见 {@link resolveScopeAnchor}）
  */
-export function makeTaskIndexEntry({ taskId, projectRoot, pipelineDir, scopeAnchor = null, writers = null, changeScope = null, fullTest = null, hashGateBlocked = false, hashGate = null, hashGateEscalated = false, hubEnabled = false, hubStandby = null, devDelivered = false }) {
+export function makeTaskIndexEntry({ taskId, projectRoot, pipelineDir, scopeAnchor = null, writers = null, changeScope = null, fullTest = null, hashGateBlocked = false, hashGate = null, hashGateEscalated = false, hubEnabled = false, hubStandby = null, devDelivered = false, terminal = false }) {
   const pipeline = pathKey(pipelineDir)
   const self = `${pipeline}/${String(taskId).toLowerCase()}`
   return {
@@ -224,7 +224,34 @@ export function makeTaskIndexEntry({ taskId, projectRoot, pipelineDir, scopeAnch
     hubEnabled: hubEnabled === true,
     hubStandby: Array.isArray(hubStandby) ? hubStandby : [],
     devDelivered: devDelivered === true,
+    /** ★ 任务已到终态（关单 / 取消）—— 一个会话同时绑着多张单时，守门据此不再拿它的规则去判新命令。 */
+    terminal: terminal === true,
   }
+}
+
+/**
+ * ★ 一个会话**此刻**该按哪张单的规则判（守门用）。
+ *
+ * 主对话会话为它开过 / 认领过的每一张单各持一枚 `main` 令牌，而 `tokens.roleOfAgent(agentId)`
+ * 按令牌表的插入顺序返回**第一条** ⇒ 守门拿**最老的那张单**（项目根、授权面、单号）去判新命令，
+ * 拒绝文案里点的也是那张早就没在动的单（P1-4 的"作用域放大"）。
+ *
+ * 取法：先排除已到终态的单；剩下的取**最近绑定**的那一张。全是终态单时退回最近绑定的那张。
+ * 令牌表不提供 `bindingsOfAgent`（测试替身 / 老实现）时，行为与改前相同。
+ *
+ * @param {{roleOfAgent:Function, bindingsOfAgent?:Function}} tokens
+ * @param {string|null} agentId
+ * @param {{get:(id:string)=>any}|null} [taskIndex]
+ * @returns {{taskId:string, role:string, seat:string|null, token:string}|null}
+ */
+export function bindingForAgent(tokens, agentId, taskIndex = null) {
+  if (agentId === null || agentId === undefined) return null
+  if (typeof tokens?.bindingsOfAgent !== 'function') return tokens.roleOfAgent(agentId, undefined)
+  const all = tokens.bindingsOfAgent(agentId)
+  if (all.length <= 1) return all[0] ?? null
+  const live = all.filter((b) => taskIndex?.get?.(b.taskId)?.terminal !== true)
+  const pool = live.length > 0 ? live : all
+  return pool.reduce((a, b) => (b.issuedAt >= a.issuedAt ? b : a))
 }
 
 /**

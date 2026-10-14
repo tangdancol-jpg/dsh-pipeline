@@ -6,9 +6,9 @@
   "status": "pass",
   "visualReview": "not-requested",
   "provenance": "current",
-  "deliveryReceiptId": "<uuid>",
+  "deliveryReceiptId": "（UUID）",
   "artifact": {
-    "path": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\v2\\main-path-v2.html",
+    "path": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\v2\\main-path-v2.html",
     "sha256": "cd7b348016409525fd095ec4d11f2978252927fc41816278824700a5f755c9a5",
     "bytes": 825323
   },

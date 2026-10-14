@@ -61,7 +61,7 @@
 | 次 | 谁 | 干了什么 | 结果 |
 |---|---|---|---|
 | ① | 原 `writer#1` | 制品 v4 登记 ✓ · `dev_to_test` 交接物 `H-073a6a57aaf0ecc7` ✓ · 自己那份记录 ✓ · 哈希闸门过 ✓ · 改动面在授权面内 ✓ | **没发 `dev_submitted`** ⇒ 停在「开发中」 |
-| ② | 主对话 `notify_only` 唤醒原席 | 投递成功（`requestId=<session-id>`，`mode=queue`） | **无反应** |
+| ② | 主对话 `notify_only` 唤醒原席 | 投递成功（`requestId=session-…`，`mode=queue`） | **无反应** |
 | ③ | 全新接替席（brief 只写"发这一个事件"、前席每一步都列全） | 交完自己那份记录 | **仍未发** |
 
 **从真单 `task.json` 读出来的形状（决定性）**：
@@ -237,7 +237,7 @@ id = <任务>|missing-transition|<状态>|<该发的事件>|round@<进这个状�
 ### 4.0 命令
 
 ```powershell
-cd <DSH_HOME>\profiles\desktop\node_modules\dsh-pipeline
+cd %USERPROFILE%\.dsh\profiles\desktop\node_modules\dsh-pipeline
 node tests/terminal-filter-check.mjs        # 新增验证：53 条断言（含追加那条的 12 条）
 ```
 

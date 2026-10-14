@@ -12,7 +12,7 @@
  * @module dsh-pipeline/tests/writers-check
  */
 
-import { mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { callTool, auditFor, cleanSecurity, createHarness, manifestFor, runAnalysisThenPlan, runHappyPath } from './selftest-core.mjs'
@@ -458,6 +458,41 @@ export async function runWritersCheck() {
     ])
     const st = await g.h.store.get(g.taskId)
     rec.add('反例③ 任务仍在开发中，没有被推过去', st.state === 'developing', `state=${st.state}`)
+
+    // ★ 主对话代发（main_dev_submitted）：守卫与 dev_submitted 同源 ⇒ 没到齐同样推不动
+    const proxy = await g.h.store.transition({ taskId: g.taskId, event: 'main_dev_submitted', actorRole: 'main' })
+    expectDenied(rec, '反例③′ 主对话代发也绕不过「全部到齐」（守卫同源）', { denied: proxy.ok !== true, layer: 'execute', text: String(proxy.error ?? '') }, [
+      '席位未到齐', '还差 1 个', 'writer#3',
+    ])
+    const wrongActor = await g.h.store.transition({ taskId: g.taskId, event: 'main_dev_submitted', actorRole: 'writer' })
+    rec.add('反例③″ 代发事件只认主对话：编写发 main_dev_submitted ⇒ 拒', wrongActor.ok !== true, String(wrongActor.error ?? '').split('\n')[0])
+    const mainAsWriter = await g.h.store.transition({ taskId: g.taskId, event: 'dev_submitted', actorRole: 'main' })
+    rec.add('反例③‴ 主对话不能冒用编写那条原事件 dev_submitted', mainAsWriter.ok !== true, String(mainAsWriter.error ?? '').split('\n')[0])
+  }
+
+  // =========================================================================
+  // 正例：全部到齐但"出口没人按"（P1-13 的现场形状）⇒ 主对话代发成功，且留痕可区分
+  // =========================================================================
+  {
+    const g = await createMultiWriterFixture({ writers: 3 })
+    open.push(g.h)
+    const v = {}
+    for (const seat of g.seats) {
+      const a = await seatArtifact(g, seat, `${seat}\n`)
+      v[seat] = a.value?.version ?? 'v1'
+    }
+    for (const seat of g.seats) await seatSubmit(g, seat, v[seat])
+    // 复现现场：三份都交了，但那一步没推过去（任务停在「开发中」）
+    const file = join(g.projectRoot, '.pipeline', g.taskId, 'task.json')
+    const t = JSON.parse(await readFile(file, 'utf8'))
+    t.state = 'developing'
+    await writeFile(file, JSON.stringify(t, null, 2), 'utf8')
+    g.h.store.dropCache(g.taskId)
+    const pushed = await callTool(g.h, 'pipeline_transition', { task_id: g.taskId, event: 'main_dev_submitted', role_token: g.tokens.main }, g.agents.main)
+    const after = await g.h.store.get(g.taskId)
+    rec.add('正例 全部到齐 + 出口没人按 ⇒ 主对话代发 main_dev_submitted ⇒ 进「待测试」', pushed.denied !== true && after.state === 'ready_test', `state=${after.state}\n${String(pushed.text ?? '').slice(0, 300)}`)
+    const last = after.history.at(-1)
+    rec.add('正例 留痕可区分：最后一条历史记的是 main 发的 main_dev_submitted', String(last?.action ?? '').includes('main_dev_submitted') && last?.actor === 'main', JSON.stringify(last))
   }
 
   // =========================================================================

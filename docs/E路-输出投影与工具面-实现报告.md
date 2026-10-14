@@ -1,6 +1,6 @@
 # E 路 · 输出投影（②）+ 按可见工具惰性渲染/收紧（③）—— 实现报告
 
-> **对象**：`<DSH_HOME>\profiles\desktop\node_modules\dsh-pipeline`（**生效副本**，未装、未重启、未加依赖）
+> **对象**：`%USERPROFILE%\.dsh\profiles\desktop\node_modules\dsh-pipeline`（**生效副本**，未装、未重启、未加依赖）
 > **依据**：`dsh-ops-可参考清单.md` §2 结论一 第 2 名（输出模式 + 投影，`lib/file/contract.js:20,29` + `native/src/results.rs:147-169`）与
 > 第 3 名（按"实际可见工具"惰性渲染，`lib/index.js:128-139` + `lib/policy.js:26-66`）
 > **改动文件**：`lib/tools.js` · `lib/boundaries.js` · `index.js` —— **一个字节都没碰** `guard-factory.js` / `lib/hashgate.js` / `lib/store.js` / `lib/patrol.js` / `lib/wakeledger.js` / `lib/liveness.js` / `lib/orphan.js` / `lib/handoff.js` / `lib/wakeup.js` / `lib/states.js` / `lib/guard.js`
@@ -14,7 +14,7 @@
 现场探针（**只读**：直调工具、显式关掉失联处置、不写盘）：
 
 ```
-node tests/_e-real-size-probe.mjs <DSH_HOME>\profiles\desktop
+node tests/_e-real-size-probe.mjs %USERPROFILE%\.dsh\profiles\desktop
 ```
 
 真实工作区 8 张单（本机 `.pipeline/`）：
@@ -220,7 +220,7 @@ security_check：全文 842 B → summary 634 B → count 632 B
 做法：把**改前**那三个文件放回一棵临时树，用它跑**同一份**自测取快照，再与生效副本的快照比：
 
 ```
-改前那棵树：<HOME>\AppData\Local\Temp\dsh-BrnrF3\e-route-before-20261014-200829
+改前那棵树：%USERPROFILE%\AppData\Local\Temp\dsh-BrnrF3\e-route-before-20261014-200829
 改后那棵树：…\node_modules\dsh-pipeline
 node tests/e-route-check.mjs --compare tests/_e-snapshot-before.json tests/_e-snapshot-after.json
 
@@ -337,7 +337,7 @@ node tests/e-route-check.mjs --compare tests/_e-snapshot-before.json tests/_e-sn
 
 ## 八、回归修复：出口工具被隐藏（2026-10-14 重启后复验发现）
 
-> **对象**：同一棵生效副本 `<DSH_HOME>\profiles\desktop\node_modules\dsh-pipeline`（**未装、未重启、未加依赖**）
+> **对象**：同一棵生效副本 `%USERPROFILE%\.dsh\profiles\desktop\node_modules\dsh-pipeline`（**未装、未重启、未加依赖**）
 > **改动文件**：`lib/boundaries.js` · `lib/tools.js` · `tests/e-route-check.mjs`（★ `index.js` **一个字节没动** —— 不需要动：收紧器读的是 `by_role[*].denied`，那一份已经跟着改了）
 > **备份**：`lib/boundaries.js.bak-exit-20261014-202928` · `lib/tools.js.bak-exit-20261014-202928` · `index.js.bak-exit-20261014-202928` · `tests/e-route-check.mjs.bak-exit-20261014-202928`（带时间戳，落插件目录内、不在加载路径上）
 > **改前指纹 → 改后指纹**（本机可复算）：

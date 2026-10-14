@@ -98,7 +98,7 @@ footer{color:var(--ink2);font-size:13.5px;text-align:center;padding:24px 0 0}
 <hr>
 <h2 id="s-一-总表-逐条">一、总表（逐条）<a class="anchor" href="#s-一-总表-逐条" aria-label="锚点">#</a></h2>
 <blockquote>
-<p>说明：<strong>「当时文档怎么说」栏里的引号内文字是原话</strong>，后面的括号是出处（文件 + 章节/行）。 「现在实际」栏里的 <strong><code>lib/…:行</code> 一律是此刻生效副本里的行号</strong>（生效副本 = <code>&lt;DSH_HOME&gt;\profiles\desktop\node_modules\dsh-pipeline</code>）。</p>
+<p>说明：<strong>「当时文档怎么说」栏里的引号内文字是原话</strong>，后面的括号是出处（文件 + 章节/行）。 「现在实际」栏里的 <strong><code>lib/…:行</code> 一律是此刻生效副本里的行号</strong>（生效副本 = <code>%USERPROFILE%\.dsh\profiles\desktop\node_modules\dsh-pipeline</code>）。</p>
 </blockquote>
 <h3 id="s-a-图里的-4-处红色-详见-二">A. 图里的 4 处红色（详见 §二）<a class="anchor" href="#s-a-图里的-4-处红色-详见-二" aria-label="锚点">#</a></h3>
 <div class="tw"><table>
@@ -367,7 +367,7 @@ footer{color:var(--ink2);font-size:13.5px;text-align:center;padding:24px 0 0}
 <p>全部只读。<strong>下面前 4 条我这一轮都实际跑过</strong>；第 5 条以后是给你自己复算的口子。</p>
 </blockquote>
 <pre data-lang="powershell"><code># ① 生效副本在哪（本对比的"代码"一栏全部指这里）
-$P = "&lt;DSH_HOME&gt;\profiles\desktop\node_modules\dsh-pipeline"
+$P = "%USERPROFILE%\.dsh\profiles\desktop\node_modules\dsh-pipeline"
 
 # ② 4 处红色的落点：枢纽 7 条边 + 常量 + 守门 case
 Select-String -Path "$P\lib\states.js" -Pattern 'supervisor_initiate|HUB_STATIONS|HUB_WAKE_POINTS|hub_initiate_required'
@@ -380,15 +380,15 @@ Test-Path "$P\lib\wakeledger.js"    # True  ← 实际
 Test-Path "$P\lib\reattach.js"      # False ← 图里 plan 的名字，从未创建
 
 # ④ 结构库自己还写着 planned（红标的来源）
-Select-String -Path "&lt;DSH_HOME&gt;\profiles\desktop\normify-dsh-pipeline\modules\flow\supervision.md" -Pattern '^state:'
-Select-String -Path "&lt;DSH_HOME&gt;\profiles\desktop\normify-dsh-pipeline\tree.json" -Pattern 'planned_count'
+Select-String -Path "%USERPROFILE%\.dsh\profiles\desktop\normify-dsh-pipeline\modules\flow\supervision.md" -Pattern '^state:'
+Select-String -Path "%USERPROFILE%\.dsh\profiles\desktop\normify-dsh-pipeline\tree.json" -Pattern 'planned_count'
 
 # ⑤ 账本：11 张单、907 行、最晚窗口（0 命中的口径）
-Get-ChildItem "&lt;DSH_HOME&gt;\profiles\desktop\.pipeline" -Directory -Filter "T-*" |
+Get-ChildItem "%USERPROFILE%\.dsh\profiles\desktop\.pipeline" -Directory -Filter "T-*" |
   ForEach-Object { $_.Name; (Get-Content "$($_.FullName)\audit.jsonl" | Measure-Object -Line).Lines }
 
 # ⑥ 逐单失联冻结次数（"17"那个数的复算口）
-Get-ChildItem "&lt;DSH_HOME&gt;\profiles\desktop\.pipeline" -Directory -Filter "T-*" |
+Get-ChildItem "%USERPROFILE%\.dsh\profiles\desktop\.pipeline" -Directory -Filter "T-*" |
   ForEach-Object { $j = Get-Content "$($_.FullName)\task.json" -Raw | ConvertFrom-Json
                    "{0}  escalations={1}" -f $_.Name, $j.liveness.escalations.Count }
 

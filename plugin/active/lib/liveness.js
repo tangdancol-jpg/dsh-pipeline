@@ -65,7 +65,7 @@ export const DEFAULT_SEAT_SILENCE_MS = 5 * 60 * 1000
 // ★★ B2 修复：**"会话还在活动"判据**（会话日志的 size / mtime 是不是在长）
 // ---------------------------------------------------------------------------
 //
-// 现场（2026-10-12，带数字）：席位 `<session-id>` 被判「0 交接物 / 0 流水 /
+// 现场（2026-10-12，带数字）：席位 `session-…` 被判「0 交接物 / 0 流水 /
 // 0 水位自报」⇒ 机制自动把任务推到「已阻塞」；**同一时段**它的会话日志
 // `session.v4.jsonl.zstd` 30 秒内从 381,679 B 长到 392,396 B（**+10,717 B**），
 // 后续再测 +14,158 B / 20 s、+23,207 B / 20 s。那一次自动冻结**直接挡掉了一份
@@ -278,13 +278,13 @@ export function activityOfSamples(prev, cur, opts = {}) {
  * 找一条会话的 `session.v4.jsonl.zstd`（**只读探测**：找不到就返回 null，不抛）。
  *
  * 为什么按"扫一层目录"而不是拼路径：会话目录名是**工作目录的编码**
- * （`--<DSH_HOME>-profiles-desktop--`），编码规则属于宿主实现细节，
+ * （`--~-.dsh-profiles-desktop--`），编码规则属于宿主实现细节，
  * 拼错了会得到一个"永远 stat 不到"的路径 —— 那会让本判据静默失效。
  *
  * ★ 2026-10-13 快修（②）：`sessionsRoot` 现在也接受**候选根数组**（见
  *   {@link sessionsRootCandidates}）—— 逐个试，命中即返回。传字符串时行为与改前逐字相同。
  *
- * @param {string|string[]} sessionsRoot - 例如 `<DSH_HOME>/sessions`（或它的候选列表）
+ * @param {string|string[]} sessionsRoot - 例如 `~/.dsh/sessions`（或它的候选列表）
  * @param {string} sessionId
  * @returns {string|null}
  */
@@ -357,7 +357,7 @@ export const EXPECTED_ROLES_BY_STATE = {
 /**
  * 席位键。
  *
- * ★ 口径**必须**与项目既有的一致（`store.js:3555` 的 `const seatKey = seat || role`）：
+ * ★ 口径**必须**与项目既有的一致（`lib/store/records.js` 里的 `const seatKey = seat || role`）：
  *   编写席位的 id **本身就是全限定**的（`writer#1`），非编写角色的 `seat` 是 `null`。
  *   所以这里**不是** `${role}#${seat}` —— 那会造出 `writer#writer#1` 这种键，
  *   与 `writer_submissions` / `seat_handover.payload.from_seat` 全部对不上。
@@ -823,7 +823,7 @@ export function describeSilentSeats(silent, ctx = {}) {
 /**
  * ★ **权威来源**（写给"存活判据取自哪"这个问题，别再各处猜一遍）：
  *
- *   **DSH 宿主的会话存储**：`<DSH_HOME>/sessions/<工作目录编码>/<会话id>/session.v4.jsonl.zstd`
+ *   **DSH 宿主的会话存储**：`~/.dsh/sessions/<工作目录编码>/<会话id>/session.v4.jsonl.zstd`
  *   （文件名见 {@link SESSION_LOG_NAME}）—— 宿主自己一边跑会话一边写这一个文件，
  *   **与流水线台账完全无关**，所以席位"纯工作"（读源码、逐文件算哈希、跑命令）
  *   期间它照样在长。
@@ -835,7 +835,7 @@ export function describeSilentSeats(silent, ctx = {}) {
  * ⚠️ 诚实边界：这是一条**文件级**证据（"这个会话的日志在写"），不是"这个席位正在
  *    正确地思考"。它只能证明**会话没死**，不能证明它在做对的事 —— 后者靠交接物/流水。
  */
-export const LIVENESS_ACTIVITY_SOURCE = 'DSH 会话存储 <DSH_HOME>/sessions/<bucket>/<session-id>/session.v4.jsonl.zstd 的 size / mtime'
+export const LIVENESS_ACTIVITY_SOURCE = 'DSH 会话存储 ~/.dsh/sessions/<bucket>/session-…/session.v4.jsonl.zstd 的 size / mtime'
 
 /**
  * ★ **误判自愈判据**（纯函数：不读盘、不写盘、不抛）。

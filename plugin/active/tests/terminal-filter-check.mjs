@@ -39,6 +39,7 @@ import { pathToFileURL } from 'node:url'
 import { createWakeLedger, LEDGER_FILE_NAME, DEFAULT_MAX_ESCALATION_DEPTH, MECHANISM_NOTICE_KINDS } from '../lib/wakeledger.js'
 import { createWaker, createMainSessionRegistry } from '../lib/wakeup.js'
 import { patrolFindings, DEFAULT_TASK_STALL_MS, MISSING_TRANSITION_KIND, DEFAULT_UNDELIVERED_TRANSITION_MS } from '../lib/patrol.js'
+import { TERMINAL_STATES } from '../lib/states.js'
 
 // ---------------------------------------------------------------------------
 // 断言小工具（与其它自测同形状：只记 pass/detail，不抛）
@@ -433,7 +434,10 @@ async function pumpRound({ waker, ledger, task, now, unconsumedOlderThanMs = 0, 
       via: 'patrol',
     })
   }
-  await waker.escalateUnconsumed(task.id, { olderThanMs: unconsumedOlderThanMs, limit: 2, reason: 'patrol:unconsumed' })
+  // 与 index.js 一致：终态单不进升级链（P0-3 收口）
+  if (!TERMINAL_STATES.includes(task.state)) {
+    await waker.escalateUnconsumed(task.id, { olderThanMs: unconsumedOlderThanMs, limit: 2, reason: 'patrol:unconsumed' })
+  }
   const entries = ledger.entries()
   return {
     findings: res.findings,
@@ -531,9 +535,9 @@ async function checkChainTerminates() {
   )
   rec.add(
     G,
-    '⑦ ★★ **已知边界（本包修不到，需 index.js 收口）**：终态单**至多**还会收到 1 条升级播报 —— 升级调用点 `index.js:701` 不看状态；本包保证的是"它到此为止、不加深"',
-    deadKeys.filter((k) => String(k).includes('|escalation|mechanism|')).length <= 1,
-    `升级播报=${deadKeys.filter((k) => String(k).includes('|escalation|mechanism|')).length} 条（理想是 0；要 0 需 index.js:701 加终态过滤，见实现报告"未做/需收口"一节）`,
+    '⑦ ★★ 终态单**一条升级播报都没有**（index.js 的升级调用点已加终态过滤，P0-3 收口；改前至多 1 条）',
+    deadKeys.filter((k) => String(k).includes('|escalation|mechanism|')).length === 0,
+    `升级播报=${deadKeys.filter((k) => String(k).includes('|escalation|mechanism|')).length} 条（期望 0）`,
   )
   rec.add(
     G,

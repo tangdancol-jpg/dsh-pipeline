@@ -9,7 +9,7 @@ export function archDiagram() {
   const W = 1500, H = 2210
 
   b.push(txt(750, 34, '图③-A · dsh-pipeline 插件完整架构图', { anchor: 'middle', size: 26, weight: 700 }))
-  b.push(txt(750, 60, '实读生效副本：<DSH_HOME>\\profiles\\desktop\\node_modules\\dsh-pipeline —— 22 个 lib 模块 + 1 个 transport 子目录 + 1 个客户端半边 + 29 套自测', { anchor: 'middle', size: 12.5, fill: '#555' }))
+  b.push(txt(750, 60, '实读生效副本：~\\.dsh\\profiles\\desktop\\node_modules\\dsh-pipeline —— 22 个 lib 模块 + 1 个 transport 子目录 + 1 个客户端半边 + 29 套自测', { anchor: 'middle', size: 12.5, fill: '#555' }))
 
   // --- 图例 ---
   const leg = [

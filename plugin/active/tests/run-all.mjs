@@ -646,6 +646,9 @@ for (const extra of [
   //    反例②（`wake:Delivered` 大小写漂移同样不命中 —— 剔除是**逐字**比对动作名）。
   //    ★ 全程密闭：时刻写死在盘上，**不靠 sleep 换秒**（不重蹈 P1-12 那条非密闭测试）。
   { file: './wake-identity-carry-check.mjs', exportName: 'runWakeIdentityCarryCheck', zh: '唤醒留痕与孤儿身份（P2-8：四条名字逐条实测 —— 身份不许被机制自己的留痕顶走）' },
+  // ★★ P1-4：shell 守门的误判（2>$null / 引号里的 => 被当成写文件）、常见绕过写法、
+  //    以及"一个会话绑着多张单时拿最老那张判"的作用域放大。全程密闭（临时项目根）。
+  { file: './shell-guard-check.mjs', exportName: 'runShellGuardCheck', zh: 'shell 守门（P1-4：误判收窄 / 绕过补上 / 多单绑定按活跃单判）' },
 ]) {
   let mod = null
   try {

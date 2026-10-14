@@ -202,7 +202,7 @@ dsh-pipeline 插件机制说明 · 全部结论以实读源码与真实运行数
 <tr><td><strong>需重启后复验</strong></td><td>代码已落地、但我方<strong>没有做活体验证</strong>（没有重启 DSH、没有跑真单）。</td></tr>
 </tbody></table></div>
 <h3 id="0-2-一个必须先说清楚的事实-源码在我写作期间仍在变动">0.2 一个必须先说清楚的事实：源码在我写作期间仍在变动<a class="anchor" href="#0-2-一个必须先说清楚的事实-源码在我写作期间仍在变动" aria-label="锚点">#</a></h3>
-<p>我第一次给源码做哈希快照的时间是 <strong>2026-10-14T00:13:52+08:00</strong>。到 <strong>00:16:16</strong> 我复核时，<br><code>lib/boundaries.js</code> 与 <code>lib/orphan.js</code> 已经<strong>又被改过</strong>（哈希变化，见下表）。<br>另有 <code>lib/config.js</code>、<code>lib/orphan.js</code>、<code>lib/tools.js</code> 的落盘时间就在 00:12–00:13 之间，<br><code>&lt;DSH_HOME&gt;\profiles\desktop\cordis.patch.yml</code>（插件装配清单）的落盘时间是 <strong>00:13:16</strong>。</p>
+<p>我第一次给源码做哈希快照的时间是 <strong>2026-10-14T00:13:52+08:00</strong>。到 <strong>00:16:16</strong> 我复核时，<br><code>lib/boundaries.js</code> 与 <code>lib/orphan.js</code> 已经<strong>又被改过</strong>（哈希变化，见下表）。<br>另有 <code>lib/config.js</code>、<code>lib/orphan.js</code>、<code>lib/tools.js</code> 的落盘时间就在 00:12–00:13 之间，<br><code>%USERPROFILE%\.dsh\profiles\desktop\cordis.patch.yml</code>（插件装配清单）的落盘时间是 <strong>00:13:16</strong>。</p>
 <p><strong>这意味着：任何一个行号都可能在我写完之后的下一分钟失效。</strong> 所以：</p>
 <ul><li>下表给出<strong>快照时刻的 sha256 前 12 位</strong>，你复核时先比对哈希；</li><li>哈希对得上 ⇒ 行号可信；对不上 ⇒ <strong>以代码为准，重读那一行</strong>。</li></ul>
 <div class="tw"><table>
@@ -257,7 +257,7 @@ dsh-pipeline 插件机制说明 · 全部结论以实读源码与真实运行数
 <blockquote><p>「不得用 shell 的刻意混淆绕过判据（变量拼接 / 编码后执行 / 先写脚本再跑）」<br>「判据化不了：<strong>shell 侧本来就是字符串匹配的 best-effort</strong>」</p></blockquote>
 <p>这一条非常重要 —— 第四章会专门讲<strong>守门的能力边界</strong>。</p>
 <h3 id="1-3-一条真单的物理形状">1.3 一条真单的物理形状<a class="anchor" href="#1-3-一条真单的物理形状" aria-label="锚点">#</a></h3>
-<p>真实运行数据落在 <code>&lt;DSH_HOME&gt;\profiles\desktop\.pipeline\&lt;单号&gt;\</code>：</p>
+<p>真实运行数据落在 <code>%USERPROFILE%\.dsh\profiles\desktop\.pipeline\&lt;单号&gt;\</code>：</p>
 <div class="tw"><table>
 <thead><tr><th>路径</th><th>是什么</th><th>出处</th></tr></thead>
 <tbody>
@@ -655,7 +655,7 @@ pipeline_human_request:   null（另有专门分支 :690-714）</code></pre>
 </tbody></table></div>
 <p>★ <strong>为什么四槽必须显式落</strong>（<code>lib/transport/index.js:361-367</code>，三条都是本机实测）：</p>
 <blockquote><p>* 模式：profile 里 <code>selectedDefault: computer-use</code> ⇒ 不指定 preset 的新会话拿到的是 Computer Use 模式（另一套工具树与提示词），而它「看起来能跑」。<br>* 权限：宿主 <code>pinInitialPermission</code> 会给全新会话钉上 defaultPreset，而那个默认档是按运行时沙箱模式<strong>推断</strong>出来的 —— 可能是「完全放开」。<br>* 模型：<code>selectModel</code> 一定顺带把选择写成<strong>全局默认</strong>，所以下发之后要还原。<br>⇒ 落地口径：<strong>未指定 = 插件显式写该槽默认档 + 留痕</strong>，然后读回核对。</p></blockquote>
-<p>我核对了本机的实际配置：<code>&lt;DSH_HOME&gt;\profiles\desktop\cordis.patch.yml:31</code><br>确实写着 <code>selectedDefault: computer-use</code> —— <strong>这条现场描述属实</strong>。</p>
+<p>我核对了本机的实际配置：<code>%USERPROFILE%\.dsh\profiles\desktop\cordis.patch.yml:31</code><br>确实写着 <code>selectedDefault: computer-use</code> —— <strong>这条现场描述属实</strong>。</p>
 <h3 id="5-2-四槽-权限-模式-模型-推理-怎么下发">5.2 四槽（权限 / 模式 / 模型 / 推理）怎么下发<a class="anchor" href="#5-2-四槽-权限-模式-模型-推理-怎么下发" aria-label="锚点">#</a></h3>
 <p><strong>四个独立顶层字段，不许打包</strong>（<code>lib/transport/index.js:375-376</code>）：</p>
 <pre class="code"><code class="lang-js">export const DISPATCH_SLOT_KEYS = Object.freeze(['permission', 'mode', 'model', 'reasoning'])</code></pre>
@@ -779,7 +779,7 @@ pipeline_human_request:   null（另有专门分支 :690-714）</code></pre>
 <p><strong>"删掉会怎样"</strong>（我的推断，<strong>未核实</strong>，但判据都在代码里）：账本删掉之后，<br>① 下一轮 <code>load()</code> 会把它<strong>重新建出来</strong>（<code>:216-221</code>，不是失败）；<br>② <strong>跨进程的"恰一次"当场失效</strong> —— 同一条历史事件会再被当成新事件播一遍，<br>因为去重退回"内存表 + 目标会话队列"两道（<code>:22-23</code>）；<br>③ <code>unresolved</code> 列表里"该叫没叫"的那批<strong>一起消失</strong>，巡检查不到它们（<code>:464-467</code> 的 <code>unresolvedEntries</code> 读的就是它）。<br>★ 这三条是<strong>按代码推的</strong>，我没有真的删过账本做实测。</p>
 <p><strong>可重建</strong>（<code>:40-45</code> + <code>:88-144</code> 的 <code>rebuildEntriesFromTask</code>）：重建口径从既有事件数据反推，<br>键的拼法与 <code>lib/wakeup.js</code> 的 <code>wakeKeyOf</code> <strong>逐字同源</strong>。</p>
 <p>★ <strong>一处我实读到的现状（值得记录）</strong>：<br>本机 <code>wake-ledger.jsonl</code> 目前<strong>只有一行</strong>（140 字节，2026-10-13 19:06:32 本机时间落盘）：</p>
-<pre class="code"><code class="lang-json">{"t":"init","at":"2026-10-13T11:06:32Z","file":"&lt;DSH_HOME&gt;\\profiles\\desktop\\node_modules\\dsh-pipeline\\wake-ledger.jsonl"}</code></pre>
+<pre class="code"><code class="lang-json">{"t":"init","at":"2026-10-13T11:06:32Z","file":"%USERPROFILE%\\.dsh\\profiles\\desktop\\node_modules\\dsh-pipeline\\wake-ledger.jsonl"}</code></pre>
 <p>而同一时段 <code>T-20261012-8cdee0</code> 的 <code>audit.jsonl</code> 里从 11:21 到 11:48 有 <strong>10 条以上</strong> <code>wake:delivered</code>。<br><strong>为什么账本没有累积这些键，我未核实</strong>（可能原因：那些投递发生在另一个进程实例、或该进程的 <code>waker</code> 没拿到账本）。<br>这直接关系到"跨进程恰一次是否真的在跑" ⇒ 标 <strong>需重启后复验</strong>。</p>
 <h4 id="巡检兜底-lib-patrol-js">巡检兜底（<code>lib/patrol.js</code>）<a class="anchor" href="#巡检兜底-lib-patrol-js" aria-label="锚点">#</a></h4>
 <p><strong>它修的是哪一处残留静默面</strong>（<code>lib/patrol.js:20-23</code>）：<br>「席位中止播报恰好也不通」—— 中止检测得靠<strong>下一次工具调用</strong>或<strong>下一次开步</strong>才跑得到（写时检查），<br>而"没有任何人在动"恰恰让那两个触发点都失效。</p>
@@ -816,7 +816,7 @@ pipeline_human_request:   null（另有专门分支 :690-714）</code></pre>
 <p>⇒ <strong>为什么需要 <code>pipeline_task_open { reattach: true }</code></strong>：它是回到老单的<strong>唯一</strong>入口。<br>实现：<code>lib/tools.js:756-799</code>，落地 <code>store.reattach(id, { agentId })</code>（<code>:771</code>）+ 铸一枚新 <code>main</code> 令牌（<code>:776</code>）。<br>语义纪律（<code>:753-754</code>）：「认领 = <strong>保留全部历史</strong>（history / handoffs / artifacts 一条不动），只换身份。」<br><code>task_id</code> 在 <code>reattach</code> 时<strong>必填</strong>（<code>:757-768</code>）。</p>
 <p>★ <strong>真单实证</strong>：<code>T-20261012-8cdee0</code> 的 <code>audit.jsonl</code> 第 56 行：</p>
 <pre class="code"><code class="lang-json">{"at":"2026-10-13T09:50:11Z","task_id":"T-20261012-8cdee0","actor":"main","action":"reattach",
- "agent":"&lt;session-id&gt;","from_state":"analyzing",
+ "agent":"session-…","from_state":"analyzing",
  "note":"★ 重启后重新认领主对话身份（不覆盖任何历史）"}</code></pre>
 <p>它的 <code>task.json</code> 历史里也有一条 <code>2026-10-13T09:50:11Z  reattach</code> —— <strong>重启后确实走了这条路</strong>。</p>
 <h4 id="席位侧也要能认回来-a27-b">席位侧也要能认回来（A27(b)）<a class="anchor" href="#席位侧也要能认回来-a27-b" aria-label="锚点">#</a></h4>
@@ -1332,7 +1332,7 @@ if (waiting || String(res.code ?? '') === 'HANDOFF_STEP_SKIPPED')</code></pre>
 </tbody></table></div>
 <hr>
 <h2 id="十-真实案例-t-20261012-8cdee0-全过程">十、真实案例：<code>T-20261012-8cdee0</code> 全过程<a class="anchor" href="#十-真实案例-t-20261012-8cdee0-全过程" aria-label="锚点">#</a></h2>
-<p><strong>数据来源</strong>：<code>&lt;DSH_HOME&gt;\profiles\desktop\.pipeline\T-20261012-8cdee0\</code>，<br>以 <code>audit.jsonl</code>（<strong>145 行</strong>）与 <code>handoffs\</code>（<strong>22 份</strong>）为准，逐条实读。<br>所有时间戳都是 <strong>UTC</strong>（<code>Z</code> 结尾）。<code>handoff id</code> 全部来自文件本体。</p>
+<p><strong>数据来源</strong>：<code>%USERPROFILE%\.dsh\profiles\desktop\.pipeline\T-20261012-8cdee0\</code>，<br>以 <code>audit.jsonl</code>（<strong>145 行</strong>）与 <code>handoffs\</code>（<strong>22 份</strong>）为准，逐条实读。<br>所有时间戳都是 <strong>UTC</strong>（<code>Z</code> 结尾）。<code>handoff id</code> 全部来自文件本体。</p>
 <p><strong>最终结果</strong>：<code>task.json</code> 的 <code>state = "closed"</code>，<code>history</code> <strong>125</strong> 条。</p>
 <h3 id="10-1-完整时间线">10.1 完整时间线<a class="anchor" href="#10-1-完整时间线" aria-label="锚点">#</a></h3>
 <h4 id="第一段-需求分析-2026-10-12-15-33-→-15-57-含-4-轮人工确认">第一段·需求分析（2026-10-12 15:33 → 15:57，含 <strong>4 轮人工确认</strong>）<a class="anchor" href="#第一段-需求分析-2026-10-12-15-33-→-15-57-含-4-轮人工确认" aria-label="锚点">#</a></h4>
@@ -1365,7 +1365,7 @@ if (waiting || String(res.code ?? '') === 'HANDOFF_STEP_SKIPPED')</code></pre>
 <div class="tw"><table>
 <thead><tr><th>时间</th><th>事件</th><th>id / 备注</th></tr></thead>
 <tbody>
-<tr><td>★ <code>09:50:11Z</code></td><td><strong><code>reattach</code></strong>（主对话重新认领）</td><td><code>agent=&lt;session-id&gt;</code>，<code>from_state=analyzing</code>，note=「★ 重启后重新认领主对话身份（不覆盖任何历史）」</td></tr>
+<tr><td>★ <code>09:50:11Z</code></td><td><strong><code>reattach</code></strong>（主对话重新认领）</td><td><code>agent=session-…</code>，<code>from_state=analyzing</code>，note=「★ 重启后重新认领主对话身份（不覆盖任何历史）」</td></tr>
 <tr><td><code>09:50:17.758Z</code></td><td><code>channel:dispatched role=orchestrator</code></td><td>重派需求位</td></tr>
 <tr><td>★★ <code>10:04:09Z</code></td><td><strong><code>transition:block</code> <code>analyzing→blocked</code></strong></td><td><strong>误报冻结 1/6</strong> —— note：<code>★ 机制触发（不是人叫停）：席位失联：需求分析　静默阈值 5 分　原状态「需求分析中」</code></td></tr>
 <tr><td><code>10:04:09Z</code></td><td><code>wake:delivered kind=liveness</code></td><td>这条冻结<strong>播出去了</strong></td></tr>
@@ -1458,7 +1458,7 @@ if (waiting || String(res.code ?? '') === 'HANDOFF_STEP_SKIPPED')</code></pre>
 </tbody></table></div>
 <p><strong>三重交叉验证（三条独立数据源，全部指向 6）</strong>：</p>
 <ol><li><code>audit.jsonl</code> 里 <code>action === "transition:block"</code> 的行 = <strong>6</strong>；</li><li><code>task.json</code> 的 <code>history[]</code> 里 <code>transition:block</code> = <strong>6</strong>；</li><li><code>task.json</code> 的 <code>liveness.escalations[]</code> 长度 = <strong>6</strong>（时间戳与上表逐条一致）。</li></ol>
-<p>**★ 因此：<code>&lt;DSH_HOME&gt;\dsh_orb\需求清单与进度-20261014\需求清单与进度.md:110</code><br>写的「执行期间<strong>机制误报冻结 7 次</strong>」与账本不符**（详见第十一章第 1 条）。</p>
+<p>**★ 因此：<code>%USERPROFILE%\.dsh\dsh_orb\需求清单与进度-20261014\需求清单与进度.md:110</code><br>写的「执行期间<strong>机制误报冻结 7 次</strong>」与账本不符**（详见第十一章第 1 条）。</p>
 <p><strong>每一句判词都是同一句</strong>（6 条 note 的措辞完全同形）：</p>
 <pre class="code"><code>★ 机制触发（不是人叫停）：席位失联：&lt;角色&gt;（&lt;席位&gt;）　静默阈值 5 分　原状态「&lt;状态中文&gt;」</code></pre>
 <h3 id="10-3-这条单还留下了什么-我从目录实读到的">10.3 这条单还留下了什么（我从目录实读到的）<a class="anchor" href="#10-3-这条单还留下了什么-我从目录实读到的" aria-label="锚点">#</a></h3>
@@ -1511,7 +1511,7 @@ if (waiting || String(res.code ?? '') === 'HANDOFF_STEP_SKIPPED')</code></pre>
 <p>★ <strong>「已修」只表示生效副本里的字节已改</strong>。A1 全程<strong>没有重启 DSH</strong>（插件在 <code>apply</code> 时一次性装配）⇒ 这 7 条改动<strong>一律仍未做活体验证</strong>，全部适用 §12.1 的 <strong>需重启后复验</strong>。A1 的改后哈希见 <code>不一致修复报告-A1.md</code> §8；C1 的复核结论见 <code>手册校正报告-C1.md</code>。</p>
 </blockquote>
 <h3 id="1-「误报冻结-7-次」与账本不符-——-实际是-6-次">1. 「误报冻结 7 次」与账本不符 —— 实际是 <strong>6 次</strong><a class="anchor" href="#1-「误报冻结-7-次」与账本不符-——-实际是-6-次" aria-label="锚点">#</a></h3>
-<ul><li><strong>文档说</strong>：<code>&lt;DSH_HOME&gt;\dsh_orb\需求清单与进度-20261014\需求清单与进度.md:110</code></li></ul>
+<ul><li><strong>文档说</strong>：<code>%USERPROFILE%\.dsh\dsh_orb\需求清单与进度-20261014\需求清单与进度.md:110</code></li></ul>
 <blockquote><p>「<strong>T-20261012-8cdee0</strong>：第一张走完全程的真单……执行期间<strong>机制误报冻结 7 次</strong>，全部由主对话逐次解除。」</p></blockquote>
 <ul><li><strong>数据说</strong>：<code>T-20261012-8cdee0</code> 的 <code>transition:block</code> = <strong>6</strong>，</li></ul>
 <p>  <code>liveness.escalations</code> 长度 = <strong>6</strong>（第六章 10.2 给了三重交叉验证与逐条时间）。</p>

@@ -6,12 +6,12 @@
   "type": "workflow",
   "quality": "showcase",
   "specification": {
-    "path": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\main-path.candidate.json",
+    "path": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\main-path.candidate.json",
     "sha256": "637c64b8085f87a06ceefbaceaed46fcad287eb8b0800d3a4f9ce046786c684e",
     "bytes": 18484
   },
   "artifact": {
-    "path": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\main-path.html",
+    "path": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\main-path.html",
     "sha256": "392c06c1c8b6e10ce8c4afe476bffd68bb9df1f5376ce4492690c51c66a54ab6",
     "bytes": 800464
   },
@@ -28,9 +28,9 @@
     "truncated": false
   },
   "evidence": {
-    "receipt": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\main-path.finalize.json",
-    "summaryReceipt": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\main-path.finalize-summary.json",
-    "browserCheckReceipt": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\main-path.browser-check.json"
+    "receipt": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\main-path.finalize.json",
+    "summaryReceipt": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\main-path.finalize-summary.json",
+    "browserCheckReceipt": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\main-path.browser-check.json"
   },
   "update": {
     "status": "current",

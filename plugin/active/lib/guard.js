@@ -90,6 +90,7 @@ export {
 
 export {
   agentIdOf,
+  bindingForAgent,
   resolveScopeAnchor,
   owningSeat,
   composeGuards,

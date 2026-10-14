@@ -78,7 +78,7 @@ export function buildTools(deps) {
   //   （提示词按**实际可见工具**惰性渲染，"absent tools never get advertised"）。
   //
   //   ★ 权威只有一个：**守门自己的判据**。`guardDecision()` 对一个匿名调用方
-  //     会吐出 `允许角色：main / human`（`lib/guard.js:729/:738`）——
+  //     会吐出 `允许角色：main / human`（`lib/guard/decide.js` 的 `decide`）——
   //     白名单从**判词**里读，本文件不存第二份（手抄必漂移，而漂移的坏方向是放宽）。
   //   ★ 认不出就**不收紧**（`deriveToolFace` 的纪律①）：宁可少省字节。
   //   ★★ **事件级工具（入参里有 `event`，如 `pipeline_transition`）不按角色收紧** ——

@@ -7,12 +7,12 @@
   "quality": "showcase",
   "startedAt": "2026-10-13T17:52:31.737Z",
   "specification": {
-    "path": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\main-path.candidate.json",
+    "path": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\main-path.candidate.json",
     "sha256": "637c64b8085f87a06ceefbaceaed46fcad287eb8b0800d3a4f9ce046786c684e",
     "bytes": 18484
   },
   "artifact": {
-    "path": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\main-path.html",
+    "path": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\main-path.html",
     "sha256": "392c06c1c8b6e10ce8c4afe476bffd68bb9df1f5376ce4492690c51c66a54ab6",
     "bytes": 800464
   },
@@ -24,11 +24,11 @@
       "execution": "embedded-in-deliver",
       "command": [
         "D:\\tool\\Deepseek\\Deepseek harness\\DeepSeek Harness.exe",
-        "<DSH_HOME>\\skills\\archify\\bin\\archify.mjs",
+        "%USERPROFILE%\\.dsh\\skills\\archify\\bin\\archify.mjs",
         "deliver",
         "workflow",
-        "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\main-path.candidate.json",
-        "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\main-path.html",
+        "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\main-path.candidate.json",
+        "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\main-path.html",
         "--quality",
         "showcase",
         "--json"
@@ -57,23 +57,23 @@
       "durationMs": 439,
       "command": [
         "D:\\tool\\Deepseek\\Deepseek harness\\DeepSeek Harness.exe",
-        "<DSH_HOME>\\skills\\archify\\bin\\archify.mjs",
+        "%USERPROFILE%\\.dsh\\skills\\archify\\bin\\archify.mjs",
         "deliver",
         "workflow",
-        "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\main-path.candidate.json",
-        "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\main-path.html",
+        "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\main-path.candidate.json",
+        "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\main-path.html",
         "--quality",
         "showcase",
         "--json"
       ],
       "receipt": {
         "schemaVersion": 1,
-        "receiptId": "<uuid>",
+        "receiptId": "（UUID）",
         "ok": true,
         "command": "deliver",
         "type": "workflow",
-        "input": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\main-path.candidate.json",
-        "output": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\main-path.html",
+        "input": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\main-path.candidate.json",
+        "output": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\main-path.html",
         "specification": {
           "sha256": "637c64b8085f87a06ceefbaceaed46fcad287eb8b0800d3a4f9ce046786c684e",
           "bytes": 18484
@@ -110,14 +110,14 @@
       "durationMs": 122,
       "command": [
         "D:\\tool\\Deepseek\\Deepseek harness\\DeepSeek Harness.exe",
-        "<DSH_HOME>\\skills\\archify\\bin\\archify.mjs",
+        "%USERPROFILE%\\.dsh\\skills\\archify\\bin\\archify.mjs",
         "check",
-        "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\main-path.html",
+        "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\main-path.html",
         "--require-provenance"
       ],
       "receipt": {
         "ok": true,
-        "file": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\main-path.html",
+        "file": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\main-path.html",
         "artifact": {
           "sha256": "392c06c1c8b6e10ce8c4afe476bffd68bb9df1f5376ce4492690c51c66a54ab6",
           "bytes": 800464
@@ -322,7 +322,7 @@
           "issues": []
         },
         "provenance": "current",
-        "deliveryReceiptId": "<uuid>"
+        "deliveryReceiptId": "（UUID）"
       }
     },
     "browser-check": {
@@ -331,9 +331,9 @@
       "durationMs": 1160,
       "command": [
         "D:\\tool\\Deepseek\\Deepseek harness\\DeepSeek Harness.exe",
-        "<DSH_HOME>\\skills\\archify\\bin\\archify.mjs",
+        "%USERPROFILE%\\.dsh\\skills\\archify\\bin\\archify.mjs",
         "browser-check",
-        "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\main-path.html",
+        "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\main-path.html",
         "--json",
         "--require-provenance"
       ],
@@ -346,9 +346,9 @@
         "status": "pass",
         "visualReview": "not-requested",
         "provenance": "current",
-        "deliveryReceiptId": "<uuid>",
+        "deliveryReceiptId": "（UUID）",
         "artifact": {
-          "path": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\main-path.html",
+          "path": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\main-path.html",
           "sha256": "392c06c1c8b6e10ce8c4afe476bffd68bb9df1f5376ce4492690c51c66a54ab6",
           "bytes": 800464
         },
@@ -1963,9 +1963,9 @@
   },
   "diagnostics": [],
   "evidence": {
-    "receipt": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\main-path.finalize.json",
-    "summaryReceipt": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\main-path.finalize-summary.json",
-    "browserCheckReceipt": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\main-path.browser-check.json"
+    "receipt": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\main-path.finalize.json",
+    "summaryReceipt": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\main-path.finalize-summary.json",
+    "browserCheckReceipt": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\main-path.browser-check.json"
   },
   "visualReview": "not-requested",
   "finishedAt": "2026-10-13T17:52:33.849Z",

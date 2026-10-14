@@ -4,7 +4,7 @@
 //
 // 硬约束（实测得来，不是猜）：
 //   · 节点文本超盒宽 ⇒ 渲染器崩（tag/sublabel ≤ (width-8)/3.6 unit；label ≤ (width+6)/6.8 unit）
-//   · 边标签写死 8px ⇒ 长标签把 viewBox 撑宽，width 超 1085 就吃 composition/<redacted>
+//   · 边标签写死 8px ⇒ 长标签把 viewBox 撑宽，width 超 1085 就吃 composition/***
 //   · 不是 git 检出、workflow 吃不到 declared-wide ⇒ 舞台按 legacy-930，viewBox 宽 ≤ 1062
 //   · 一条旧边都不丢（e_rework 按参考图的做法改指异常车道节点，语义与条数都保留）
 import { readFileSync, writeFileSync } from 'node:fs'

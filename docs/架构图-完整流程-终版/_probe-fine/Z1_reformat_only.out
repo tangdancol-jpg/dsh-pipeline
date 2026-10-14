@@ -3,9 +3,9 @@
   "ok": true,
   "command": "validate",
   "type": "workflow",
-  "input": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\_probe-fine\\Z1_reformat_only.json",
+  "input": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\_probe-fine\\Z1_reformat_only.json",
   "candidate": {
-    "path": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\_probe-fine\\Z1_reformat_only.json",
+    "path": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\_probe-fine\\Z1_reformat_only.json",
     "sha256": "18d52cc38414c35294716b81a2c6dd48937795696f446d02db96361e63b57dea",
     "bytes": 16817
   },
@@ -14,7 +14,7 @@
     "command": "finalize",
     "arguments": [
       "workflow",
-      "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\_probe-fine\\Z1_reformat_only.json",
+      "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\_probe-fine\\Z1_reformat_only.json",
       "<output.html>",
       "--quality",
       "showcase",

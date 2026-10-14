@@ -34,6 +34,7 @@ import {
   HUB_STATION_CONFIRMERS,
   HUB_STATIONS,
   HUB_WAKE_POINTS,
+  ROLES_CAN_RAISE_HUMAN,
   ST,
   TRANSITIONS,
   hubConfirmersOf,
@@ -231,6 +232,19 @@ export async function runGateStatesCheck() {
       !['review_verdict', 'dev_to_test', 'test_to_review'].some((k) => ROLES.supervisor.handoffKinds.includes(k)),
       '',
     )
+    // 全量：守门方向表（经只读导出）与 schema 的 from，每一种类型都逐个相同
+    const kindDiff = Object.keys(HANDOFF_SCHEMAS).filter((k) => dirOf(k) !== (HANDOFF_SCHEMAS[k].from ?? []).slice().sort().join(','))
+    rec.add('E 方向表一致', '★ 全部交接物类型：守门方向表 ↔ schema 的 from 逐个相同', kindDiff.length === 0, `不一致=${JSON.stringify(kindDiff)}`)
+    // 角色声明能产的，方向表必须放行 —— 否则"声明能产、实际交不出"（主管升人工的出口就曾断在这里）
+    const undeliverable = Object.entries(ROLES).flatMap(([id, r]) => r.handoffKinds.filter((k) => !(HANDOFF_SCHEMAS[k]?.from ?? []).includes(id)).map((k) => `${id}→${k}`))
+    rec.add('E 方向表一致', '★ 每个角色的 handoffKinds 都在对应类型的 from 里（声明能产 ⇒ 交得出去）', undeliverable.length === 0, `交不出去=${JSON.stringify(undeliverable)}`)
+    rec.add(
+      'E 方向表一致',
+      '★ 主管否掉预算用尽后的唯一出口：human_request 的 from 含 supervisor，且状态机也允许它升人工',
+      (HANDOFF_SCHEMAS.human_request.from ?? []).includes('supervisor') && ROLES_CAN_RAISE_HUMAN.includes('supervisor'),
+      `from=${JSON.stringify(HANDOFF_SCHEMAS.human_request.from)}`,
+    )
+    rec.add('E 方向表一致', '★ 裁定只有需求分析能出：没有别的角色声明 clarification_reply', Object.entries(ROLES).every(([id, r]) => id === 'orchestrator' || !r.handoffKinds.includes('clarification_reply')), '')
   }
 
   // =========================================================================

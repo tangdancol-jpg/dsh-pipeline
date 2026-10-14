@@ -1,7 +1,7 @@
 // 按最终布局重建规格：修正列序（枢纽路径里「架构图」在「计划」之前）、控制边数、每条边带被拒后果。
 import { readFileSync, writeFileSync } from 'node:fs'
 
-const DIR = '<DSH_HOME>/dsh_orb/架构图-完整流程-含被拒后果/'
+const DIR = '~/.dsh/dsh_orb/架构图-完整流程-含被拒后果/'
 const BASE = DIR + '完整流程.workflow.json'
 
 const src = JSON.parse(readFileSync(BASE, 'utf8'))

@@ -1,5 +1,5 @@
 import fs from 'node:fs'
-const OUT = '<DSH_HOME>\\dsh_orb\\产出交付文档-需求清单-详细进度-完整插件架构图-派单流程图-以架构图方式呈现'
+const OUT = '~\\.dsh\\dsh_orb\\产出交付文档-需求清单-详细进度-完整插件架构图-派单流程图-以架构图方式呈现'
 const h = fs.readFileSync(OUT + '\\交付文档.html', 'utf8')
 const m = fs.readFileSync(OUT + '\\交付文档.md', 'utf8')
 

@@ -355,7 +355,7 @@ export async function runSeatLivenessWakeCheck() {
 
       /**
        * 需求档里那条实测序列的原始数字（主对话现场观测，逐字固化）：
-       *   · 席位 `<session-id>` 于 20:53:25 派出、20:58:30 被判失联；
+       *   · 席位 `session-…` 于 20:53:25 派出、20:58:30 被判失联；
        *   · 同一时刻它的会话日志 **30 秒内 381,679 B → 392,396 B（+10,717 B）**；
        *   · 其后 21:00:11→21:00:31 **+14,158 B**、21:01:00→21:01:20 **+23,207 B**。
        * ⇒ 判定必须为「存活」。
@@ -435,7 +435,7 @@ export async function runSeatLivenessWakeCheck() {
         open.push(fx.h)
         if (c.otherSeat === true) {
           // ★ 摆"别人的日志"：形状完全合法，就是**不是这个席位**的那一条。
-          await plantSessionLog(root, '<session-id>', 4096)
+          await plantSessionLog(root, 'session-00000000-0000-4000-8000-000000000401', 4096)
         }
 
         await withSessionsRoot(root, async () => {
@@ -511,7 +511,7 @@ export async function runSeatLivenessWakeCheck() {
 
       // ⑤ "结构上采不到"（老夹具的 `fake-agent-…` 形状）⇒ 不启用确认门，退回台账三条判据并如实留痕。
       {
-        const { fx, silenceMs, atMs } = await silentWriterFixture({ tag: 'a4-shape', silenceMs })
+        const { fx, atMs } = await silentWriterFixture({ tag: 'a4-shape', silenceMs })
         open.push(fx.h)
         await fx.h.store.recordDispatch(fx.taskId, {
           role: 'writer',

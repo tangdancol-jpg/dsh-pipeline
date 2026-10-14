@@ -18,14 +18,64 @@ import { describeChangeScope, owningChangeScopeEntry } from './seats.js'
 // shell 命令扫描（best-effort）
 // ---------------------------------------------------------------------------
 
-/** 「会改文件」的命令特征。 */
-const SHELL_WRITE_RE = /(^|[\s|;&(])(set-content|add-content|out-file|new-item|remove-item|move-item|copy-item|rename-item|ni|sc|ac|rm|del|erase|mv|cp|touch|mkdir|sed\s+-i|tee|truncate|dd)\b/i
+/**
+ * 「会改文件」的命令特征。
+ * 后半段（copy 起）是 P1-4 补的常见改文件写法：cmd 的复制 / 移动 / 改名、git 改工作区的子命令、
+ * 下载到文件、解压 —— 与前半段一样，只在命令里点到受保护路径时才拦。
+ */
+const SHELL_WRITE_RE = /(^|[\s|;&(])(set-content|add-content|out-file|new-item|remove-item|move-item|copy-item|rename-item|ni|sc|ac|rm|del|erase|mv|cp|touch|mkdir|sed\s+-i|tee|truncate|dd|copy|xcopy|robocopy|move|ren|rename|git(?:\s+-[Cc]\s+\S+)*\s+(?:checkout|restore|apply|reset|clean|stash|am|rm|mv)|patch|perl\s+-[a-z]*i|curl\s[^|;&]*(?:-o|--output)\b|wget\s[^|;&]*-O\b|(?:invoke-webrequest|iwr)\s[^|;&]*-outfile\b|expand-archive|unzip)\b/i
+/**
+ * 内联解释器（`node -e` / `python -c` / `pwsh -Command` …）里的写文件 API。
+ * 命令行上只看得见"跑了个 node"，真正的写入藏在代码串里 —— 这是 P1-4 点名的绕过形态。
+ */
+const SHELL_INLINE_CODE_RE = /(^|[\s|;&(])(node|python3?|py|perl|ruby|pwsh|powershell)(\.exe)?\s[^|;&]*?(-e|-p|-c|--eval|-command)\b/i
+const INLINE_WRITE_API_RE = /\b(writeFileSync|writeFile|appendFileSync|appendFile|createWriteStream|copyFileSync|copyFile|cpSync|renameSync|rename|rmSync|unlinkSync|unlink|rmdirSync|mkdirSync|WriteAllText|WriteAllBytes|WriteAllLines|AppendAllText|shutil\.\w+|os\.(remove|rename|replace|unlink|makedirs|mkdir)|write_text|write_bytes|Set-Content|Add-Content|Out-File|Remove-Item|Move-Item|Copy-Item|New-Item)\b|\bopen\([^)]*,\s*["'][wax+]/
 /** 「会读文件」的命令特征。 */
 const SHELL_READ_RE = /(^|[\s|;&(])(get-content|gc|cat|type|more|head|tail|select-string|sls|findstr|grep|rg|awk|strings|xxd|od|less)\b/i
 /** ★「检索内容」的命令特征（它们**返回的就是代码正文**，与 `head`/`less` 之类并列但单独判）。 */
 const SHELL_CONTENT_SEARCH_RE = /(^|[\s|;&(])(select-string|sls|findstr|grep|rg|ripgrep|ag|ack)\b/i
-/** 重定向写。 */
-const SHELL_REDIRECT_RE = /(>>?|\|\s*out-file|\|\s*set-content|\|\s*add-content)/i
+/** 管道写文件（目标在参数里，取不到 ⇒ 按写处理）。 */
+const SHELL_PIPE_WRITE_RE = /\|\s*(out-file|set-content|add-content|tee(-object)?)\b/i
+
+/** 去掉引号里的内容：引号里的 `>` / `|` 是字面量，不是重定向（`node -e "a => b"` 不该算写）。 */
+function stripShellQuotes(text) {
+  return String(text).replace(/"(?:[^"\\`]|\\.|`.)*"|'[^']*'/g, '""')
+}
+
+/** 空设备：写到这里等于丢弃，不是写文件。 */
+const NULL_DEVICE_RE = /^(\$null|nul|\/dev\/null)$/i
+/** 明确指向临时目录的写入目标（在项目根之外）。 */
+const TEMP_TARGET_RE = /^(\$env:(temp|tmp)|%(temp|tmp)%|\$tmpdir|\$\{tmpdir\}|\/tmp\/)/i
+
+/**
+ * 命令里**真正写文件**的重定向目标（P1-4：改前见到任何 `>` 都判成写）。
+ * 不算写的：`2>&1` / `*>&1` 这类句柄合并、写到空设备、引号里的 `>`、`=>` / `->` / `>=` 这类运算符。
+ * @param {string} text
+ * @returns {string[]}
+ */
+export function shellRedirectTargets(text) {
+  const s = stripShellQuotes(text)
+  const out = []
+  const re = /(?<![=\-<>])(?:\d|\*)?>>?(?![=&])\s*([^\s|;&<>()]+)?/g
+  let m = re.exec(s)
+  while (m !== null) {
+    const target = String(m[1] ?? '').replace(/^["']|["']$/g, '')
+    if (!NULL_DEVICE_RE.test(target)) out.push(target)
+    m = re.exec(s)
+  }
+  return out
+}
+
+/** 这个重定向目标会不会落进项目根（取不准就当会 —— 宁可多拦）。 */
+function redirectHitsProject(target, lowerRoot) {
+  if (target.length === 0) return true
+  if (TEMP_TARGET_RE.test(target)) return false
+  if (/^[A-Za-z]:[\\/]/.test(target) || target.startsWith('/') || target.startsWith('\\\\')) {
+    return lowerRoot.length > 0 && isInside(lowerRoot, pathKey(target))
+  }
+  // 相对路径：不知道工作目录在哪 ⇒ 按落在项目里处理（与改前一样保守）
+  return true
+}
 
 /**
  * ★ 测试类命令的判据（`writer` 不跑测试）。
@@ -209,9 +259,17 @@ export function scanShellCommand(cmd, task, role, cfg = {}) {
   const readsCode = codeTargets.length > 0
 
   // 4a) 测试/审核/咨询角色：不得用 shell 改项目文件
+  //     P1-4：改前是"命令里出现任何 `>` 就拒"，`2>$null` / `2>&1` / 引号里的 `=>` 全被当成写文件，
+  //     主对话 stat 一个文件、读一个账本都会被拦。现在只认**真写文件**的重定向，且看它写到哪：
+  //     写进项目根（或相对路径、取不准）照旧拒；写到项目外 / 临时目录 / 空设备不拦。
   if (role !== 'writer' && role !== 'human') {
-    if (SHELL_WRITE_RE.test(text) || SHELL_REDIRECT_RE.test(text)) {
-      if (mentionsProtectedPath || SHELL_REDIRECT_RE.test(text)) {
+    const unquoted = stripShellQuotes(text)
+    const writeVerb = SHELL_WRITE_RE.test(text) && mentionsProtectedPath
+    const redirectWrite = shellRedirectTargets(text).some((t) => redirectHitsProject(t, lowerRoot))
+    const pipeWrite = SHELL_PIPE_WRITE_RE.test(unquoted)
+    const inlineWrite = SHELL_INLINE_CODE_RE.test(text) && INLINE_WRITE_API_RE.test(text) && mentionsProtectedPath
+    {
+      if (writeVerb || redirectWrite || pipeWrite || inlineWrite) {
         return (
           `${TAG} 拒绝：角色「${role}」不得通过 shell 修改项目文件。\n` +
           `任务：${task.taskId}\n命令片段：${text.slice(0, 200)}\n` +
@@ -428,7 +486,7 @@ export function scanShellCommand(cmd, task, role, cfg = {}) {
   }
 
   // 4c) 任何已绑定角色：不得删/改流水线自己的工作区（审计留痕要保得住）
-  if (/(remove-item|rm|rmdir|del|erase)\b/i.test(text) && lowerPipeline.length > 0 && lowerText.includes(lowerPipeline)) {
+  if (/(^|[\s|;&(])(remove-item|rm|rmdir|del|erase|rd)\b/i.test(text) && lowerPipeline.length > 0 && lowerText.includes(lowerPipeline)) {
     return (
       `${TAG} 拒绝：不得删除流水线工作区。\n任务：${task.taskId}\n工作区：${task.pipelineDir}\n` +
       '原因：task.json / handoffs / audit.jsonl 是全流程可追溯的凭据，删除即失去可审计性。'

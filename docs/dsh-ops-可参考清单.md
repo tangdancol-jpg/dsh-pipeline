@@ -1,7 +1,7 @@
 # dsh-ops 可参考清单
 
-> **对象**：`https://github.com/T-Auto/dsh-ops`，浅克隆到 `<DSH_HOME>\dsh_orb\_ref-dsh-ops\`
-> **读到的版本**：commit `<redacted>`（2026-10-14），`dsh-plugin.json` 声明 version `0.3.0`，manifestVersion `0.15`
+> **对象**：`https://github.com/T-Auto/dsh-ops`，浅克隆到 `%USERPROFILE%\.dsh\dsh_orb\_ref-dsh-ops\`
+> **读到的版本**：commit `***`（2026-10-14），`dsh-plugin.json` 声明 version `0.3.0`，manifestVersion `0.15`
 > **顶层目录**（427 个文件，不含 `.git`）：`.github/ bin/ docs/ lib/ locale/ native/ packages/ scripts/ test/ vendor/` + `CHANGELOG.md cordis.patch.yml dsh-plugin.json LICENSE NOTICE PROVENANCE.md README.md README.en.md README.zh.md`
 > **读法**：clone 成功，**结论全部来自源码**；凡只从文档得出的说法都标了"（文档声称）"。**未核实**的标"未核实"。
 > **本次只读**：未安装、未运行其任何脚本、未改我们的插件、未改 `.pipeline\`。本文件是唯一产物。
@@ -74,11 +74,11 @@
 | 4.3 | **诚实上报执行强度**：把宿主的 `full` / `partial`（含 Windows ACL partial）如实回报，不假装是 full。`lib/session-shells.js:70`、`docs/native-ptc.md:16-17` | 防"假绿"。我们要的正是这种"部分执行就说部分" | **能** | 我们的 `pipeline_security_check` 已强调"不冒充实测"；可把"执行强度"作为字段显式回报 | 无 | MIT |
 | 4.4 | **挂在同一批公开缝上**：它自己用 `ctx.on('tools/pre-execute')`、`ctx.tools.guard()`、`ctx.on('tools/execute')`、`ctx.tools.restrict()`。`lib/index.js:60-63`、`lib/workspace-preparation.js:47`、`lib/session-shells.js:72`、`:78` | 说明它**没有绕开**宿主工具层：第三方守门（我们）与它是**同一道缝上的两个守卫**，`undefined` = 弃权，可共存 | **能（作为兼容性证据）** | 无需改。但要在文档里明确这条兼容性结论 | 低 | MIT |
 | 4.5 | **`ops_bash` 是普通注册工具**，走宿主 registry → 必过 `tools/pre-execute` 与 `guard`，再进工具体；没有"插件自带工具豁免"的分支。`lib/shells.js:946-951`（自述"registered through the caller's own `ctx.tools.register`, never by rewriting the shared registry"）、`lib/session-shells.js:72` | **兼容性核心证据** | —（这是结论，不是可抄的东西） | **无需改** | **无（好消息）**：我们守门的 `DEFAULT_SHELL_TOOL_PATTERN`（`lib/guard.js:77`）**不带锚点**，`'ops_bash'` 命中子串 `bash`（`lib/guard.js:448-455` 的 `new RegExp(pattern,'i').test(name)`）⇒ 会被当 shell 工具判，且 `command` 会被 `collectCommandStrings` 取到（`lib/guard.js:421`）。**前提**：该会话在守门令牌表里（`seatOf(...)===null` 则直通，非管线席位不受影响） | MIT |
-| 4.6 | ⚠️ **C1：`ops_replace` 不在我们的写工具名单里** | — | — | 见下方"冲突处置" | **★ 高**。我们 `DEFAULT_WRITE_TOOLS = ['write','edit','str_replace_editor','notebook_edit','apply_patch','multi_edit']`（**`<DSH_HOME>\profiles\desktop\node_modules\dsh-pipeline\lib\guard.js:68`**）**不含 `ops_replace`**。而 `lib/guard.js:752,767` 起的一整族判据（"只读角色一字节不许写"、"测试/审核不得改代码"、"writer 只能写自己分区"、"不得越出 change_scope"）全部以 `writeTools.includes(name)` 为前提 ⇒ 对 `ops_replace` **一条都不跑**。`ops_replace` 是**跨文件批量替换**，它由 **file 组件**发布，而 file 组件**默认开启**（`cordis.patch.yml:11-17`、`dsh-plugin.json:124-127`） | MIT |
+| 4.6 | ⚠️ **C1：`ops_replace` 不在我们的写工具名单里** | — | — | 见下方"冲突处置" | **★ 高**。我们 `DEFAULT_WRITE_TOOLS = ['write','edit','str_replace_editor','notebook_edit','apply_patch','multi_edit']`（**`%USERPROFILE%\.dsh\profiles\desktop\node_modules\dsh-pipeline\lib\guard.js:68`**）**不含 `ops_replace`**。而 `lib/guard.js:752,767` 起的一整族判据（"只读角色一字节不许写"、"测试/审核不得改代码"、"writer 只能写自己分区"、"不得越出 change_scope"）全部以 `writeTools.includes(name)` 为前提 ⇒ 对 `ops_replace` **一条都不跑**。`ops_replace` 是**跨文件批量替换**，它由 **file 组件**发布，而 file 组件**默认开启**（`cordis.patch.yml:11-17`、`dsh-plugin.json:124-127`） | MIT |
 | 4.7 | ⚠️ **C2：`ops_grep` / `ops_inspect_local_file` 不在我们的检索/读名单里** | — | — | **★ 高**。`DEFAULT_SEARCH_TOOLS`（`lib/guard.js:315-327`）含 `grep` 但**不含 `ops_grep`**，且匹配是**精确相等**（`lib/guard.js:1070`：`String(t).toLowerCase() === name.toLowerCase()`）⇒ `ops_grep` 不命中。`DEFAULT_READ_TOOLS`（`lib/guard.js:71`）同理不含 `ops_inspect_local_file`。后果："主对话/需求分析/计划/审核不得读代码"这类判据（`lib/guard.js:1066`，`NO_CODE_READ_ROLES`）会被这两个工具绕过 | MIT |
 | 4.8 | ⚠️ **C3：`ops_bash` 的 `script_path` 是内容盲区** | — | — | **★ 中-高，且被它自己的文档放大**。我们的 `collectCommandStrings`（`lib/guard.js:412-436`）只遍历实参；`script_path` 收集到的是**一个文件名**，不是脚本内容。而 `SHELL_WRITE_RE` / `SHELL_CONTENT_SEARCH_RE` / 测试目录判据（`lib/guard.js:273-279,392-393`）全部是**内容正则** ⇒ 对 `ops_bash({script_path:"run.ps1"})` 全部失效。**它恰恰在教模型把长命令放进 `script_path`**（`lib/shells.js:936-938`、`lib/policy.js:62`、`README.zh.md:180`）⇒ 装它会把命令正文**系统性地移出**我们守门的视野 | MIT |
 | 4.9 | ⚠️ **C4：`shellPolicy: deny-host-shell` 会把宿主 `pwsh`/`bash` 藏掉** | — | — | **★ 中（仅在显式开启时）**。`lib/index.js:40-64` 会 `restrict({deny})` 掉 `deniedHostTools`（默认 `[pwsh, bash, pwsh_persistent]`，`lib/config.js:34`）。默认是 `advise`（不生效），但一旦有人为"更安全"打开它，**我们整条流水线的 shell 工作方式（writer/tester 跑命令）会直接失去执行器** | MIT |
-| 4.10 | **Windows ACL 预处理（有备份、只改目录自身、不递归）**：给 workspace 根目录自身加 `WRITE_OWNER`（`TakeOwnership`），**改前把 DACL 存成 JSON 备份**到 `<DSH_HOME>/dsh-ops/acl-backups`；拒绝情况：非当前用户所有、祖先含 reparse point、显式 Deny 了 WRITE_OWNER；改动失败会**回滚**并抛错。`bin/prepare-workspace.ps1:1-53`、`lib/workspace-preparation.js:13-42` | 解决 Windows 下 workspace-write 沙箱需要 WRITE_OWNER 才能打完整性标签的前置条件。省 token 的路径：**避免"沙箱起不来"变成一串看不懂的报错** | **部分** | 我们不改 ACL，**不建议引入** | **中**。它确实**修改文件系统 ACL**（尽管有备份、只改一层、有回滚）。对我们是新增的攻击面与运维面；且它调用的是 **Windows PowerShell 5.1**（`lib/workspace-preparation.js:30`）—— 恰是它想逃离的那个 shell | MIT |
+| 4.10 | **Windows ACL 预处理（有备份、只改目录自身、不递归）**：给 workspace 根目录自身加 `WRITE_OWNER`（`TakeOwnership`），**改前把 DACL 存成 JSON 备份**到 `%USERPROFILE%/.dsh/dsh-ops/acl-backups`；拒绝情况：非当前用户所有、祖先含 reparse point、显式 Deny 了 WRITE_OWNER；改动失败会**回滚**并抛错。`bin/prepare-workspace.ps1:1-53`、`lib/workspace-preparation.js:13-42` | 解决 Windows 下 workspace-write 沙箱需要 WRITE_OWNER 才能打完整性标签的前置条件。省 token 的路径：**避免"沙箱起不来"变成一串看不懂的报错** | **部分** | 我们不改 ACL，**不建议引入** | **中**。它确实**修改文件系统 ACL**（尽管有备份、只改一层、有回滚）。对我们是新增的攻击面与运维面；且它调用的是 **Windows PowerShell 5.1**（`lib/workspace-preparation.js:30`）—— 恰是它想逃离的那个 shell | MIT |
 | 4.11 | **诚实边界：文件工具不在宿主文件沙箱内** | — | — | —（这是**我们该知道的负面事实**，非可抄项） | 它自己承认：`docs/manual-validation.md:71-73`"四个 FastCtx 文件工具仍是**非宿主沙箱后端**，`ops_replace` **没有 workspace confinement**…不作为不可信受限环境的安全方案"；`PROVENANCE.md:279`"file tools remain outside the host filesystem sandbox; shell-mode gating does not confine `ops_replace`"。**⇒ 装它 = 给每个角色一个不受 DSH 沙箱约束的写工具**，这使 C1 的严重性再升一级 | MIT |
 
 **冲突处置（若要参考/安装，我们这边要改什么）**
@@ -141,7 +141,7 @@
 | **hook 宿主 loader 私有生命周期改执行器（1.4）** | `lib/session-pwsh.js:17-21` 依赖 `internal/config` 事件与 `fiber.update(config, true)` 的 `noSave` 语义。这是宿主**非公开**接口，宿主升级即可能失效；且与"任何也想改 `pwshPath` 的插件"**互相覆盖**。我们自己的教训（本轮插件反复因宿主内部假设而修）已经够多 |
 | **把它的四个文件工具当"沙箱内工具"用（4.11）** | 它自己承认 `ops_replace` **没有 workspace confinement**、文件工具是**非宿主沙箱后端**（`docs/manual-validation.md:71-73`、`PROVENANCE.md:279`）。**不装则无此风险；一旦装、又没同时改我们的守门名单（C1/C2），等于给每个角色开一个不受约束的写/读通道** |
 | **把 PTC 组件当通用能力引入（2.6 / 3.7）** | 它只在**宿主 PTC-only 呈现**下发布（`docs/native-ptc.md:63-69`），而且 0.3.0 只发 Windows x64。我们多数会话不是 PTC-only ⇒ **引入也拿不到** |
-| **`bash-ipc` 私有 MSYS 副本这条路（1.3）** | 运行时在 `<DSH_HOME>` 下生成 **GPL MSYS 载荷的修改副本**，其 `README.md:48-51` 自述"默认载荷仍是 GPL 软件…**公开发布修改过的 MSYS 需要单独的许可/源码合规审查**"。**未核实**其合规闭环，不建议我们碰 |
+| **`bash-ipc` 私有 MSYS 副本这条路（1.3）** | 运行时在 `%USERPROFILE%\.dsh` 下生成 **GPL MSYS 载荷的修改副本**，其 `README.md:48-51` 自述"默认载荷仍是 GPL 软件…**公开发布修改过的 MSYS 需要单独的许可/源码合规审查**"。**未核实**其合规闭环，不建议我们碰 |
 
 ### 结论三：★ 要装吗
 
@@ -190,4 +190,4 @@
 - ⚠️ **只读了文档、没读代码**：`vendor/fastctx/` 的绝大部分实现（`grep_tool.rs` 85KB、`budget.rs` 28KB、`render_plan.rs`、`skip_report.rs`、`context_guard.rs`、`ordered_window.rs`、`read_tool/*` 等）**未逐一读**。因此本清单中 ③ 的条目**全部**来自 `native/src/`（MIT，0.3.0 实际在用的那套），**没有**一条依赖 FastCtx 的实现细节。
 - ⚠️ **未核实**：`lib/ptc/*` 的完整实现（只读了文档 `docs/native-ptc.md`）、`lib/jobs.js`、`lib/runtime-pool.js`、`lib/handshake.js`、`test/` 全量、`.github/workflows/`、`packages/` 三个载荷包的 `package.json`。
 - ⚠️ **未运行任何代码**：所有结论来自静态阅读；其测试、`npm run verify`、`measure-schemas.mjs` **均未执行**（遵守"只读"纪律）。因此 5.5 里"可复算"的说法指的是**脚本与基线都在库里**，不是"我算过"。
-- ⚠️ **关于宿主侧**：4.5–4.9 的冲突判定，我读的是**本机实际安装的** `<DSH_HOME>\profiles\desktop\node_modules\dsh-pipeline\lib\guard.js`（当前生效版本），**不是**仓库里的源码树 —— 若两者不一致，以本机为准。
+- ⚠️ **关于宿主侧**：4.5–4.9 的冲突判定，我读的是**本机实际安装的** `%USERPROFILE%\.dsh\profiles\desktop\node_modules\dsh-pipeline\lib\guard.js`（当前生效版本），**不是**仓库里的源码树 —— 若两者不一致，以本机为准。

@@ -2,7 +2,7 @@
 
 **单据**：P1-5（分不清"谁改的"）+ P2-13（跨单盲区已造成实际损失）
 **改动范围**：`lib/hashgate.js` · `lib/store.js`（store 只动"哈希台账 / 前后对比"那几段）
-**生效副本**：`<DSH_HOME>\profiles\desktop\node_modules\dsh-pipeline`
+**生效副本**：`%USERPROFILE%\.dsh\profiles\desktop\node_modules\dsh-pipeline`
 **改动前备份**：`d-route-20261014/backup-20261014-194012/{hashgate.js.bak, store.js.bak}`（插件目录内、不进加载路径）
 **自验脚本**：`d-route-20261014/verify-hashgate-ownership.mjs`（输出留档 `d-route-20261014/verify-output.txt`）
 **时间**：2026-10-14 19:40–20:05（本地）
@@ -64,7 +64,7 @@ added 252 · modified 56 · removed 0
  "baseline_id":"BL-fb2223b50c353b9a","submission_seq":4,
  "source":"dev_to_test.change_manifest",
  "paths":[{"path":"src/b/b1.js",
-           "key":"<HOME>/…/dsh-pipeline-selftest-w01pxb/src/b/b1.js",
+           "key":"%USERPROFILE%/…/dsh-pipeline-selftest-w01pxb/src/b/b1.js",
            "sha256":"8f045e62…"}]}
 ```
 
@@ -166,7 +166,7 @@ added 252 · modified 56 · removed 0
 
 **命令**
 ```
-cd <DSH_HOME>\profiles\desktop\node_modules\dsh-pipeline
+cd %USERPROFILE%\.dsh\profiles\desktop\node_modules\dsh-pipeline
 node d-route-20261014/verify-hashgate-ownership.mjs        # → 留档 d-route-20261014/verify-output.txt
 ```
 
@@ -467,7 +467,7 @@ records-check 29/29 · plan-check 56/56 · selftest 70/70 · handoff-seat-check 
 ### 8.4.1 命令与结果
 
 ```
-cd <DSH_HOME>\profiles\desktop\node_modules\dsh-pipeline
+cd %USERPROFILE%\.dsh\profiles\desktop\node_modules\dsh-pipeline
 node d-route-20261014/verify-undeclared-write.mjs        # → 留档 d-route-20261014/verify-undeclared-output.txt
 # 结果：11/11 通过（exit=0）
 ```
@@ -496,7 +496,7 @@ node d-route-20261014/verify-undeclared-write.mjs        # → 留档 d-route-20
 ```
 [pipeline] 拒绝：这是一处**未申报的写入**（守门作用域 · 未申报写入拦截）。
 工具：write
-路径：<HOME>/appdata/local/temp/dsh-pipeline-selftest-aikfud/src/all/orphan.js
+路径：%USERPROFILE%/appdata/local/temp/dsh-pipeline-selftest-aikfud/src/all/orphan.js
 这批字节的 sha256（前 8 位）：f3f2b5bc
 
 判据（三条都不成立 ⇒ 这批字节**没有主**，改它等于把别人的/来历不明的字节算到自己头上）：
@@ -519,7 +519,7 @@ node d-route-20261014/verify-undeclared-write.mjs        # → 留档 d-route-20
 ```
 [pipeline] 拒绝：这是一处**未申报的写入**（守门作用域 · 未申报写入拦截）。
 工具：write
-路径：<HOME>/appdata/local/temp/dsh-pipeline-selftest-aikfud/src/all/shared.js
+路径：%USERPROFILE%/appdata/local/temp/dsh-pipeline-selftest-aikfud/src/all/shared.js
 这批字节的 sha256（前 8 位）：01092335
 （判据与出路同上）
 ```

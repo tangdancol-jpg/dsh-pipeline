@@ -1,6 +1,6 @@
 # C 路 · 孤儿单与失联包 —— 实现报告
 
-**口径**：只改生效副本 `<DSH_HOME>\profiles\desktop\node_modules\dsh-pipeline`；
+**口径**：只改生效副本 `%USERPROFILE%\.dsh\profiles\desktop\node_modules\dsh-pipeline`；
 本路独占的三个文件 —— `lib/orphan.js` · `lib/liveness.js` · `tests/orphan-rescue-check.mjs`。
 **未装、未重启 DSH、未加依赖**；同一棵树上另有最多 3 个会话在改别的文件，本路一个字节都没碰。
 **改前备份**（带时间戳、落插件目录内、不进加载路径）：
@@ -89,7 +89,7 @@
 - 形状①（= `4a2dc7`）：`state='analyzing'`、**`delete t.dispatched`**（真单的关键特征是
   "这个字段压根不存在"，不是"它是 null"）、全零、`history` 只剩一行 40 分钟前的 `main` 流水。
 - 形状②（= `a5fe41`）：`state='blocked'` + `liveness.escalations=[{to_state:'blocked', seats:['planner']}]`
-  （**机制自己触发的阻塞**）、planner 的会话 id 是**裸 UUID**（`<session-id>-…`，故意不是 `session-…` 形状）、
+  （**机制自己触发的阻塞**）、planner 的会话 id 是**裸 UUID**（`session-…-…`，故意不是 `session-…` 形状）、
   6 份交接物**全归 orchestrator**（⇒ planner 自证零证据）。
 - ★ **断言条数与语义都没动**：A 段仍是 6 条，正例断言（判词 `orphan-seat-gone`、
   detail 里"派活台账里根本没有这一条"、`evidence.seats[0].session_present === false`、

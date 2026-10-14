@@ -490,7 +490,7 @@ export const HANDOFF_SCHEMAS = {
   // 所以 must_read_files（至少含需求档）与 open_questions 是**硬要求**。
   seat_handover: {
     zh: '席位交接（换班）',
-    from: ['architect', 'security', 'writer', 'tester', 'reviewer', 'release', 'docs', 'performance', 'arbiter', 'diagrammer', 'orchestrator', 'planner'],
+    from: ['architect', 'security', 'writer', 'tester', 'reviewer', 'release', 'docs', 'performance', 'arbiter', 'diagrammer', 'orchestrator', 'planner', 'supervisor', 'archivist'],
     to: 'main',
     fields: {
       task_id: F('string', '任务ID'),
@@ -518,7 +518,7 @@ export const HANDOFF_SCHEMAS = {
   clarification_request: {
     zh: '请求需求分析裁定',
     // ★ planner 也在册：它的「计划自检发现缺失」就是退回需求分析。
-    from: ['architect', 'security', 'writer', 'tester', 'reviewer', 'release', 'docs', 'performance', 'arbiter', 'diagrammer', 'planner'],
+    from: ['architect', 'security', 'writer', 'tester', 'reviewer', 'release', 'docs', 'performance', 'arbiter', 'diagrammer', 'planner', 'archivist'],
     to: 'orchestrator',
     fields: {
       task_id: F('string', '任务ID'),
@@ -621,7 +621,8 @@ export const HANDOFF_SCHEMAS = {
   // 且**不许含代码** —— 因为主对话不读代码，含代码的请求它转告不了。
   human_request: {
     zh: '人工介入请求',
-    from: ['orchestrator', 'planner', 'architect', 'security', 'writer', 'tester', 'reviewer', 'release', 'docs', 'performance', 'arbiter', 'human'],
+    // ★ supervisor / diagrammer / archivist：与守门方向表同步补上（见 lib/guard/rules.js 的同名条目）
+    from: ['orchestrator', 'planner', 'architect', 'security', 'writer', 'tester', 'reviewer', 'release', 'docs', 'performance', 'arbiter', 'human', 'supervisor', 'diagrammer', 'archivist'],
     to: 'main',
     fields: {
       task_id: F('string', '任务ID'),

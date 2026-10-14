@@ -6,12 +6,12 @@
   "type": "workflow",
   "quality": "showcase",
   "specification": {
-    "path": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\_probe-split-noauto\\main-path.candidate.json",
+    "path": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\_probe-split-noauto\\main-path.candidate.json",
     "sha256": "0377c5b2abc7a7679f7c9e39221fb130e32b7bf403e6059f08e14b61ce4ffb2b",
     "bytes": 17263
   },
   "artifact": {
-    "path": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\_probe-split-noauto\\main-path.html"
+    "path": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\_probe-split-noauto\\main-path.html"
   },
   "gates": {
     "validate": "fail",
@@ -37,8 +37,8 @@
     "truncated": false
   },
   "evidence": {
-    "receipt": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\_probe-split-noauto\\main-path.finalize.json",
-    "summaryReceipt": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\_probe-split-noauto\\main-path.finalize-summary.json"
+    "receipt": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\_probe-split-noauto\\main-path.finalize.json",
+    "summaryReceipt": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\_probe-split-noauto\\main-path.finalize-summary.json"
   },
   "update": {
     "status": "current",
@@ -54,7 +54,7 @@
   "durationMs": 447,
   "nextAction": {
     "action": "edit-in-place",
-    "candidate": "<DSH_HOME>\\dsh_orb\\架构图-完整流程-终版\\_probe-split-noauto\\main-path.candidate.json",
+    "candidate": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\_probe-split-noauto\\main-path.candidate.json",
     "constraint": "Preserve unaffected semantics and geometry; do not replace the whole candidate.",
     "then": "finalize-once"
   }
