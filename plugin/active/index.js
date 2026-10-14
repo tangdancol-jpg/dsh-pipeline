@@ -89,6 +89,7 @@ import { createMainSessionRegistry, createWaker } from './lib/wakeup.js'
 // ★★ 本轮新增：已播报账本（A19/A20）、巡检兜底（A21–A25）、运行失败取证（A9–A11）。
 import { LEDGER_FILE_NAME, createWakeLedger, defaultLedgerPath } from './lib/wakeledger.js'
 import { createPatrol, patrolFindings } from './lib/patrol.js'
+import { patrolNotice } from './lib/patrol/notice-text.js'
 // ★★ 2026-10-14 新增：**主对话侧的重启自动认领**（席位侧那半已在 indexTask 里，
 //    见下面的 1.7；这两半**判据不同源、互不冒充**）。
 import { autoReattachMain, formatMainReattachReport } from './lib/reattach.js'
@@ -685,16 +686,26 @@ export function apply(ctx, rawConfig) {
       const last = reportedFindings.get(finding.id)
       if (last !== undefined && nowMs - last < PATROL_REPORT_WINDOW_MS) return false
       noteFinding(finding.id, nowMs)
+      /**
+       * ★★ **正文按判据本身写**（缺陷 ⑥，真机 T-20261015-bb30bc）。
+       *
+       * 改前这里把 `what` 写死成「**巡检发现长时间无进展**」，而
+       * `patrolFindings()` 会出**五种**判据 —— 于是"一条唤醒没投出去"
+       * （`unresolved-wake`）也被报成"长时间无进展"：主对话被引去查"谁不动了"，
+       * 真正该处理的那件事没人管。
+       * 文案唯一出处：`lib/patrol/notice-text.js`（本文件不存第二份）。
+       */
+      const notice = patrolNotice(finding)
       await wakeup.wake({
         taskId,
         actorRole: 'mechanism',
         actorSeat: null,
-        kind: String(finding.kind ?? 'patrol'),
-        what: '**巡检发现长时间无进展**（只播报，不动作）',
+        kind: notice.kind,
+        what: notice.what,
         disc: String(finding.id ?? ''),
         identitySource: 'patrol-finding',
         task,
-        note: String(finding.detail ?? ''),
+        note: notice.note,
         via: 'patrol',
       })
       return true

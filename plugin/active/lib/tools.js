@@ -50,6 +50,7 @@ import { buildAdminTools } from './tools/admin.js'
 import { buildRecordTools } from './tools/records.js'
 import { buildSecurityTools } from './tools/security.js'
 import { buildHumanTools } from './tools/human.js'
+import { buildPurgeTools } from './tools/purge.js'
 
 export {
   FULL_TEST_STAGE_ZH,
@@ -250,6 +251,9 @@ export function buildTools(deps) {
     dispatchSlots,
   })
 
+  // 收尾清理（pipeline_task_purge） —— 见 `lib/tools/purge.js`
+  const { taskPurge } = buildPurgeTools({ deps, store, load })
+
   // 安全确认（pipeline_security_check） —— 见 `lib/tools/security.js`
   const { securityCheck } = buildSecurityTools({ deps, config, store, indexTask, load, paginate })
 
@@ -352,6 +356,8 @@ export function buildTools(deps) {
     recordSubmit,
     compileRequirement,
     contacts,
+    // ★ 缺陷 ⑦：终态单的**收尾清理**（归档 / 删除）—— 唯一的具名入口，主对话专用。
+    taskPurge,
   }
   /**
    * ★ E 路 ③：工具名**从真实注册对象派生**（不另抄一份会漂移的名单）——

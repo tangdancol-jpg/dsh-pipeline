@@ -14,6 +14,7 @@ import { ROLE, roleLabel } from '../roles.js'
 import { clamp, newTaskId, nowIso, shortHash, toStringArray } from '../util.js'
 import { seatKey, upsertDispatch } from '../liveness.js'
 import { RESUME_EVENTS } from './shared.js'
+import { describeTransitionRecord } from './transition-record.js'
 
 /**
  * 任务存储 · 开单、认领、查询、状态迁移
@@ -373,13 +374,24 @@ export function lifecycleMethods(ctx) {
       task.history.push(entry)
       await persist(task)
 
+      /**
+       * ★★ **缺陷 ⑨**：`from === to` 的迁移必须自己交代"记了什么"。
+       *
+       * 真机现场：主对话递单给主管（`handoff_to_supervisor`，状态机里是 `pending → pending`）
+       * 拿到的返回是「任务 X：待分配 → 待分配。」—— 看不出台账改了没有，
+       * 于是无法判断递单成没成。理由与落点见 `lib/store/transition-record.js`。
+       * ★ 只在 `from === to` 时追加；真有状态变化的迁移**一个字没改**。
+       */
+      const recorded = describeTransitionRecord({ event: input.event, task, from, to: res.to })
       return {
         ok: true,
         task,
         from,
         to: res.to,
         state_zh: STATE_LABEL[res.to],
-        summary: `任务 ${task.id}：${STATE_LABEL[from]} → ${STATE_LABEL[res.to]}。`,
+        summary:
+          `任务 ${task.id}：${STATE_LABEL[from]} → ${STATE_LABEL[res.to]}。` +
+          (recorded.length > 0 ? `\n${recorded}` : ''),
       }
     },
 

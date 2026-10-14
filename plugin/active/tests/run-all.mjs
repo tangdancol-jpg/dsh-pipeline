@@ -649,6 +649,26 @@ for (const extra of [
   // ★★ P1-4：shell 守门的误判（2>$null / 引号里的 => 被当成写文件）、常见绕过写法、
   //    以及"一个会话绑着多张单时拿最老那张判"的作用域放大。全程密闭（临时项目根）。
   { file: './shell-guard-check.mjs', exportName: 'runShellGuardCheck', zh: 'shell 守门（P1-4：误判收窄 / 绕过补上 / 多单绑定按活跃单判）' },
+  // ★★ 真机端到端测试（T-20261015-bb30bc）确认的 8 条缺陷 —— 一条修复一个独立小套。
+  //    为什么**逐条**注册而不是合并成一个"修复回归套"：每条修复的判据不同源；合并之后
+  //    "红一条 = 八条一起看"，退化时定位不到是哪一条。
+  //    ★ 八套全程密闭：自造临时项目根，**不引用活体真单**（不重蹈 P1-12 那条）。
+  { file: './f1-scope-root-marker-check.mjs', exportName: 'runF1ScopeRootMarkerCheck', zh: '缺陷①授权面锚点（`.` = 整棵项目根，与渲染口径同一边界）' },
+  { file: './f2-slot-truth-check.mjs', exportName: 'runF2SlotTruthCheck', zh: '缺陷②四槽（声明 vs 事实：声明冻结、占位可覆盖且必须留痕）' },
+  { file: './f3-path-targets-check.mjs', exportName: 'runF3PathTargetsCheck', zh: '缺陷③目标路径（正文不再被当成路径；拒绝文案点名真实目标与来源）' },
+  { file: './f4-tester-exts-check.mjs', exportName: 'runF4TesterExtsCheck', zh: '缺陷④测试位允许面（可执行扩展名补上 + 拒绝文案给替代路径）' },
+  { file: './f5-l0-baseline-check.mjs', exportName: 'runF5L0BaselineCheck', zh: '缺陷⑤L0 改动基线（自批那一刻记一次，R6 前后对比这才有判据）' },
+  { file: './f6-patrol-notice-check.mjs', exportName: 'runF6PatrolNoticeCheck', zh: '缺陷⑥巡检播报（正文按判据本身写，不再一律自称「长时间无进展」）' },
+  { file: './f7-task-purge-check.mjs', exportName: 'runF7TaskPurgeCheck', zh: '缺陷⑦收尾清理（终态单归档/删除：只认终态、先留痕、默认可恢复）' },
+  { file: './f8-nonfinite-hint-check.mjs', exportName: 'runF8NonfiniteHintCheck', zh: '缺陷⑧非有限入参（需求侧提示，不改行为、不代写 boundaries）' },
+  // ★★ 第二批（简报完整版带来的 ⑦b / ⑧ / ⑨ 与 ⑥ 的判据面）：
+  { file: './f6b-patrol-clock-check.mjs', exportName: 'runF6bPatrolClockCheck', zh: '缺陷⑥巡检时钟（可复现判据：输入面逐条 + 现场时刻复算 + A23 幂等键）' },
+  { file: './f8b-shell-attribution-check.mjs', exportName: 'runF8bShellAttributionCheck', zh: '缺陷⑦b/⑧shell 守门（引号里的英文单词不再当命令；拒绝理由按角色归因）' },
+  { file: './f9-transition-record-check.mjs', exportName: 'runF9TransitionRecordCheck', zh: '缺陷⑨不改状态的迁移（必须交代"记了什么"，且不许指向不存在的台账）' },
+  // ★★ 第三批（F11：四槽"声明 vs 生效"同源 + 逐槽证据等级）：
+  { file: './f11-slot-truth-check.mjs', exportName: 'runF11SlotTruthCheck', zh: 'F11 四槽同源（声明 vs 生效；哪一槽是读回来的、哪一槽只是发出去了，逐槽给证据）' },
+  // ★★ 第四批（F12：spawn=false 必须真的不建会话）：
+  { file: './f12-spawn-false-check.mjs', exportName: 'runF12SpawnFalseCheck', zh: 'F12 spawn=false（不许碰宿主 create / subagents.start，只出可粘贴的派活单）' },
 ]) {
   let mod = null
   try {

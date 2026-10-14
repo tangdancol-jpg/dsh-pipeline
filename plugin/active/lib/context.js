@@ -41,6 +41,7 @@
  */
 
 import { toStringArray } from './util.js'
+import { describeScopePaths } from './scope/root-marker.js'
 
 
 /**
@@ -79,7 +80,7 @@ export function renderRequirementDoc(input) {
   if (roster.writers) {
     L.push(`- 编写席位：${roster.writers.count} 个（席位数 = 层数）`)
     for (const p of roster.writers.partitions ?? []) {
-      L.push(`  - ${p.seat} ｜ 层：${p.layer ?? "(未标)"} ｜ 范围：${(p.scope_paths ?? []).map((s) => (s === "." ? "整棵项目根" : s)).join("、")}${p.deliverables?.length ? `（${p.deliverables.join("、")}）` : ""}`)
+      L.push(`  - ${p.seat} ｜ 层：${p.layer ?? "(未标)"} ｜ 范围：${describeScopePaths(p.scope_paths)}${p.deliverables?.length ? `（${p.deliverables.join("、")}）` : ""}`)
     }
   }
   if (roster.relay_policy) {
@@ -101,6 +102,15 @@ export function renderRequirementDoc(input) {
   L.push("")
   if (boundaries.length === 0) L.push("- （未单列）")
   else boundaries.forEach((a) => L.push(`- ${a}`))
+  /**
+   * ★ **缺陷 ⑧**：需求面口径 —— 数值入参的**非有限值**（`Infinity` / `NaN`）要在
+   *   `boundaries` 里显式规定。这里只是把提示**印进需求档**（所有角色以它为准），
+   *   **不替需求分析写条目、不改任何实现行为**。判据见 `lib/intake/boundary-hints.js`。
+   */
+  if (typeof input.boundaryHint === "string" && input.boundaryHint.length > 0) {
+    L.push("")
+    L.push(`> ⚠ 提示（需求面口径，**不改行为**）：${input.boundaryHint}`)
+  }
   L.push("")
   if (Array.isArray(input.unclearPoints) && input.unclearPoints.length > 0) {
     L.push("## 需求不清楚处（已在开工前提请用户确认）")

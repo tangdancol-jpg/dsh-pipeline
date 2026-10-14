@@ -12,8 +12,10 @@ import { ST, STATE_LABEL } from '../states.js'
 import { agentIdOf } from '../guard.js'
 import { DEFAULT_SEAT_SILENCE_MS, formatDuration } from '../liveness.js'
 import { rosterSlotDeclarations } from '../tiers.js'
+import { describeSlotDivergence, resolveEffectiveSlots } from '../roster/slot-truth.js'
 import { DISPATCH_SLOT_KEYS, isSpawnableRole } from '../transport/index.js'
 import { toStringArray } from '../util.js'
+import { describeScopePaths } from '../scope/root-marker.js'
 import { S, tool, resolveActor, dispatchEventFor } from './kit.js'
 
 /**
@@ -365,7 +367,7 @@ export function buildDispatchTools(ctx) {
             seat,
             summary:
               `拒绝派活：席位「${seat}」不在本任务在册的编写席位里。\n` +
-              `在册席位：${inSeats.join('、')}（各席位范围：\n${parts.map((p) => `  · ${p.seat}：${(p.scope_paths ?? []).map((s) => (s === '.' ? '整棵项目根' : s)).join('、')}`).join('\n') || '  · writer#1：整棵项目根'}）\n` +
+              `在册席位：${inSeats.join('、')}（各席位范围：\n${parts.map((p) => `  · ${p.seat}：${describeScopePaths(p.scope_paths)}`).join('\n') || '  · writer#1：整棵项目根'}）\n` +
               '★ 主对话不能自行加席位、也不能改分区 —— 编写怎么分是**计划 AI**（planner）按层定的产物。\n' +
               '要加/改席位：让执行角色走 pipeline_roster_request 提出，再由计划 AI 用 pipeline_roster_review 复核。',
           }
@@ -374,12 +376,52 @@ export function buildDispatchTools(ctx) {
 
       const spawn = args.spawn === undefined ? config.spawnRoles !== false : args.spawn === true
       let res
-      // ★ 四槽下发：四个独立顶层字段原样交给通道（不打包、不归一、不合并）。
-      const slots = dispatchSlots(task, role, seat, args)
-      if (!spawn || !isSpawnableRole(role)) {
-        res = await transport.spawnRole({ task, roster: task.roster, role, seat, agentId: null, ...slots })
+      /**
+       * ★★ **四槽：声明 vs 事实**（缺陷 ②，真机 T-20261015-bb30bc）。
+       *
+       * 取完值之后再问一次"这跟名单里写的对得上吗"：
+       *   · 名单里 **显式声明**（`origin: declared`）的槽 ⇒ 请求与它不符就**拒绝派活**
+       *     （冻结的槽不许在派活那一刻悄悄换一档 —— 这正是 `compareDispatchSlots` 当初的判据）；
+       *   · 名单里只是**占位默认值**（`origin: default`）⇒ 请求可以覆盖，但**记下来**
+       *     （现场就是这种形状：名单说 read-only、实际生效 workspace-write，
+       *      改前没有任何地方记这件事 ⇒ 读名单的人会得出相反的结论）。
+       */
+      const truth = resolveEffectiveSlots({
+        roster: task.roster ?? null,
+        role,
+        seat,
+        requested: dispatchSlots(task, role, seat, args),
+      })
+      if (truth.blocked !== null) {
+        return {
+          ok: false,
+          agent_id: '',
+          role,
+          seat: seat ?? '',
+          token: '',
+          summary: `拒绝派活：四槽与名单不符（槽：${truth.blocked.slot}）。\n${truth.blocked.reason}`,
+        }
+      }
+      const slots = truth.slots
+      /**
+       * ★★ F12：把"要不要真的建会话"**明确带进 spec**，让通道自己守这条线。
+       *
+       * 改前是 `if (!spawn || !isSpawnableRole(role)) { spawnRole({...agentId:null}) }
+       * else { spawnRole({...parent}) }` —— **两个分支调的是同一个方法**，
+       * 只有 `parent` / `agentId` 两个字段不同，而 `SessionTransport.spawnRole`
+       * 根本不看 `agentId` 就无条件 `create` ⇒ 用户传 `spawn=false` 时宿主照样建会话。
+       *
+       * ★ 为什么不让这里直接换成 ManualTransport：`spawn:false` 是**自测里普遍使用的**
+       *   调用形态（约 40 处），而自测跑的是 `SimulatedTransport` —— 它本来就不建任何真实会话，
+       *   还靠假会话 id 驱动状态机。把那些调用一律改道，等于为了修一条真机路径
+       *   把整套自测的夹具语义换掉。所以判据下沉到"**真的会建东西的那两条通道**"里
+       *   （Session / Subagent），它们才是"不许碰宿主"这条线的责任方。
+       */
+      const effectiveSpawn = spawn && isSpawnableRole(role)
+      if (!effectiveSpawn) {
+        res = await transport.spawnRole({ task, roster: task.roster, role, seat, spawn: false, agentId: null, ...slots })
       } else {
-        res = await transport.spawnRole({ task, roster: task.roster, role, seat, parent: exec.agent, signal: exec.signal, ...slots })
+        res = await transport.spawnRole({ task, roster: task.roster, role, seat, spawn: true, parent: exec.agent, signal: exec.signal, ...slots })
       }
       if (res.ok !== true) {
         // ★ `seat ?? ''`：**不能**把裸 `seat` 交出去。
@@ -537,6 +579,40 @@ export function buildDispatchTools(ctx) {
         }
       }
 
+      /**
+       * ★★ **把"这一次实际生效了什么档"落盘**（缺陷 ② 的如实登记半边）。
+       *
+       * 为什么必须记：`roster.slots` 是**声明表**。现场三席的 `permission` 在名单里
+       * 全是 `read-only`（`origin: default` 的占位值），而实际生效的是主对话在派活时
+       * 显式给的 `workspace-write` —— 改前**没有任何地方**记下这个覆盖，
+       * 于是读名单的人只会得出"这三席只有只读权限"，与事实相反。
+       *
+       * 记不上**不拦派活**（会话已经建好了），但要**说出来**，不静默。
+       */
+      let slotNote = ''
+      try {
+        const rec = await store.recordDispatchSlots({
+          taskId: task.id,
+          role,
+          seat: seat ?? null,
+          slots,
+          provenance: truth.provenance,
+          divergences: truth.divergences,
+          /**
+           * ★ F11：把**每一槽的证据等级**一并落盘 —— `readback`（真读回并比对过）/
+           * `requested`（只发了请求，**没有回读**）/ `readback_unavailable`（想读但宿主没接口）。
+           * 不落这个，"实际生效值"就会被读成"四槽都确认过了"，而 model / reasoning 从来没回读过。
+           */
+          evidence: res.slotEvidence ?? null,
+          actorRole: ROLE.MAIN,
+          actorAgentId: actor.agentId,
+        })
+        if (rec.ok === true) indexTask(rec.task.id, rec.task)
+      } catch (err) {
+        slotNote = `\n⚠ 四槽实际生效值**没能落盘**（读名单的人仍会看到占位值）：${String(err?.message ?? err)}\n`
+      }
+      const divergenceNote = describeSlotDivergence(truth.divergences)
+
       return {
         ok: true,
         agent_id: res.agentId ?? '',
@@ -551,6 +627,8 @@ export function buildDispatchTools(ctx) {
           `已派出「${roleLabel(role)}」。\n${res.note}\n` +
           (advanced === null ? '' : `任务状态：${STATE_LABEL[advanced.from]} → ${STATE_LABEL[advanced.to]}。\n`) +
           (args.note ? `补充说明：${args.note}\n` : '') +
+          slotNote +
+          (divergenceNote.length > 0 ? `\n${divergenceNote}\n` : '') +
           boundaryNote +
           `\n该角色令牌：${res.token}。` +
           // ★ 派活这一刻就把"失联检测已武装"告诉主对话 —— 它才知道多久之后该回来看。

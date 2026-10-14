@@ -10,6 +10,7 @@
 import { HUMAN_URGENCIES } from '../handoff.js'
 import { ROLE, roleLabel } from '../roles.js'
 import { renderRequirementDoc } from '../context.js'
+import { NONFINITE_BOUNDARY_HINT, boundaryHintLine } from '../intake/boundary-hints.js'
 import { TIER_ORDER, buildRoster } from '../tiers.js'
 import { toStringArray } from '../util.js'
 import { S, tool, resolveActor } from './kit.js'
@@ -71,7 +72,7 @@ export function buildPlanTools(ctx) {
       relay_policy: S('object', '★继任策略 { warnPercent, triggerContextPercent, hardLimitPercent, maxSuccessionsPerSeat, allowedRoles[], enabledTiers[] }。主对话只能在此授权内换班', { additionalProperties: true }),
       acceptance: S('array', '验收标准（沿用需求分析的结论即可）', { items: { type: 'string' } }),
       test_points: S('array', '测试要点', { items: { type: 'string' } }),
-      boundaries: S('array', '边界条件', { items: { type: 'string' } }),
+      boundaries: S('array', '边界条件。★ 需求面提示：' + NONFINITE_BOUNDARY_HINT, { items: { type: 'string' } }),
       /**
        * ★★ **四槽声明**（B1 的数据通路；不传 = 全部落显式默认）。
        *
@@ -252,6 +253,11 @@ export function buildPlanTools(ctx) {
         acceptance: Array.isArray(args.acceptance) ? args.acceptance : (analysis?.payload?.acceptance ?? []),
         testPoints: Array.isArray(args.test_points) ? args.test_points : (analysis?.payload?.test_points ?? []),
         boundaries: Array.isArray(args.boundaries) ? args.boundaries : (analysis?.payload?.boundaries ?? []),
+        /** ★ 缺陷 ⑧：只提示（印进需求档），不替谁写 boundaries 条目。 */
+        boundaryHint: boundaryHintLine({
+          requirement: res.task.requirement,
+          boundaries: Array.isArray(args.boundaries) ? args.boundaries : (analysis?.payload?.boundaries ?? []),
+        }),
         unclearPoints: analysis?.payload?.unclear_points ?? [],
         planSteps: planPayload.plan_steps,
         reason: r.reason,

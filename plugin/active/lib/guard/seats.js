@@ -8,6 +8,7 @@
  */
 
 import { isInside, PACKAGE_ROOT, pathKey, resolveAgainstAnchor, toStringArray } from '../util.js'
+import { describeScopePaths, resolveScopePath } from '../scope/root-marker.js'
 
 /** 从 exec 里取调用方的 agent id（`agent.id === agent.session.id`，见 dsh-agent:511）。 */
 export function agentIdOf(exec) {
@@ -45,10 +46,17 @@ export function resolveScopeAnchor(raw) {
   return s.length > 0 ? pathKey(resolveAgainstAnchor(PACKAGE_ROOT, s)) : PACKAGE_ROOT
 }
 
-/** 把一条 scope_path 归一化成可与绝对路径比较的形式（`.` = 锚点自身）。 */
-function normScopePath(raw, anchor) {
+/**
+ * 把一条 scope_path 归一化成可与绝对路径比较的形式。
+ *
+ * ★ 两条基准（见 `lib/scope/root-marker.js`）：
+ *   · 根标记 `'.'` ⇒ **本任务的 `project_root`**（所有渲染口径都把它读作"整棵项目根"）；
+ *   · 其它裸相对路径 ⇒ **锚点**（改前行为，一个字没动）。
+ *   ★ 调用方没给 `projectRoot` 时退回改前行为（`'.'` → 锚点）—— 既有三参数调用逐字不变。
+ */
+function normScopePath(raw, anchor, projectRoot) {
   const a = typeof anchor === 'string' && anchor.length > 0 ? anchor : PACKAGE_ROOT
-  return resolveAgainstAnchor(a, raw)
+  return resolveScopePath(raw, { anchor: a, projectRoot })
 }
 
 /**
@@ -57,13 +65,14 @@ function normScopePath(raw, anchor) {
  * @param {Array} parts - `roster.writers.partitions`
  * @param {string} absPath
  * @param {string} anchor - 授权面锚点（分区里的裸相对路径按它解析）
+ * @param {string} [projectRoot] - ★ 本任务的项目根（`'.'` 这个根标记的落点）
  * @returns {{seat:string, matched:string, overlaps:string[]} | null}
  */
-export function owningSeat(parts, absPath, anchor) {
+export function owningSeat(parts, absPath, anchor, projectRoot) {
   const hits = []
   for (const p of parts) {
     for (const raw of p.scope_paths ?? []) {
-      const abs = normScopePath(raw, anchor)
+      const abs = normScopePath(raw, anchor, projectRoot)
       if (pathKey(abs) === pathKey(absPath) || isInside(abs, absPath)) {
         hits.push({ seat: p.seat, matched: raw })
         break
@@ -77,15 +86,16 @@ export function owningSeat(parts, absPath, anchor) {
 
 /** 把某个席位的范围渲染成人话（拒绝文案里用）。 */
 export function describeSeat(parts, seat, projectRoot) {
+  void projectRoot
   const p = parts.find((x) => x.seat === seat)
   if (p === undefined) return '(不在册)'
-  return (p.scope_paths ?? []).map((s) => (s === '.' ? '整棵项目根' : s)).join('、') || '(未声明)'
+  return describeScopePaths(p.scope_paths)
 }
 
 /** 把全部分区渲染成多行（拒绝文案里用）。 */
 export function describePartitions(parts, projectRoot) {
   void projectRoot
-  return parts.map((p) => `  · ${p.seat}：${(p.scope_paths ?? []).map((s) => (s === '.' ? '整棵项目根' : s)).join('、')}`).join('\n')
+  return parts.map((p) => `  · ${p.seat}：${describeScopePaths(p.scope_paths)}`).join('\n')
 }
 
 /**
@@ -95,11 +105,11 @@ export function describePartitions(parts, projectRoot) {
  *   光看它没人知道守门到底拿它跟哪个绝对路径比 —— 真单 T-20261011-214043 上
  *   就是"看着授权了、实际条条落空"，而拒绝文案里看不出这一点。
  */
-export function describeChangeScope(scope, anchor) {
+export function describeChangeScope(scope, anchor, projectRoot) {
   return (Array.isArray(scope) ? scope : [])
     .map((e) => {
       const raw = String(e?.path ?? '?')
-      const abs = resolveAgainstAnchor(anchor, e?.path)
+      const abs = resolveScopePath(raw, { anchor, projectRoot })
       const shown = abs.length > 0 && abs !== raw ? ` → ${abs}` : ''
       return `  · ${e?.id ?? '?'}　${e?.action ?? '?'}　${raw}${shown}${e?.why ? `（${e.why}）` : ''}`
     })
@@ -287,14 +297,15 @@ export function hubStandbyBlocksWrite(task, role) {
  * @param {object[]} scope - `task.change_scope`
  * @param {string} absPath
  * @param {string} anchor - 授权面锚点
+ * @param {string} [projectRoot] - ★ 本任务的项目根（`'.'` 这个根标记的落点，同 {@link owningSeat}）
  * @returns {{id:string, path:string, action:string} | null}
  */
-export function owningChangeScopeEntry(scope, absPath, anchor) {
+export function owningChangeScopeEntry(scope, absPath, anchor, projectRoot) {
   const target = pathKey(absPath)
   for (const e of Array.isArray(scope) ? scope : []) {
     const raw = String(e?.path ?? '').trim()
     if (raw.length === 0) continue
-    const abs = normScopePath(raw, anchor)
+    const abs = normScopePath(raw, anchor, projectRoot)
     if (abs === target || isInside(abs, target)) {
       return { id: String(e?.id ?? ''), path: raw, action: String(e?.action ?? '') }
     }

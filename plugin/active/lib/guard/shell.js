@@ -12,6 +12,7 @@ import { isAbsolute, join } from 'node:path'
 import { classifyTestCommand, sameTestCommand } from '../testscope.js'
 import { isInside, pathKey } from '../util.js'
 import { NO_CODE_READ_ROLES, roleZh, TAG } from './rules.js'
+import { whyShellWriteRefused } from './attribution.js'
 import { describeChangeScope, owningChangeScopeEntry } from './seats.js'
 
 // ---------------------------------------------------------------------------
@@ -19,11 +20,12 @@ import { describeChangeScope, owningChangeScopeEntry } from './seats.js'
 // ---------------------------------------------------------------------------
 
 /**
- * 「会改文件」的命令特征。
- * 后半段（copy 起）是 P1-4 补的常见改文件写法：cmd 的复制 / 移动 / 改名、git 改工作区的子命令、
- * 下载到文件、解压 —— 与前半段一样，只在命令里点到受保护路径时才拦。
+ * 「会改文件」的命令特征 —— **定义已收敛到 `lib/guard/shell-text.js`**（缺陷 ⑧ 的落点：
+ * 它必须在"命令位置"上匹配，不能拿引号里回显用的英文单词当命令）。
+ * 这里**既要本地绑定**（本模块多处直接用它），**又对外转出**（供测试与文档引用）。
  */
-const SHELL_WRITE_RE = /(^|[\s|;&(])(set-content|add-content|out-file|new-item|remove-item|move-item|copy-item|rename-item|ni|sc|ac|rm|del|erase|mv|cp|touch|mkdir|sed\s+-i|tee|truncate|dd|copy|xcopy|robocopy|move|ren|rename|git(?:\s+-[Cc]\s+\S+)*\s+(?:checkout|restore|apply|reset|clean|stash|am|rm|mv)|patch|perl\s+-[a-z]*i|curl\s[^|;&]*(?:-o|--output)\b|wget\s[^|;&]*-O\b|(?:invoke-webrequest|iwr)\s[^|;&]*-outfile\b|expand-archive|unzip)\b/i
+import { SHELL_WRITE_RE, hasWriteVerbOutsideQuotes, stripQuotedSegments as stripShellQuotes } from './shell-text.js'
+export { SHELL_WRITE_RE, hasWriteVerbOutsideQuotes, stripShellQuotes }
 /**
  * 内联解释器（`node -e` / `python -c` / `pwsh -Command` …）里的写文件 API。
  * 命令行上只看得见"跑了个 node"，真正的写入藏在代码串里 —— 这是 P1-4 点名的绕过形态。
@@ -37,10 +39,7 @@ const SHELL_CONTENT_SEARCH_RE = /(^|[\s|;&(])(select-string|sls|findstr|grep|rg|
 /** 管道写文件（目标在参数里，取不到 ⇒ 按写处理）。 */
 const SHELL_PIPE_WRITE_RE = /\|\s*(out-file|set-content|add-content|tee(-object)?)\b/i
 
-/** 去掉引号里的内容：引号里的 `>` / `|` 是字面量，不是重定向（`node -e "a => b"` 不该算写）。 */
-function stripShellQuotes(text) {
-  return String(text).replace(/"(?:[^"\\`]|\\.|`.)*"|'[^']*'/g, '""')
-}
+// ★ `stripShellQuotes` 已收敛到 `lib/guard/shell-text.js`（在上面 re-export）。
 
 /** 空设备：写到这里等于丢弃，不是写文件。 */
 const NULL_DEVICE_RE = /^(\$null|nul|\/dev\/null)$/i
@@ -258,13 +257,23 @@ export function scanShellCommand(cmd, task, role, cfg = {}) {
   )
   const readsCode = codeTargets.length > 0
 
-  // 4a) 测试/审核/咨询角色：不得用 shell 改项目文件
+  // 4a) ★**任何不写代码的角色**：不得用 shell 改项目文件
+  //
+  //     ⚠️ 判据的适用范围是 `role !== 'writer' && role !== 'human'` —— 它**包含主对话**，
+  //        所以理由必须**按角色说**（缺陷 ⑦b/⑧：改前无论谁调用都回一句
+  //        "测试/审核不得替编写改代码"，对 main 是**解释了别人**的边界）。
+  //        理由段收敛到 `lib/guard/attribution.js` 的唯一出处。
+  //
   //     P1-4：改前是"命令里出现任何 `>` 就拒"，`2>$null` / `2>&1` / 引号里的 `=>` 全被当成写文件，
   //     主对话 stat 一个文件、读一个账本都会被拦。现在只认**真写文件**的重定向，且看它写到哪：
   //     写进项目根（或相对路径、取不准）照旧拒；写到项目外 / 临时目录 / 空设备不拦。
+  //
+  //     ★★ 缺陷 ⑧：写动词的匹配对象从"整段原文"改成"**去掉引号内容之后的文本**"——
+  //        真机现场是引号里的回显横幅 `"== … 有 patch 配置的痕迹吗 =="` 被判成了 `patch` 命令。
+  //        内联解释器那一支（`INLINE_WRITE_API_RE`）与重定向那一支**都没动**，所以没有放宽。
   if (role !== 'writer' && role !== 'human') {
     const unquoted = stripShellQuotes(text)
-    const writeVerb = SHELL_WRITE_RE.test(text) && mentionsProtectedPath
+    const writeVerb = hasWriteVerbOutsideQuotes(text) && mentionsProtectedPath
     const redirectWrite = shellRedirectTargets(text).some((t) => redirectHitsProject(t, lowerRoot))
     const pipeWrite = SHELL_PIPE_WRITE_RE.test(unquoted)
     const inlineWrite = SHELL_INLINE_CODE_RE.test(text) && INLINE_WRITE_API_RE.test(text) && mentionsProtectedPath
@@ -273,7 +282,7 @@ export function scanShellCommand(cmd, task, role, cfg = {}) {
         return (
           `${TAG} 拒绝：角色「${role}」不得通过 shell 修改项目文件。\n` +
           `任务：${task.taskId}\n命令片段：${text.slice(0, 200)}\n` +
-          '原因：测试/审核不得替编写改代码；shell 旁路与文件工具受同一套规则约束。\n' +
+          `${whyShellWriteRefused(role)}` +
           '（说明：shell 侧是**字符串匹配**的 best-effort 判据，不是形式化保证；不写相对路径、不做变量拼接也拦得住，' +
           '但刻意混淆的写法可能绕过 —— 这一点在插件 README 里明确写了。）'
         )
@@ -338,11 +347,11 @@ export function scanShellCommand(cmd, task, role, cfg = {}) {
         const reportsDir = typeof task.reportsDir === 'string' ? task.reportsDir : ''
         if (selfDir.length > 0 && isInside(selfDir, p)) continue
         if (reportsDir.length > 0 && isInside(reportsDir, p)) continue
-        if (owningChangeScopeEntry(scope, p, task.scopeAnchor) === null) {
+        if (owningChangeScopeEntry(scope, p, task.scopeAnchor, task.projectRoot) === null) {
           return (
             `${TAG} 拒绝：**改动面超出了授权面**（shell 旁路）。\n` +
             `任务：${task.taskId}\n命令片段：${text.slice(0, 200)}\n目标：${p}\n` +
-            `本次授权改动面（箭号后是**锚点解析结果**）：\n${describeChangeScope(scope, task.scopeAnchor)}\n` +
+            `本次授权改动面（箭号后是**锚点解析结果**）：\n${describeChangeScope(scope, task.scopeAnchor, task.projectRoot)}\n` +
             '★ 原则：**改动面必须与授权面相等** —— 多改一行也算越界；新增文件也要显式授权。\n' +
             '真需要扩大范围 → 走澄清/变更拿到新授权，不要自作主张扩。\n' +
             '（shell 侧是字符串匹配的 best-effort 判据；文件工具那一路才是硬的。）'

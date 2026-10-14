@@ -269,11 +269,14 @@ export async function callTool(h, toolName, args, agentId) {
  * 用户要求：审核必须交「前后版本对比结论」（有基线时必填），而且 store 会**自己再算一遍**
  * 核对 `baseline_id` 与 `verdict` —— 所以夹具不能瞎填，得真去问一次。
  *
- * L0 任务没有计划站 ⇒ 没有基线 ⇒ 返回 `{}`（那条判据不适用）。
+ * ★ **缺陷 ⑤（2026-10-15）之后 L0 也有基线了**：规则引擎在角色清单写入后自动记一次
+ *   （`lib/store/l0-baseline.js`）⇒ 这条判据**对 L0 同样生效**，正例必须真的交一份。
+ *   L0 没有授权面，所以 `changeAudit` 给的是第三种结论 `no_scope`（"越界/少改"不适用，
+ *   只给前后差异）—— 本夹具照抄工具的真实结论，不手编。
  *
  * @param {object} h - `createHarness()` 的产物（要 `h.store`）
  * @param {string} taskId
- * @returns {Promise<{change_audit?:object}>}
+ * @returns {Promise<{change_audit?:object}>} 没有基线时返回 `{}`（那条判据真的不适用）
  */
 export async function auditFor(h, taskId) {
   const t = typeof h?.store?.peek === 'function' ? h.store.peek(taskId) : null
@@ -766,6 +769,12 @@ export async function runHappyPath(opts = {}) {
         security: cleanSecurity(),
         final_delivery_note: `交付 fizzbuzz 函数，制品 ${v1}，测试 4/4 通过。`,
         acceptance_check: { '1 到 n 的 FizzBuzz 数组': 'pass' },
+        /**
+         * ★★ **缺陷 ⑤ 的连带要求**：L0 现在也有改动基线了 ⇒
+         *   「有基线就必须交前后版本对比结论」这条**对 L0 同样生效**。
+         *   所以正例照规矩交一份 —— 而且不是手编的，是真去问一次工具（`auditFor`）。
+         */
+        ...(await auditFor(h, taskId)),
       },
     },
     reviewerAgent,
@@ -1005,6 +1014,8 @@ export async function runSelfTest(opts = {}) {
         task_id: tid, artifact_version: v, conclusion: 'NG', risk_notes: ['边界没覆盖'],
         release_approved: false, final_delivery_note: '不通过', reject_to: 'writer', reject_reason: '边界条件缺失',
         security: cleanSecurity(),
+        /** ★ 缺陷 ⑤ 的连带要求：L0 也有基线了 ⇒ 有基线就必须交前后版本对比结论（NG 同样要交）。 */
+        ...(await auditFor(h, tid)),
       },
     }, dr.value.agent_id)
     expectOk(rec, '反例②无 OK 关单', '（前置）审核发 NG 正常受理并打回编写', ng, ['审核结论', '打回'])
@@ -1312,7 +1323,15 @@ export async function runSelfTest(opts = {}) {
 
     const r = await callTool(h, 'pipeline_handoff', {
       task_id: f.taskId, kind: 'review_verdict', role_token: f.tokens.reviewer,
-      payload: { task_id: f.taskId, artifact_version: 'v2', conclusion: 'OK', risk_notes: [], release_approved: true, final_delivery_note: 'ok', security: cleanSecurity() },
+      payload: {
+        task_id: f.taskId, artifact_version: 'v2', conclusion: 'OK', risk_notes: [], release_approved: true, final_delivery_note: 'ok', security: cleanSecurity(),
+        /**
+         * ★ **缺陷 ⑤ 的连带要求**：L0 现在也有基线 ⇒「有基线就必须交前后版本对比结论」
+         *   对 L0 生效。**先把该交的证据交齐**，这一条反例才测得到它要测的那件事
+         *   （版本不一致），而不是被"缺证据"先盖住。
+         */
+        ...(await auditFor(h, f.taskId)),
+      },
     }, f.agents.reviewer)
     expectDenied(rec, '反例⑧版本一致性', '审核对未经测试的 v2 出结论', r, ['不一致'])
 

@@ -11,6 +11,7 @@ import { existsSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 import { ROLE } from '../roles.js'
 import { isInside, nowIso, PACKAGE_ROOT, pathKey, resolveAgainstAnchor } from '../util.js'
+import { resolveScopePath } from '../scope/root-marker.js'
 import { resetHashGateOrigin } from '../hashgate.js'
 import { DEFAULT_SEAT_SILENCE_MS } from '../liveness.js'
 import { writeJsonAtomic, appendJsonl, readJson, buildHumanRequestEntry } from './shared.js'
@@ -94,9 +95,17 @@ export function createStoreBase(ctx) {
    *     原来的 `r === p || r.startsWith(p + '/')` 正是 `isInside` 的同一件事）。
    */
   const cmpKey = (p) => pathKey(p).toLowerCase()
-  /** 授权条目 / 改动声明里的路径 → 规范绝对比较键（按既有锚点解析；`''` = 解析不出）。 */
+  /**
+   * 授权条目 / 改动声明里的路径 → 规范绝对比较键（`''` = 解析不出）。
+   *
+   * ★ **必须与守门用同一个解析器**（缺陷 ① 的教训）：守门走
+   *   `lib/scope/root-marker.js` 的 `resolveScopePath`，这里改前走的是裸
+   *   `resolveAgainstAnchor` —— 于是 `'.'`（"整棵项目根"）在**守门**那边是包根、
+   *   在**改动面审计**这边也是包根，两边一起错、一起与 `requirement.md` 的
+   *   「范围：整棵项目根」自相矛盾。收敛到一个解析器之后，两侧不可能再打架。
+   */
   const scopeAbsKey = (raw, task) => {
-    const abs = resolveAgainstAnchor(anchorOf(task), raw)
+    const abs = resolveScopePath(raw, { anchor: anchorOf(task), projectRoot })
     return abs.length === 0 ? '' : cmpKey(abs)
   }
   /** 基线的键（相对项目根）→ 同一个坐标系里的绝对比较键。 */

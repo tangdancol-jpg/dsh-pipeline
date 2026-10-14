@@ -56,6 +56,8 @@ import { recordMethods } from './store/records.js'
 import { clarifyMethods } from './store/clarify.js'
 import { humanMethods } from './store/human.js'
 import { statusMethods } from './store/status.js'
+import { dispatchSlotMethods } from './store/dispatch-slots.js'
+import { purgeMethods } from './store/purge.js'
 
 export {
   REPLY_CHANNELS,
@@ -287,6 +289,17 @@ export function createTaskStore(opts) {
       hubValidConfirms,
       effectiveReviewOk,
     }),
+    /**
+     * 任务存储 · **每次派活的四槽实际生效值** —— 见 `lib/store/dispatch-slots.js`。
+     * ★ 缺陷 ②：`roster.slots` 是**声明表**，不是"席位实际拿到了什么" ——
+     *   实际值单独记在 `task.dispatch_slots[]`（只追加、有上限、永不改写名单）。
+     */
+    ...dispatchSlotMethods({ now, audit, deny, loadTask, persist }),
+    /**
+     * 任务存储 · **收尾清理**（终态单的归档 / 删除）—— 见 `lib/store/purge.js`。
+     * ★ 缺陷 ⑦：这条是"删除任务"唯一的具名入口（**不碰** shell 判据，也不放宽它）。
+     */
+    ...purgeMethods({ root, taskDir, deny, loadTask, cache, cacheStamp }),
 
     /**
      * 往本任务的 audit.jsonl 追加一行（**工具层写审计的正规入口**）。

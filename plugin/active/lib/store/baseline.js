@@ -319,12 +319,35 @@ export function baselineMethods(ctx) {
         return deny(
           'NO_BASELINE',
           `任务 ${task.id} 还没有**改动基线** —— 没有基线就做不了前后版本对比。\n` +
-            '★ 基线应当在**派活那一刻**记录（本项目里由 pipeline_plan 产出计划时自动记录）。\n' +
-            '（L0 档没有"计划"这一站，所以也没有基线 —— 这条判据在 L0 上不适用。）',
+            '★ 基线应当在**派活那一刻**记录：有计划的单由 pipeline_plan 自动记；' +
+            '**L0 的单由规则引擎在角色清单写入后自动记**（见 lib/store/l0-baseline.js）。\n' +
+            '若这里仍然报没有基线：那张单是本次修复**之前**开的 —— 主对话可以补救一次：' +
+            '`pipeline_change_audit { task_id: "...", take: true }`。',
         )
       }
       const snap = await this.takeBaselineSnapshot(task)
       const scope = Array.isArray(task.change_scope) ? task.change_scope : []
+      /**
+       * ★★ **"没有授权面" ≠ "违反了授权面"**（缺陷 ⑤ 的第二半，2026-10-15）。
+       *
+       * L0 刻意**不塞**一个"整棵项目根"的假授权（见 `store/roster.js`：
+       * 「不塞一个'整棵项目根'的假授权：那只会制造'看起来在管、其实没管'的假执法」）
+       * ⇒ 它的 `change_scope` 就是 `null`。
+       *
+       * 而本函数早先的判据是 `inScope(rel) === null ⇒ unauthorized` ——
+       * 授权面为空时**每一条改动都命中这一条**，于是 L0 上任何写入都被算成"多改"、
+       * `verdict` 恒为 `out_of_scope`。
+       *
+       * 这在缺陷 ⑤ 修好之前**看不出来**（L0 压根没有基线，本函数直接 `NO_BASELINE` 返回）；
+       * 一旦 L0 也记了基线，它就会把**每一张 L0 单**都判成越界 —— 那是个更坏的结果。
+       *
+       * 所以留第三个结论 `no_scope`，**如实说清"这一判据在本单上不适用"**：
+       *   · `unauthorized = []`（没有授权，就没有"越界"可言）；
+       *   · `missing = []`（没有授权，就没有"少改"可言）；
+       *   · 前后差异（`added` / `modified` / `removed`）**照给** ——
+       *     那正是缺陷 ⑤ 要的"最小基线"的价值：审核至少拿得到"动了哪些文件"。
+       */
+      const hasScope = scope.length > 0
 
       const added = []
       const modified = []
@@ -359,19 +382,21 @@ export function baselineMethods(ctx) {
         return null
       }
       const unauthorized = []
-      for (const x of added) {
-        if (inScope(x.path) === null) {
-          unauthorized.push({ path: x.path, how: 'created_unauthorized', baseline_sha256: null, actual_sha256: x.sha256 ?? null })
+      if (hasScope) {
+        for (const x of added) {
+          if (inScope(x.path) === null) {
+            unauthorized.push({ path: x.path, how: 'created_unauthorized', baseline_sha256: null, actual_sha256: x.sha256 ?? null })
+          }
         }
-      }
-      for (const x of modified) {
-        if (inScope(x.path) === null) {
-          unauthorized.push({ path: x.path, how: 'modified_unauthorized', baseline_sha256: x.baseline_sha256 ?? null, actual_sha256: x.sha256 ?? null })
+        for (const x of modified) {
+          if (inScope(x.path) === null) {
+            unauthorized.push({ path: x.path, how: 'modified_unauthorized', baseline_sha256: x.baseline_sha256 ?? null, actual_sha256: x.sha256 ?? null })
+          }
         }
-      }
-      for (const x of removed) {
-        if (inScope(x.path) === null) {
-          unauthorized.push({ path: x.path, how: 'removed_unauthorized', baseline_sha256: x.baseline_sha256 ?? null, actual_sha256: null })
+        for (const x of removed) {
+          if (inScope(x.path) === null) {
+            unauthorized.push({ path: x.path, how: 'removed_unauthorized', baseline_sha256: x.baseline_sha256 ?? null, actual_sha256: null })
+          }
         }
       }
 
@@ -382,7 +407,7 @@ export function baselineMethods(ctx) {
       //   改成与 `inScope` 同一套归一化：条目 → 规范绝对键，touched → 同一个坐标系。
       const touchedAbs = new Set([...added, ...modified].map((x) => baselineAbsKey(x.path)))
       const missing = []
-      for (const e of scope) {
+      for (const e of hasScope ? scope : []) {
         const abs = scopeAbsKey(e?.path, task)
         if (abs.length === 0) continue
         if (e.action === 'delete') continue // 删除类不参与"少改"
@@ -390,7 +415,14 @@ export function baselineMethods(ctx) {
         if (!hit) missing.push({ scope_id: String(e.id ?? ''), path: String(e.path ?? '') })
       }
 
-      const verdict = unauthorized.length === 0 ? 'within_scope' : 'out_of_scope'
+      /**
+       * 三种结论（**第三种的措辞不许被读成"通过"**）：
+       *   · `within_scope`    —— 有授权面，且实测全在面内；
+       *   · `out_of_scope`    —— 有授权面，且实测有面外的改动；
+       *   · `no_scope`        —— **本单没有授权面**（L0）："越界/少改"这两条判据
+       *     在本单上**不适用**，本结论只给前后差异。
+       */
+      const verdict = hasScope ? (unauthorized.length === 0 ? 'within_scope' : 'out_of_scope') : 'no_scope'
       return {
         ok: true,
         task,
@@ -401,6 +433,12 @@ export function baselineMethods(ctx) {
         unauthorized,
         missing,
         verdict,
+        /** ★ 本单有没有授权面（`false` ⇒ 上面那个 `unauthorized` 空数组是"不适用"，不是"全通过"）。 */
+        has_scope: hasScope,
+        no_scope_reason: hasScope
+          ? ''
+          : '本单**没有授权面**（L0 自批：没有"计划"这一站，`change_scope` 是 null）—— ' +
+            '"多改 / 少改 / 改错地方"三条判据在本单上**不适用**；下面的 added / modified / removed 是**前后差异**，不是"越界"结论。',
         counts: { added: added.length, modified: modified.length, removed: removed.length, unauthorized: unauthorized.length, missing: missing.length },
       }
     },

@@ -13,6 +13,9 @@ import { renderRequirementDoc } from '../context.js'
 import { agentIdOf } from '../guard.js'
 import { TIERS, TIER_ORDER, proposeTier } from '../tiers.js'
 import { toStringArray } from '../util.js'
+import { describeScopePaths } from '../scope/root-marker.js'
+import { NONFINITE_BOUNDARY_HINT, boundaryHintLine } from '../intake/boundary-hints.js'
+import { describeL0Baseline, ensureL0Baseline } from '../store/l0-baseline.js'
 import { S, tool, resolveActor } from './kit.js'
 
 /**
@@ -285,7 +288,7 @@ export function buildIntakeTools(ctx) {
       requirement: S('string', '原始需求（与开单时一致）'),
       acceptance: S('array', '验收标准（可执行的、可判定的）', { items: { type: 'string' } }),
       test_points: S('array', '测试要点', { items: { type: 'string' } }),
-      boundaries: S('array', '边界条件（没有就给空数组）', { items: { type: 'string' } }),
+      boundaries: S('array', '边界条件（没有就给空数组）。★ 需求面提示：' + NONFINITE_BOUNDARY_HINT, { items: { type: 'string' } }),
       unclear_points: S('array', '★ 需求不清楚处清单（**必填**；没有不清楚的就给空数组 —— 那也是一个必须显式回答的结论）', { items: { type: 'string' } }),
       open_assumptions: S('array', '你替用户假设了什么（有假设却不提不清楚处会被拒）', { items: { type: 'string' } }),
       role_scope: S('object', '★ 需求分析自己的职责自限声明 { will_do: string[], will_not_do: string[] } —— 「不分配 AI、不定档、不读代码、不写实现」要写进 will_not_do', { additionalProperties: true }),
@@ -444,6 +447,14 @@ export function buildIntakeTools(ctx) {
         acceptance: Array.isArray(args.acceptance) ? args.acceptance : [],
         testPoints: Array.isArray(args.test_points) ? args.test_points : [],
         boundaries: Array.isArray(args.boundaries) ? args.boundaries : [],
+        /**
+         * ★ 缺陷 ⑧：提示**印进需求档**（所有角色以该文件为准），
+         *   但**不往 `boundaries` 里塞条目** —— 那等于伪造需求分析的结论。
+         */
+        boundaryHint: boundaryHintLine({
+          requirement: res.task.requirement,
+          boundaries: Array.isArray(args.boundaries) ? args.boundaries : [],
+        }),
         reason,
       })
       if (res.roster.tier !== 'L0') {
@@ -482,7 +493,29 @@ export function buildIntakeTools(ctx) {
       })
       indexTask(res.task.id, res.task)
 
+      /**
+       * ★★ **缺陷 ⑤：L0 也要有改动基线**。
+       *
+       * 基线改前只在**计划**那一站记，而 L0 没有计划站（规则引擎自批）
+       * ⇒ 审核的规则 R6「前后版本对比」在 L0 上**无判据可用**（真机 T-20261015-bb30bc
+       * 的审核位只能手工清点）。
+       *
+       * 时机的口径与计划路径**逐字相同**：清单定稿、即将派活。
+       * 记不上**不拦流程**（基线是审核的判据，不是开工的前提），如实写进摘要。
+       */
+      const baseline = await ensureL0Baseline({ store, task: res.task, reason })
+
       const r = res.roster
+      /**
+       * ★ **缺陷 ⑧（需求面口径，逐字照办）**：需求里若有数值入参、而 `boundaries`
+       *   没提非有限入参，就在这里提示一句 —— **只提示**：不改任何实现行为，
+       *   也**不替**需求分析往 `boundaries` 里塞条目（那等于伪造它的结论）。
+       *   判据见 `lib/intake/boundary-hints.js`（认不出就什么都不说）。
+       */
+      const hintLine = boundaryHintLine({
+        requirement: res.task.requirement,
+        boundaries: Array.isArray(args.boundaries) ? args.boundaries : [],
+      })
       return {
         ok: true,
         dry_run: false,
@@ -499,7 +532,7 @@ export function buildIntakeTools(ctx) {
                 `编写席位：${r.writers.count} 个（本档上限 ${r.max_writers}）\n`,
                 ...r.writers.partitions.map(
                   (p) =>
-                    `  · ${p.seat}｜层 ${p.layer ?? '-'} → ${(p.scope_paths ?? []).map((s) => (s === '.' ? '整棵项目根' : s)).join('、')}` +
+                    `  · ${p.seat}｜层 ${p.layer ?? '-'} → ${describeScopePaths(p.scope_paths)}` +
                     `${p.deliverables?.length ? `（${p.deliverables.join('、')}）` : ''}\n`,
                 ),
                 r.writers.reason ? `  为什么这么分：${r.writers.reason}\n` : '',
@@ -509,6 +542,8 @@ export function buildIntakeTools(ctx) {
           `  执行角色：${r.execution_roles.join(' / ')}\n` +
           `调用顺序：${r.sequence.map((s) => s.role).join(' → ')}\n` +
           `判断理由：${r.reason}\n` +
+          `${describeL0Baseline(baseline)}\n` +
+          (hintLine.length > 0 ? `${hintLine}\n` : '') +
           `需求档已落盘：.pipeline/${res.task.id}/requirement.md（${doc.version}，sha256 ${doc.sha256.slice(0, 16)}…）\n` +
           '  ★ 所有角色**以该文件为准**；路径靠**目录约定**，不再登记进任务卡。\n' +
           `\n${engineReport}\n` +

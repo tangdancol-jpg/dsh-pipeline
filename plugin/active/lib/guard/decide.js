@@ -18,7 +18,6 @@ import {
   OWN_LOG_EXTS,
   writeClassOf,
   checkOwnPath,
-  collectPaths,
   DEFAULT_SEARCH_TOOLS,
   NO_CODE_READ_ROLES,
   roleZh,
@@ -28,6 +27,7 @@ import {
   HANDOFF_DIRECTION,
 } from './rules.js'
 import { scanCommandWithScripts } from './scripts.js'
+import { collectTargets, targetLine } from './targets.js'
 import {
   agentIdOf,
   bindingForAgent,
@@ -244,13 +244,14 @@ function decide(exec, deps) {
     if (cls === 'readonly' || cls === 'none' || cls === 'own-dir' || cls === 'own-log') {
       const task = taskOf(binding.taskId)
       if (task !== null) {
-        const paths = collectPaths(args, task.projectRoot).filter((p) => p.length > 0)
-        for (const p of paths) {
+        const targets = collectTargets(args, task.projectRoot).filter((t) => t.path.length > 0)
+        for (const t of targets) {
+          const p = t.path
           if (!isInside(task.projectRoot, p)) continue // 项目外不归本插件管
           if (cls === 'readonly' || cls === 'none') {
             return (
               `${TAG} 拒绝：角色「${roleZh(binding.role)}」**只读** —— 它没有任何写文件的权限。\n` +
-              `工具：${name}\n目标：${p}\n任务：${binding.taskId}\n` +
+              `工具：${name}\n${targetLine(t)}\n任务：${binding.taskId}\n` +
               '★ 为什么连 reports/ 也不给：它的产物是**结构化交接物**（由 pipeline_* 工具落盘），\n' +
               '  不需要也不该动文件。用户的原则是：**行为不靠自然语言限制，靠代码层直接拦截** ——\n' +
               '  所以"只读"不是写在角色卡里的一句话，是这里的一条判据。\n' +
@@ -262,7 +263,7 @@ function decide(exec, deps) {
             const dir = `${task.taskSelfDir}/reports/${binding.role}/`
             return (
               `${TAG} 拒绝：角色「${roleZh(binding.role)}」只能写**自己那一片**。\n` +
-              `工具：${name}\n目标：${p}\n任务：${binding.taskId}\n` +
+              `工具：${name}\n${targetLine(t)}\n任务：${binding.taskId}\n` +
               `原因：${chk.why}\n` +
               `允许写的位置（唯一）：${dir}${binding.role}[-后缀].` +
               (cls === 'own-log' ? OWN_LOG_EXTS.join('|') : OWN_DIR_EXTS.join('|')) +
@@ -286,7 +287,7 @@ function decide(exec, deps) {
             const wp = standby.wake_point
             return (
               `${TAG} 拒绝：席位「${roleZh(binding.role)}」现在处于**已登记待机**，还没到唤醒点 —— 写自己目录的报告也算开工。\n` +
-              `工具：${name}\n目标：${p}\n任务：${binding.taskId}\n` +
+              `工具：${name}\n${targetLine(t)}\n任务：${binding.taskId}\n` +
               `唤醒点：**${wp === 'need_agree' ? '主管同意需求结论' : '主管确认架构图满足要求'}**（${wp}）\n` +
               '★ 用户口径③：「待机」是**可见的「已登记未开工」** —— 而未到点不得开工是**产物面**的判据：\n' +
               '  ① 交产物      ⇒ store 的交接物状态判据拒（HUB_STANDBY_NOT_WOKEN）；\n' +
@@ -306,14 +307,15 @@ function decide(exec, deps) {
     const task = taskOf(binding.taskId)
     if (task !== null && binding.role !== 'writer' && binding.role !== 'human') {
       const cwd = task.projectRoot
-      const paths = collectPaths(args, cwd)
-      for (const p of paths) {
+      const targets = collectTargets(args, cwd)
+      for (const t of targets) {
+        const p = t.path
         if (p.length === 0) continue
         if (!isInside(task.projectRoot, p)) continue
         if (isInside(task.reportsDir, p)) continue // 报告目录是允许的
         return (
           `${TAG} 拒绝：角色「${binding.role}」不得修改项目源码制品。\n` +
-          `工具：${name}\n目标：${p}\n任务：${binding.taskId}（受保护根：${task.projectRoot}）\n` +
+          `工具：${name}\n${targetLine(t)}\n任务：${binding.taskId}（受保护根：${task.projectRoot}）\n` +
           `允许写入的位置只有本任务的报告目录：${task.reportsDir}\n` +
           '原因：编写/测试/审核三权分立 —— 测试与审核**不得替编写改代码**（改了就没有独立验证了）。\n' +
           '如果你发现了缺陷，请用 pipeline_handoff（test_to_dev）或 pipeline_rework 把问题打回编写，由编写角色修改。'
@@ -330,10 +332,11 @@ function decide(exec, deps) {
     if (writeTools.includes(name) && binding !== null) {
       const task = taskOf(binding.taskId)
       if (task !== null) {
-        const paths = collectPaths(args, task.projectRoot)
+        const targets = collectTargets(args, task.projectRoot)
         const root = `${String(task.pipelineDir).toLowerCase()}/${String(task.taskId).toLowerCase()}`
         const recordsDir = `${root}/records/`
-        for (const p of paths) {
+        for (const t of targets) {
+          const p = t.path
           if (p.length === 0 || !isInside(root, p)) continue
           const base = p.slice(p.lastIndexOf('/') + 1)
 
@@ -346,7 +349,7 @@ function decide(exec, deps) {
             if (!mine) {
               return (
                 `${TAG} 拒绝：**只能写自己那份记录**。\n` +
-                `工具：${name}\n目标：${p}\n` +
+                `工具：${name}\n${targetLine(t)}\n` +
                 `你的身份：${binding.role}${binding.seat ? ` / ${binding.seat}` : ''}　→ 你那份应该叫 ${expectName}\n` +
                 '★ 记录的价值全在「这是谁说的」—— 写别人的记录等于伪造来源。\n' +
                 '  需要别人补内容 → 让它自己写（pipeline_record_submit），或由留档 AI 去问它。'
@@ -360,7 +363,7 @@ function decide(exec, deps) {
           if (binding.role === 'archivist') continue
           return (
             `${TAG} 拒绝：**需求档只有留档 AI（archivist）能写**，你是「${binding.role}」。\n` +
-            `工具：${name}\n目标：${p}\n` +
+            `工具：${name}\n${targetLine(t)}\n` +
             '★ 需求档是**权威需求快照** —— 所有角色默认以它为准。\n' +
             '  现在它是**分权写 + 专人汇总**出来的：各角色在 records/ 下写自己那份，\n' +
             '  留档 AI 收集后统一编写成这一个文件（每条内容都标了来源，可逐条追溯）。\n' +
@@ -384,8 +387,9 @@ function decide(exec, deps) {
       if (task !== null && writers !== null) {
         const parts = Array.isArray(writers.partitions) ? writers.partitions : []
         if (parts.length > 0) {
-          const paths = collectPaths(args, task.projectRoot)
-          for (const p of paths) {
+          const targets = collectTargets(args, task.projectRoot)
+          for (const t of targets) {
+            const p = t.path
             if (p.length === 0) continue
             if (!isInside(task.projectRoot, p)) continue
             // ★ 分区约束管的是**项目源码**；流水线自己的台账（task.json / handoffs /
@@ -393,11 +397,11 @@ function decide(exec, deps) {
             //   `records/` 尤其重要：那是"各写各的落档"，把席位挡在外面等于让分权落档没法用。
             if (task.taskSelfDir !== undefined && task.taskSelfDir !== null && isInside(task.taskSelfDir, p)) continue
             if (isInside(task.reportsDir, p)) continue
-            const owner = owningSeat(parts, p, task.scopeAnchor)
+            const owner = owningSeat(parts, p, task.scopeAnchor, task.projectRoot)
             if (owner === null) {
               return (
                 `${TAG} 拒绝：写入位置不在任何编写席位的分区里。\n` +
-                `工具：${name}\n目标：${p}\n你是：${seat}\n` +
+                `工具：${name}\n${targetLine(t)}\n你是：${seat}\n` +
                 `在册分区：\n${describePartitions(parts, task.projectRoot)}\n` +
                 '原因：编写已被拆成多个席位，每个人只写自己那一段 —— 写到分区外等于越过了编排划的界。\n' +
                 '要改范围请走 pipeline_roster_request（提出）→ pipeline_roster_review（编排复核），' +
@@ -407,7 +411,7 @@ function decide(exec, deps) {
             if (owner.seat !== seat) {
               return (
                 `${TAG} 拒绝：越界写入别人的分区。\n` +
-                `工具：${name}\n目标：${p}\n你是：${seat}（范围：${describeSeat(parts, seat, task.projectRoot)}）\n` +
+                `工具：${name}\n${targetLine(t)}\n你是：${seat}（范围：${describeSeat(parts, seat, task.projectRoot)}）\n` +
                 `该路径属于：${owner.seat}（范围：${describeSeat(parts, owner.seat, task.projectRoot)}，命中「${owner.matched}」）\n` +
                 '原因：编排把编写拆成了多个席位，各自范围**互不重叠** —— 那正是分区的意义。\n' +
                 '如果你认为某处应该由你改，请让编排复核后重新划界（pipeline_roster_request → pipeline_roster_review），' +
@@ -441,19 +445,20 @@ function decide(exec, deps) {
     const task = taskOf(binding.taskId)
     const scope = task?.changeScope ?? null
     if (task !== null && Array.isArray(scope) && scope.length > 0) {
-      const paths = collectPaths(args, task.projectRoot)
-      for (const p of paths) {
+      const targets = collectTargets(args, task.projectRoot)
+      for (const t of targets) {
+        const p = t.path
         if (p.length === 0) continue
         if (!isInside(task.projectRoot, p)) continue
         // 流水线台账不属于改动面（与分区判据同一豁免）
         if (task.taskSelfDir !== undefined && task.taskSelfDir !== null && isInside(task.taskSelfDir, p)) continue
         if (isInside(task.reportsDir, p)) continue
-        const hitScope = owningChangeScopeEntry(scope, p, task.scopeAnchor)
+        const hitScope = owningChangeScopeEntry(scope, p, task.scopeAnchor, task.projectRoot)
         if (hitScope === null) {
           return (
             `${TAG} 拒绝：**改动面超出了授权面**。\n` +
-            `工具：${name}\n目标：${p}\n任务：${binding.taskId}\n` +
-            `本次授权改动面（计划里给的，箭号后是**锚点解析结果**）：\n${describeChangeScope(scope, task.scopeAnchor)}\n` +
+            `工具：${name}\n${targetLine(t)}\n任务：${binding.taskId}\n` +
+            `本次授权改动面（计划里给的，箭号后是**锚点解析结果**）：\n${describeChangeScope(scope, task.scopeAnchor, task.projectRoot)}\n` +
             '★ 原则：**改动面必须与授权面相等** —— 多改一行也算越界。\n' +
             '  · **新增文件也算越界**（要新建必须在计划里显式授权 create）；\n' +
             '  · "顺手重构 / 顺手统一风格 / 顺手升级依赖" = **没有授权** ⇒ 不许。\n' +
@@ -478,7 +483,7 @@ function decide(exec, deps) {
         if (exists && hitScope.action === 'create') {
           return (
             `${TAG} 拒绝：命中的授权是 create，但这个路径**已经存在**。\n` +
-            `工具：${name}\n目标：${p}\n命中的授权：${hitScope.id}（action=create，${hitScope.path}）\n` +
+            `工具：${name}\n${targetLine(t)}\n命中的授权：${hitScope.id}（action=create，${hitScope.path}）\n` +
             '★ `create` 只授权"新建这一份"，**不包括改已有文件**。\n' +
             '  两种可能：① 你要改的是已有文件 → 让计划 AI 给你一条 `modify` 授权；' +
             '② 你走错了路径。都不该按"新建"处理。'
@@ -487,7 +492,7 @@ function decide(exec, deps) {
         if (hitScope.action === 'delete') {
           return (
             `${TAG} 拒绝：命中的授权是 delete，它只授权**删除**，不授权写入内容。\n` +
-            `工具：${name}\n目标：${p}\n命中的授权：${hitScope.id}（${hitScope.path}）\n` +
+            `工具：${name}\n${targetLine(t)}\n命中的授权：${hitScope.id}（${hitScope.path}）\n` +
             '★ 要改内容 → 让计划 AI 给你一条 `modify` 授权。'
           )
         }
@@ -508,14 +513,15 @@ function decide(exec, deps) {
   if (readTools.includes(name) && binding !== null && cfg.guardMainReadsCode !== false) {
     const task = taskOf(binding.taskId)
     if (task !== null && NO_CODE_READ_ROLES.includes(binding.role)) {
-      const paths = collectPaths(args, task.projectRoot)
-      for (const p of paths) {
+      const targets = collectTargets(args, task.projectRoot)
+      for (const t of targets) {
+        const p = t.path
         if (p.length === 0) continue
         if (!isInside(task.projectRoot, p)) continue
         if (isInside(task.pipelineDir, p)) continue // 任务卡 / 需求档 / 交接物是它们该看的
         return (
           `${TAG} 拒绝：${roleZh(binding.role)}不得读取代码正文。\n` +
-          `工具：${name}\n目标：${p}\n任务：${binding.taskId}\n` +
+          `工具：${name}\n${targetLine(t)}\n任务：${binding.taskId}\n` +
           '原因：' +
           (binding.role === 'main'
             ? '主对话只负责接需求、派活、跟踪状态、关单 —— 不读代码、不做技术判断。\n'
@@ -546,15 +552,15 @@ function decide(exec, deps) {
     if (isSearch) {
       const task = taskOf(binding.taskId)
       if (task !== null) {
-        const paths = collectPaths(args, task.projectRoot).filter((p) => p.length > 0)
-        const scopedToPipeline = paths.length > 0 && paths.every((p) => isInside(task.pipelineDir, p))
+        const targets = collectTargets(args, task.projectRoot).filter((t) => t.path.length > 0)
+        const scopedToPipeline = targets.length > 0 && targets.every((t) => isInside(task.pipelineDir, t.path))
         if (!scopedToPipeline) {
           return (
             `${TAG} 拒绝：${roleZh(binding.role)}不得用检索工具翻源码树。\n` +
             `工具：${name}\n任务：${binding.taskId}\n` +
-            (paths.length === 0
+            (targets.length === 0
               ? '本次调用**没有限定路径** ⇒ 默认范围就是这个工作区的源码树。\n'
-              : `目标：${paths.slice(0, 3).join('、')}\n`) +
+              : `目标：${targets.slice(0, 3).map((t) => t.path).join('、')}\n`) +
             '原因：检索工具返回的是**匹配到的代码行** —— 那就是代码正文，与"用 read 读它"没有区别。\n' +
             '★ 这条边界的画法：拦"会吐正文的"检索（grep / findstr / Select-String），' +
             '不拦"只给路径名的"（glob / 列目录）—— 后者不构成"看代码"。\n' +

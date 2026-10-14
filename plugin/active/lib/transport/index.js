@@ -39,6 +39,19 @@ import { basename } from 'node:path'
 
 import { ROLE, ROLES, roleLabel } from '../roles.js'
 import { PACKAGE_ROOT } from '../util.js'
+/**
+ * ★ 缺陷 F11：四槽的「凭什么说它生效了」拆成两个单一职责模块 ——
+ *   ① `presets.js`       模式槽的**事前**枚举与校验（宿主 `agentPresets` 服务）；
+ *   ② `slot-evidence.js` 每一槽的**证据等级**（真读回 / 想读但没接口 / 只请求未回读）。
+ *   放在这里而不是塞进本文件：本文件已经 1200 行，且这两件事与"建会话"无关。
+ */
+import { validatePreset, describePresetCheck } from './presets.js'
+import {
+  EVIDENCE,
+  slotEvidence,
+  renderSlotsEvidence,
+  pickDeclaredSlot,
+} from './slot-evidence.js'
 
 /**
  * ★★ P0-2：**永不向宿主递 `undefined` 的 signal**。
@@ -115,6 +128,51 @@ export const TRANSPORT_CONTRACT = Object.freeze({
  * **人工复制通道**。不创建任何会话，零副作用。
  * 角色身份是**声明式**的：谁拿着令牌调 pipeline_bind_role，谁就是这个角色。
  */
+/**
+ * ★★ F12：`spawn=false` 时**唯一**该走的出口 —— 只出可粘贴的派活单，**绝不碰宿主 create**。
+ *
+ * 为什么要有这个函数（真机 T-20261015-slotprobe）：
+ *   `pipeline_dispatch` 的参数文档写着「spawn: 是否真的创建会话」，工具描述也写着
+ *   「transport=manual（或 spawn_roles=false）时**只返回一段可粘贴的派活单**」——
+ *   但改前**两个分支都调 `transport.spawnRole`**（只差 `parent` / `agentId` 两个字段），
+ *   而 `SessionTransport.spawnRole` **无条件** `controller.create` ⇒
+ *   用户显式传 `spawn=false` 时，宿主那边**照样建了会话**，只是失败信息里告诉你它试过。
+ *
+ * 契约（写死在这里，谁改都得先看这段）：
+ *   · **不调用**宿主的 `sessionController.create` / `subagents.start*`；
+ *   · 铸一枚**未绑定**任何会话的令牌 + 渲染派活单，返回 `sessionId: null` / `agentId: null`；
+ *   · 返回值里 **`spawned: false`** 是给调用方与测试的机器可读判据（不靠读文案）。
+ *
+ * @param {{tokens:any}} deps
+ * @param {{task:object, roster:object, role:string, seat?:string|null}} spec
+ * @param {string} why - 为什么没建（会进流水，便于事后分辨是"调用方要求"还是"通道不可达"）
+ */
+export function manualSpawnResult(deps, spec, why) {
+  const token = deps.tokens.mint({
+    taskId: spec.task.id,
+    role: spec.role,
+    seat: spec.seat ?? null,
+    agentId: null,
+    note: 'manual transport（没有创建会话）',
+  })
+  const brief = renderDispatchBrief({ task: spec.task, roster: spec.roster, role: spec.role, token: token.token, seat: spec.seat ?? null })
+  return {
+    ok: true,
+    /** ★ 机器可读判据：**没有**创建任何会话。 */
+    spawned: false,
+    agentId: null,
+    sessionId: null,
+    token: token.token,
+    brief,
+    via: 'manual',
+    note:
+      `${why}\n` +
+      `本插件**没有创建任何会话**（零副作用：没有调用宿主 create，也没有消耗任何会话资源）。\n` +
+      `请把下面这段交给「${roleLabel(spec.role)}」那个对话，让它先调用 pipeline_bind_role 认领角色。\n\n` +
+      '```\n' + brief + '\n```',
+  }
+}
+
 export class ManualTransport {
   constructor(deps) {
     this.kind = 'manual'
@@ -131,24 +189,7 @@ export class ManualTransport {
    * @param {{task:object, roster:object, role:string, agentId?:string|null}} spec
    */
   async spawnRole(spec) {
-    const token = this.deps.tokens.mint({
-      taskId: spec.task.id,
-      role: spec.role,
-      seat: spec.seat ?? null,
-      agentId: null,
-      note: 'manual transport',
-    })
-    const brief = renderDispatchBrief({ task: spec.task, roster: spec.roster, role: spec.role, token: token.token, seat: spec.seat ?? null })
-    return {
-      ok: true,
-      agentId: null,
-      token: token.token,
-      brief,
-      note:
-        `人工复制通道：本插件没有创建任何会话（零副作用、零 token）。\n` +
-        `请把下面这段交给「${roleLabel(spec.role)}」那个对话，让它先调用 pipeline_bind_role 认领角色。\n\n` +
-        '```\n' + brief + '\n```',
-    }
+    return manualSpawnResult(this.deps, spec, '人工复制通道：')
   }
 
   /** 通知一个角色：manual 通道下只是渲染一段要粘贴的文本。 */
@@ -227,6 +268,10 @@ export class SubagentTransport {
    * @param {{task:object, roster:object, role:string, parent:any, signal?:AbortSignal}} spec
    */
   async spawnRole(spec) {
+    /** ★★ F12：`spawn=false` ⇒ 不许 `subagents.start*`。理由同 {@link SessionTransport.spawnRole}。 */
+    if (spec?.spawn === false) {
+      return manualSpawnResult(this.deps, spec, '调用方显式传了 `spawn=false`（只要派活单，不要子代理会话）：')
+    }
     const cfg = this.deps.config
     const subagents = getSubagents(this.deps.ctx)
     const token = this.deps.tokens.mint({ taskId: spec.task.id, role: spec.role, seat: spec.seat ?? null, agentId: null, note: 'subagent transport' })
@@ -794,14 +839,35 @@ async function applyPermissionSlot(ctx, sessionId, slot) {
   }
   if (!rec.applied) {
     rec.note = `权限档钉不上（很可能档名不在宿主档表里）⇒ 拒绝派活 + 留痕，不回退：\n  · ${errors.join('\n  · ')}`
+    rec.evidence = slotEvidence(EVIDENCE.FAILED, want, null, 'permissionPresets.set 全部候选会话都失败')
     return rec
   }
   if (rec.readback !== null && rec.readback !== want) {
     rec.note = `读回不符：要 ${want}，实际 ${rec.readback} ⇒ 拒绝派活（不回退、不静默）。留痕：${errors.join('；') || '无'}`
+    rec.evidence = slotEvidence(EVIDENCE.READBACK, want, rec.readback, '读回值与请求值不符 ⇒ 已拒绝派活')
     return rec
   }
   rec.ok = true
-  rec.note = `权限档 = ${want}（${rec.origin === 'default' ? '未指定 ⇒ 取三档中最小档' : '计划指定'}）；读回${rec.readback === null ? '不可用（如实登记）' : `核对一致（${rec.readback}）`}`
+  /**
+   * ★ 缺陷 F11：这里以前是一句话「权限档 = X（…）；读回核对一致（X）」。
+   *   它对**这个槽**是真话（确实读了 `permissionPresets.current`），
+   *   但读者会把它读成"整个四槽都核对过了" —— 而 `model` / `reasoning` 从来没回读过。
+   *   现在拆成**结构化证据**：真读回 / 想读但没有接口 / 只请求未回读，三态互不打掩护。
+   */
+  if (rec.readback === null) {
+    rec.evidence = slotEvidence(
+      hasMethods(presets, ['current']) ? EVIDENCE.READBACK_UNAVAILABLE : EVIDENCE.READBACK_UNAVAILABLE,
+      want,
+      null,
+      hasMethods(presets, ['current'])
+        ? 'permissionPresets.current 读不到值 ⇒ **未读回**（钉是钉上了：set 没抛错）'
+        : '宿主没有 permissionPresets.current ⇒ 无法回读（钉是钉上了：set 没抛错）',
+    )
+    rec.note = `权限档 = ${want}（${rec.origin === 'default' ? '未指定 ⇒ 取三档中最小档' : '计划指定'}）；**未读回**（${rec.evidence.detail}）`
+  } else {
+    rec.evidence = slotEvidence(EVIDENCE.READBACK, want, rec.readback, '')
+    rec.note = `权限档 = ${want}（${rec.origin === 'default' ? '未指定 ⇒ 取三档中最小档' : '计划指定'}）；会话读回一致（${rec.readback}）`
+  }
   return rec
 }
 
@@ -815,6 +881,8 @@ async function applyModelSlot(ctx, sessionId, slots) {
   if (raw === null && (effort === null || effort === undefined)) {
     rec.ok = true
     rec.note = '模型 / 推理等级未指定 ⇒ 不调用 selectModel，会话沿用环境枚举默认档（也就不会写全局默认）'
+    rec.evidence = slotEvidence(EVIDENCE.NOT_SPECIFIED, null, null, '没指定就不下发；会话沿用环境枚举默认档')
+    rec.reasoningEvidence = slotEvidence(EVIDENCE.NOT_SPECIFIED, null, null, '没指定就不下发')
     return rec
   }
   let provider = null
@@ -865,7 +933,29 @@ async function applyModelSlot(ctx, sessionId, slots) {
   }
   rec.ok = true
   rec.applied = true
-  rec.note = `模型 = ${provider}/${model}${chosen.reasoningEffort === undefined ? '' : `，推理等级 = ${chosen.reasoningEffort}`}；全局默认已还原（残余窗口如实登记：写入与还原之间新建的会话会看到被选中的模型一次 —— 与 dsh-orb 同款补偿，未消除）`
+  /**
+   * ★★ 缺陷 F11 的核心更正（用户那个尖锐的问题）：
+   *   模型 / 推理等级**从来没有回读过** —— 宿主没有"读回某个会话当前用什么模型"的接口，
+   *   改前的证据只有「`selectModel` 没抛错」。所以这里**不许**写"核对一致"，
+   *   结构化地记成 `REQUESTED`（`effective` 恒为 null ⇒ 结构上就写不出"一致"）。
+   */
+  const modelText = `${provider}/${model}`
+  const reasonText = chosen.reasoningEffort === undefined ? null : String(chosen.reasoningEffort)
+  rec.evidence = slotEvidence(
+    EVIDENCE.REQUESTED,
+    modelText,
+    null,
+    '宿主没有"读回某会话当前模型"的接口 ⇒ 证据只有 selectModel 未抛错；**没有读回，故不称一致**；全局默认已还原（残余窗口如实登记：写入与还原之间新建的会话会看到被选中的模型一次 —— 与 dsh-orb 同款补偿，未消除）',
+  )
+  rec.reasoningEvidence = slotEvidence(
+    effort === null || effort === undefined ? EVIDENCE.NOT_SPECIFIED : EVIDENCE.REQUESTED,
+    reasonText,
+    null,
+    effort === null || effort === undefined
+      ? '没指定推理等级 ⇒ 不下发'
+      : '推理等级与模型同一次 selectModel 下发；同样**没有读回**',
+  )
+  rec.note = `模型 = ${modelText}${reasonText === null ? '' : `，推理等级 = ${reasonText}`}；**已请求·未回读**（宿主没有读回接口，证据只有 selectModel 未抛错）；全局默认已还原（残余窗口如实登记：写入与还原之间新建的会话会看到被选中的模型一次 —— 与 dsh-orb 同款补偿，未消除）`
   return rec
 }
 
@@ -927,6 +1017,15 @@ export class SessionTransport {
    * 任一步不满足就**拒绝**并把理由说清楚；不做部分成功、不做近似替代。
    */
   async spawnRole(spec) {
+    /**
+     * ★★ F12：调用方说了 `spawn=false` ⇒ **一个字节都不许碰宿主**。
+     *   本通道是"真的建会话"的那条路，所以这个判断必须放在**最前面** ——
+     *   放在 `ensureProjectGroup` / `create` 之后就晚了（会话已经建出来了）。
+     */
+    if (spec?.spawn === false) {
+      this.audit(spec, 'channel:spawn_false', { note: '调用方显式要求不建会话 ⇒ 只出可粘贴的派活单，未调用宿主 create' })
+      return manualSpawnResult(this.deps, spec, '调用方显式传了 `spawn=false`（只要派活单，不要会话）：')
+    }
     const ctx = this.deps.ctx
     const cfg = this.deps.config ?? {}
     const taskId = String(spec?.task?.id ?? '')
@@ -972,6 +1071,22 @@ export class SessionTransport {
     // ④ 建会话（agentPreset 必须**显式**给，否则会落到宿主推断出来的模式）。
     const controller = readService(ctx, 'sessionController')
     const preset = slots.mode.value
+    /**
+     * ★★ 缺陷 F11：**事前**校验模式槽（改前只有两道事后判据：create 抛不抛 + 会话头读回相不相等）。
+     *   宿主有可枚举的 `agentPresets` 服务（`list()` / `resolve(id)`，见 presets.js 的模块头），
+     *   所以名字打错时**在建会话之前**就能拦住，并直接把**合法取值**交给调用方 ——
+     *   而不是让宿主静默回落到默认档、等会话建出来之后再靠读回发现。
+     *   查不到这个服务时**不拦**（如实标注"未校验"）——因为"探测不到"不等于"名字是错的"。
+     */
+    const presetCheck = await validatePreset(ctx, preset)
+    if (presetCheck.checked && !presetCheck.ok) {
+      const report = `# 拒绝派活：模式槽的名字宿主上不存在\n\n任务 ${taskId} · 角色 ${role}\n\n${describePresetCheck(presetCheck)}\n\n★ 改前这种情况要么靠 create 抛一句看不懂的话，要么宿主**静默回落到默认档**、等会话建出来再靠读回发现 —— 现在在建会话之前就拦住。`
+      this.audit(spec, 'channel:preset_unknown', { preset, available: presetCheck.ids, defaultId: presetCheck.defaultId })
+      return { ok: false, agentId: null, sessionId: null, token: null, via: SESSION_KIND, code: 'PRESET_UNKNOWN', report, note: report, escalate: 'human', slots, presetCheck }
+    }
+    if (!presetCheck.checked) {
+      this.audit(spec, 'channel:preset_unchecked', { preset, why: presetCheck.why })
+    }
     let sessionId = ''
     try {
       const created = await controller.create({ agentPreset: preset, workspaceId: group.workspaceId })
@@ -1048,16 +1163,53 @@ export class SessionTransport {
       return { ok: false, agentId: sessionId, sessionId, token: token.token, via: SESSION_KIND, report: deliverNote, note: deliverNote, escalate: 'human', group, binding, slots: { permission, mode: slots.mode, model, reasoning: slots.reasoning } }
     }
 
+    /**
+     * ★★ 缺陷 F11：四槽逐槽给**证据等级**，不再用一句话把四个槽说成同一件事。
+     *   改前「权限档 = X；读回核对一致」这半句对 permission 是真话，
+     *   却让整段读起来像"四槽都核对过" —— 而 model / reasoning 从来没回读过。
+     */
+    const declaredHit = pickDeclaredSlot(spec?.roster ?? null, role, spec?.seat ?? null)
+    /**
+     * ★ 模式槽的证据：会话头**读到了** agentPreset ⇒ 真读回（且上面已经跟请求值比对过、
+     *   不符就拒绝派活了）；读不到那个字段 ⇒ **未读回** —— `create` 没抛错**不能**当"模式落上了"。
+     */
+    const modeEvidence = slotEvidence(
+      binding.agentPreset === null ? EVIDENCE.READBACK_UNAVAILABLE : EVIDENCE.READBACK,
+      preset,
+      binding.agentPreset,
+      binding.agentPreset === null ? '会话头里读不到 agentPreset 字段 ⇒ **未读回**（create 没抛错不能当"模式落上了"）' : '',
+    )
+    const slotLines = renderSlotsEvidence(
+      {
+        mode: modeEvidence,
+        permission: permission.evidence ?? slotEvidence(EVIDENCE.FAILED, permission.value, null, '缺证据记录'),
+        model: model.evidence ?? slotEvidence(EVIDENCE.FAILED, model.value, null, '缺证据记录'),
+        reasoning: model.reasoningEvidence ?? slotEvidence(EVIDENCE.FAILED, slots.reasoning?.value ?? null, null, '缺证据记录'),
+      },
+      declaredHit === null
+        ? {}
+        : {
+            declared: {
+              permission: declaredHit.slots.permission ?? null,
+              mode: declaredHit.slots.mode ?? null,
+              model: declaredHit.slots.model ?? null,
+              reasoning: declaredHit.slots.reasoning ?? null,
+            },
+          },
+    )
+    slotLines.push(`模式预校验：${describePresetCheck(presetCheck)}`)
+
     const note = [
       `已新建**真实会话** ${sessionId}（不是子代理会话；读回 origin=${binding.origin ?? 'undefined'}）。`,
       `项目分组：${group.note}`,
-      `模式：${preset}（会话头读回 ${binding.agentPreset ?? '不可用'}）`,
-      `权限档：${permission.note}`,
-      `模型 / 推理等级：${model.note}`,
+      '',
+      '## 四槽（逐槽给证据等级 —— 哪一槽是"读回来的"、哪一槽只是"发出去了"，都在这里）',
+      ...slotLines.map((l) => `- ${l}`),
+      '',
       `角色令牌：${token.token}（已与会话绑定；转手即失效）`,
       '★ 诚实边界：「真实会话 + 归组 + 四槽」这三件事的**真派活观测**（侧栏真的多出会话、真的落进项目组、档位真的落到会话）需要用户重启插件后复验 —— 本通道给出的证据是宿主 API 的返回值与读回，不是肉眼观测。',
     ].join('\n')
-    this.audit(spec, 'channel:dispatched', { sessionId, workspaceId: group.workspaceId, preset, permission: permission.value, model: model.value })
+    this.audit(spec, 'channel:dispatched', { sessionId, workspaceId: group.workspaceId, preset, permission: permission.value, model: model.value, evidence: modeEvidence === null ? null : { mode: modeEvidence.kind, permission: permission.evidence?.kind ?? null, model: model.evidence?.kind ?? null, reasoning: model.reasoningEvidence?.kind ?? null }, presetCheck: { checked: presetCheck.checked, ok: presetCheck.ok } })
     return {
       ok: true,
       agentId: sessionId,
@@ -1070,6 +1222,17 @@ export class SessionTransport {
       group,
       binding,
       slots: { permission, mode: slots.mode, model, reasoning: slots.reasoning },
+      /**
+       * ★ F11：四槽各自的结构化证据，**原样往上传**（`lib/tools/dispatch.js` 会把它落进
+       * `roster.slots_effective[key].evidence`）。这里不做二次解释 —— 谁渲染谁负责说清楚。
+       */
+      slotEvidence: {
+        mode: modeEvidence?.kind ?? null,
+        permission: permission.evidence?.kind ?? null,
+        model: model.evidence?.kind ?? null,
+        reasoning: model.reasoningEvidence?.kind ?? null,
+      },
+      presetCheck: { checked: presetCheck.checked, ok: presetCheck.ok, ids: presetCheck.ids, defaultId: presetCheck.defaultId, why: presetCheck.why },
       note,
     }
   }

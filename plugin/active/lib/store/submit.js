@@ -118,7 +118,12 @@ export function submitMethods(ctx) {
       //   「这份对照结论要进审核的**交接物**（判据式证据，不是一句"我看了没问题"）」。
       //
       //   两道：
-      //     ① 任务**有基线**时，`change_audit` 必填（L0 没有计划站 ⇒ 没有基线 ⇒ 不适用）；
+      //     ① 任务**有基线**时，`change_audit` 必填。
+      //        ★ 缺陷 ⑤（2026-10-15）之后 **L0 也有基线了**（规则引擎在角色清单写入后
+      //          自动记一次）⇒ 这一条对 L0 同样生效 —— 那正是修它的目的（R6 在 L0 上要有判据）。
+      //          但 L0 **没有授权面**，所以 `changeAudit` 给的是第三种结论 `no_scope`
+      //          （"越界/少改"不适用，只给前后差异）—— 本判据只核对结论**一致**，不把
+      //          `no_scope` 当成 `out_of_scope`（见下面那道 `CHANGE_OUT_OF_SCOPE_OK`）。
       //     ② store **自己再算一遍**（`changeAudit`），与审核交的 `verdict` / `baseline_id` 核对 ——
       //        防"抄一份好看的结论"。审核不需要自己逐个文件比，它拿工具跑一遍即可。
       if (kind === 'review_verdict' && this.currentBaseline(task) !== null) {
@@ -324,7 +329,15 @@ export function submitMethods(ctx) {
       //     · 更谈不上"是否跑全量"那条审批链。
       //   设计意图：**不合格的提交不该消耗测试资源** —— 这是省时间省 token 的第一道闸。
       //
-      //   ⚠️ 只有"有计划 ⇒ 有基线"的任务才执法；L0 没有基线 ⇒ 弃权（与 P4 同源）。
+      //   ⚠️ 只有"**有计划 ⇒ 有授权面**"的任务才执法；L0 没有计划这一站
+      //      ⇒ **没有授权面**（`change_scope` 是 null）⇒ 这道闸弃权（与 P4 同源）。
+      //
+      //   ★★ 2026-10-15 更正（缺陷 ⑤）：这里的判据由「有没有基线」改为
+      //      「**有没有授权面**」。原因：缺陷 ⑤ 让 L0 也记了一次基线（R6 在 L0 上要有
+      //      判据），若仍按"有基线就执法"，这道闸会**顺带在 L0 上武装起来** ——
+      //      而它判的是「改动面 vs **授权面**」，L0 压根没有授权面 ⇒ 无事可判，
+      //      只会把"没申报"当成罪。那是**改了另一件事**（P4 是用户待拍板项），
+      //      不在本次修复范围内。判据与 `changeAudit` 新增的 `has_scope` **同源**。
       //
       //   ★ 本轮新增（用户拍板 P13）：
       //     · 闸门不通过**不消耗** `maxReworkPerLeg`（保持现状）——
@@ -334,7 +347,8 @@ export function submitMethods(ctx) {
       //       连续的定义与归零点见 `lib/hashgate.js` 的 `nextHashGateStreak`。
       if (kind === 'dev_to_test') {
         const baseline = this.currentBaseline(task)
-        if (baseline !== null) {
+        const hasScope = Array.isArray(task.change_scope) && task.change_scope.length > 0
+        if (baseline !== null && hasScope) {
           const auditRes = await this.changeAudit({ taskId: task.id })
           if (auditRes.ok === true) {
             const manifest = Array.isArray(v.normalized.change_manifest) ? v.normalized.change_manifest : []

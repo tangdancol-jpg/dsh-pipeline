@@ -476,18 +476,29 @@ export async function runHashGateCheck() {
     )
   }
 
-  // --- L0 弃权：没有基线就没有这道闸 ---
+  // --- L0 弃权：**没有授权面**就没有这道闸 ---
   {
     const { runHappyPath } = await import('./selftest-core.mjs')
     // ⚠️ runHappyPath 返回的是 `{ harness, taskId, ... }`（不是 { h }）—— 用错字段会得到 undefined。
     const happy = await runHappyPath({ stopAfter: 4 })
     open.push(happy.harness)
     const t = happy.harness.store.peek(happy.taskId)
+    /**
+     * ★★ 2026-10-15 更正（缺陷 ⑤）：这条断言原来判的是「**没有基线** ⇒ 弃权」。
+     *
+     * 缺陷 ⑤ 让 **L0 也记了一次基线**（规则引擎在角色清单写入后自动记 —— 目的是让
+     * 审核的 R6「前后版本对比」在 L0 上也有判据）。于是"有没有基线"这个判据不再等于
+     * "有没有授权面"，而这道闸判的恰恰是「改动面 vs **授权面**」。
+     *
+     * 所以弃权的判据改成**同源的那一条**：`change_scope` 为空 ⇒ 没有授权面 ⇒ 无事可判。
+     * ★ 这条比原来**更严**（不再靠"没有基线"这种间接特征），而且把新事实一起钉住：
+     *   **L0 现在有基线**（`currentBaseline !== null`）—— 那正是缺陷 ⑤ 要的结果。
+     */
     rec.add(
       'B 执法层',
-      '★ L0 弃权（**说明性**）：L0 没有"计划"这一站 ⇒ 没有基线 ⇒ 这道闸不适用（与 P4 同源）',
-      (t.change_scope === null || t.change_scope === undefined) && happy.harness.store.currentBaseline(t) === null,
-      `L0 任务的 change_scope=${JSON.stringify(t.change_scope ?? null)}　baseline=${JSON.stringify(happy.harness.store.currentBaseline(t)?.baseline_id ?? null)}`,
+      '★ L0 弃权（**说明性**）：L0 没有"计划"这一站 ⇒ **没有授权面** ⇒ 这道闸不适用（与 P4 同源）',
+      (t.change_scope === null || t.change_scope === undefined) && happy.harness.store.currentBaseline(t) !== null,
+      `L0 任务的 change_scope=${JSON.stringify(t.change_scope ?? null)}　baseline=${JSON.stringify(happy.harness.store.currentBaseline(t)?.baseline_id ?? null)}（缺陷 ⑤ 之后 L0 也有基线了；弃权靠的是"没有授权面"，不是"没有基线"）`,
     )
   }
 

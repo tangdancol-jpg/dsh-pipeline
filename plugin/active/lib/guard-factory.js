@@ -383,7 +383,7 @@ function undeclaredWriteReason(exec, deps, index) {
       // ② 项目根之外（两棵树里的源码树…）：基线覆盖不到 ⇒ 无据可依 ⇒ 弃权。
       if (!isInside(projectRoot, abs)) continue
       // ③ 不在本单授权面内：那是**既有范围判据**的辖区，本判据弃权（不重复、也不放宽）。
-      if (owningChangeScopeEntry(scope, abs, task.scopeAnchor ?? null) === null) continue
+      if (owningChangeScopeEntry(scope, abs, task.scopeAnchor ?? null, projectRoot) === null) continue
       // ④ 路径还不存在 ⇒ **首次创建** ⇒ 放行（依据见文件头）。但记进台账。
       if (!existsSync(abs)) {
         allowed.push({ abs, key, sha256: null, why: 'create' })

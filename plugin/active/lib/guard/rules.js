@@ -8,6 +8,7 @@
  */
 
 import { isInside, pathKey } from '../util.js'
+import { collectTargets } from './targets.js'
 
 /** 默认的**写**类文件工具名。 */
 export const DEFAULT_WRITE_TOOLS = ['write', 'edit', 'str_replace_editor', 'notebook_edit', 'apply_patch', 'multi_edit']
@@ -60,10 +61,14 @@ export const NO_WRITE_ROLES = ['supervisor']
 export const OWN_LOG_ROLES = ['reviewer']
 export const OWN_DIR_ROLES = ['tester', 'architect', 'security', 'archivist', 'diagrammer', 'release', 'docs', 'performance', 'arbiter']
 
-/** `own-dir` 允许的扩展名（测试产物 / 报告 / 日志）。 */
-export const OWN_DIR_EXTS = ['log', 'jsonl', 'md', 'json', 'txt']
-/** `own-log` 允许的扩展名（**只有日志**）。 */
-export const OWN_LOG_EXTS = ['log', 'jsonl']
+/**
+ * `own-dir` / `own-log` 的允许扩展名 —— **收敛到一处**（`lib/guard/page-exts.js`）。
+ *
+ * ★ 缺陷 ④（真机 T-20261015-bb30bc）：测试席位写 `tester-cases.mjs` 被拒，
+ *   因为可执行扩展名一个都不在允许面里。改动落在 page-exts.js，本文件只转出。
+ */
+export { OWN_DIR_EXTS, OWN_LOG_EXTS } from './page-exts.js'
+import { OWN_DIR_EXTS, OWN_LOG_EXTS, ownPathHint } from './page-exts.js'
 
 /**
  * 某个角色的 `writes` 取值 → 守门认识的类别。
@@ -118,12 +123,17 @@ export function checkOwnPath(absPath, task, role, cls) {
   // ⚠️ 后缀里要允许**连字符**：`tester-test-report.md` 是正常命名，
   //    而 `\w` 不含 `-` —— 早先写成 `[\w.]+` 会把这类合法名字判成非法。
   if (!new RegExp(`^${r}(-[\\w.-]+)?\\.(${ext})$`).test(base)) {
+    /**
+     * ★ 缺陷 ④（真机 T-20261015-bb30bc）的第二半：**拒绝文案必须给出可行替代**。
+     *   改前只说"文件名必须形如 …"，遇到"我想写一份可执行用例"的人等于没说 ——
+     *   现场那个席位只能自己猜出"塞进 stdin 管道"这条路。
+     */
     return {
       ok: false,
       why:
         `文件名必须形如 ${r}.${exts[0]} / ${r}-<后缀>.${exts[exts.length - 1]}` +
-        `（当前是 ${base}）` +
-        (cls === 'own-log' ? '；你这个角色**只能写日志**，不能产出报告文件' : ''),
+        `（当前是 ${base}）\n` +
+        ownPathHint({ role: r, cls, dir: `${dir}/`, base }),
     }
   }
   return { ok: true }
@@ -136,78 +146,25 @@ const MAX_SCANNED = 200_000
 // ---------------------------------------------------------------------------
 // 路径提取
 // ---------------------------------------------------------------------------
+//
+// ★ 缺陷 ③（真机 T-20261015-bb30bc）：本文件原来自己实现了一份 `collectPaths`，
+//   它把**正文**也当候选路径 ⇒ 正文里一个斜杠就拼出"工作区 + 正文首行"的假路径 ⇒
+//   审核席位写自己的报告被**误拒**，而拒绝文案里那行「目标：…」打的是那个假路径。
+//   现在提取逻辑**收敛到一处**：`lib/guard/targets.js`（显式路径键优先 + 单行补充扫描
+//   + 带来源）。这里只做转出，`collectPaths` 的名字与签名**一个字没变**。
+// ---------------------------------------------------------------------------
 
-/** 从任意参数值里收集"看起来像路径"的字符串。 */
-const PATH_KEYS = ['path', 'file_path', 'filepath', 'target', 'filename', 'file', 'dir', 'directory', 'cwd', 'notebook_path']
+export { MAX_SCANNED }
 
 /**
  * 从工具参数里收集目标路径（绝对化后返回）。
- *
- * 先看惯用键名；再把参数对象里所有字符串叶子扫一遍 —— 宁可多扫不可漏扫，
- * 因为**漏扫 = 守门形同不存在**。代价只是可能多要求一次授权，方向是安全的。
  *
  * @param {any} args
  * @param {string} cwd
  * @returns {string[]}
  */
 export function collectPaths(args, cwd) {
-  const found = []
-  const seen = new Set()
-  const push = (v) => {
-    if (typeof v !== 'string' || v.length === 0 || v.length > MAX_SCANNED) return
-    const s = v.trim()
-    if (s.length === 0 || seen.has(s)) return
-    seen.add(s)
-    found.push(s)
-  }
-  if (args === null || typeof args !== 'object') return []
-  for (const k of PATH_KEYS) push(args[k])
-
-  const walk = (value, depth) => {
-    if (depth > 3) return
-    if (typeof value === 'string') {
-      push(value)
-      return
-    }
-    if (Array.isArray(value)) {
-      for (const v of value) walk(v, depth + 1)
-      return
-    }
-    if (value !== null && typeof value === 'object') {
-      for (const v of Object.values(value)) walk(v, depth + 1)
-    }
-  }
-  walk(args, 0)
-
-  return found.map((p) => resolvePath(p, cwd))
-}
-
-/** 把可能是相对路径的字符串绝对化；不像路径的字符串原样返回（交由 isInside 判定）。 */
-function resolvePath(p, cwd) {
-  const s = String(p ?? '')
-  if (s.length === 0) return ''
-  // 去掉引号与 file:// 前缀
-  const cleaned = s.replace(/^file:\/{2,3}/i, '').replace(/^["']|["']$/g, '')
-  if (/^[a-z]:[\\/]/i.test(cleaned) || cleaned.startsWith('/') || cleaned.startsWith('\\\\')) return pathKey(cleaned)
-  if (/^\.{0,2}[\\/]/.test(cleaned) || cleaned.includes('/') || cleaned.includes('\\')) return pathKey(resolveJoin(cwd, cleaned))
-  return '' // 不像路径的（例如 "utf8"、"hello world"）直接丢弃
-}
-
-function resolveJoin(base, rel) {
-  const b = String(base ?? '').replace(/\\/g, '/').replace(/\/+$/, '')
-  const r = String(rel ?? '').replace(/\\/g, '/').replace(/^\.\//, '')
-  const parts = (b + '/' + r).split('/')
-  const out = []
-  for (const seg of parts) {
-    if (seg === '' || seg === '.') continue
-    if (seg === '..') {
-      out.pop()
-      continue
-    }
-    out.push(seg)
-  }
-  const joined = out.join('/')
-  return out.length > 0 && out[0].endsWith(':') ? joined : '/' + joined
+  return collectTargets(args, cwd).map((t) => t.path)
 }
 
 // ---------------------------------------------------------------------------
@@ -401,6 +358,15 @@ export const PIPELINE_TOOL_ROLES = {
   // 安全确认扫描：审核（L0~L2 自己跑）与安全角色（L3+ 出独立结论）都要能用；
   // 主对话也允许 —— 它可能被要求先扫一遍看看，再决定要不要升级。
   pipeline_security_check: ['reviewer', 'security', 'main', 'human'],
+  /**
+   * ★ 缺陷 ⑦（真机 T-20261015-bb30bc）：**终态单的收尾清理**。
+   *
+   * 与关单同档 —— 只有主对话能收尾。理由与关单一样：不可逆的数据动作，
+   * 责任必须落在一个明确的角色上。
+   * ★ 这条工具**不碰 shell 判据**（「main 不得通过 shell 修改项目文件」一个字没动）——
+   *   它是"收尾清理"的**具名入口**，不是给主对话开 shell 后门。
+   */
+  pipeline_task_purge: ['main'],
 }
 
 /**
