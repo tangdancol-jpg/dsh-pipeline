@@ -1,0 +1,6 @@
+{
+  "id": "pl-architect",
+  "name": "流水线·架构/技术方案",
+  "description": "架构/技术方案（Architect）· 权限档 own-dir —— 给出模块划分、接口契约、技术选型与风险；产物作为编写角色的输入约束。",
+  "order": 104
+}

@@ -163,9 +163,51 @@ export function isProtectedPath(task, absPath) {
  * @param {object[]|null} [input.changeScope] - `task.change_scope`（计划的授权改动面）
  * @param {string|null} [input.scopeAnchor] - ★ 授权面锚点（裸相对路径按它解析，见 {@link resolveScopeAnchor}）
  */
+/**
+ * ★ **任务自己的目录** = `<项目>/.pipeline` 与任务 id 的拼接（**唯一一处公式**）。
+ *
+ * 为什么单独导出一个函数：能力额度台账（`lib/guard/grant.js`）与工具层
+ * （`lib/tools/capability.js`）都要落在这个目录下。公式手抄第二份就是漂移的入口 ——
+ * 而这里漂移的后果是"台账落到了另一个地方"，也就是**额度查不到**（fail-closed 会拒，
+ * 但用户会看到"申请了却放行不了"）。
+ *
+ * @param {string} pipelineDir
+ * @param {string} taskId
+ * @returns {string}
+ */
+/**
+ * ★ **从同步索引里取任务**（原来写在 `decide.js` 里；2026-10-16 因**行数纪律**搬到这儿）。
+ *
+ * 守门必须同步判定，而任务数据在盘上、读取是异步的 —— 所以索引是"缓存"，
+ * **取不到就是取不到**。取不到时靠 `task.projectRoot / taskSelfDir / writers` 的判据
+ * 都会**静默跳过**（fail-open）。这里刻意**不改成 fail-closed**：索引为空是"还没热身"，
+ * 不是"调用方可疑"；一次误拦会打断正当工作。但**绝不能静默** —— 所以回调
+ * `onMissingTask` 留痕，让"这段判据没跑到"这件事在日志里看得见。
+ *
+ * @param {{deps:object, tool:string, bindingOf:()=>object|null}} opts
+ * @returns {(taskId:string)=>object|null}
+ */
+export function makeTaskOf({ deps, tool, bindingOf }) {
+  return (taskId) => {
+    const t = deps?.taskIndex?.get(taskId) ?? null
+    if (t === null && typeof deps?.onMissingTask === 'function') {
+      try {
+        const binding = typeof bindingOf === 'function' ? bindingOf() : null
+        deps.onMissingTask({ taskId, tool, role: binding?.role ?? null, seat: binding?.seat ?? null })
+      } catch {
+        /* 留痕失败绝不该影响判定 */
+      }
+    }
+    return t
+  }
+}
+export function taskSelfDirOf(pipelineDir, taskId) {
+  return `${pathKey(pipelineDir)}/${String(taskId).toLowerCase()}`
+}
+
 export function makeTaskIndexEntry({ taskId, projectRoot, pipelineDir, scopeAnchor = null, writers = null, changeScope = null, fullTest = null, hashGateBlocked = false, hashGate = null, hashGateEscalated = false, hubEnabled = false, hubStandby = null, devDelivered = false, terminal = false }) {
   const pipeline = pathKey(pipelineDir)
-  const self = `${pipeline}/${String(taskId).toLowerCase()}`
+  const self = taskSelfDirOf(pipeline, taskId)
   return {
     taskId,
     projectRoot: pathKey(projectRoot),

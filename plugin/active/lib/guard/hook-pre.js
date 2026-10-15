@@ -29,6 +29,34 @@
  */
 
 import { agentIdOf } from '../guard.js'
+import { criterionOf, SEAM_VOICE_ACTIONS } from '../intercept/seam-voice.js'
+
+/**
+ * ★★ **绝不静默**：工具缝的拒绝理由用户看得见（宿主的工具结果），
+ * 但"看见过"不等于"查得到" —— 所以每条拒绝**再补一行审计**
+ * （谁 / 何时 / 命中哪条判据 / 工具 + 目标），并在这段可见文案里点明留痕在哪。
+ *
+ * 用户裁定的判据（逐字）：「一票否决时**必须给用户可见的说明**」
+ *                      「**只有"拒绝"没有"说明" = 失败**」。
+ */
+export const DENY_TRACE_POINTER =
+  '★ 留痕：这一条已写进 `.pipeline/<任务>/audit.jsonl`（`action=seam:tool-deny`）—— 拒绝不会静默发生。'
+
+/**
+ * 从调用里抠出"目标"（写进审计的 `target`）：优先取路径 / 模式这类可核对的字段。
+ *
+ * @param {object} exec
+ * @returns {string|null}
+ */
+export function targetOf(exec) {
+  const a = exec?.arguments
+  if (a === null || typeof a !== 'object') return null
+  for (const k of ['path', 'file_path', 'pattern', 'query', 'command', 'cwd']) {
+    const v = a[k]
+    if (typeof v === 'string' && v.length > 0) return v.slice(0, 200)
+  }
+  return null
+}
 
 /**
  * 造 pre-execute 缝的中间件。
@@ -38,6 +66,7 @@ import { agentIdOf } from '../guard.js'
  * @param {(exec:object)=>string|undefined} svc.guard - **同一份**守门判据
  * @param {(sid:string)=>Promise<object>} [svc.mainReattach] - 主对话侧的重启自动认领
  * @param {(taskId:string, now?:number)=>Promise<object|null>} svc.runLivenessCheck - 失联检测（节流在 registry）
+ * @param {(spec:object)=>Promise<object|null>} [svc.recordSeamVoice] - ★ 留痕（只追加 audit.jsonl）
  * @param {(m:string)=>void} svc.warn
  * @returns {(exec:object, next:Function)=>Promise<*>}
  */
@@ -45,6 +74,7 @@ export function createPreExecuteHook(svc) {
   const { ask, guard, runLivenessCheck, warn, seatOf } = svc
   const waker = svc.waker ?? null
   const mainReattach = typeof svc.mainReattach === 'function' ? svc.mainReattach : null
+  const recordSeamVoice = typeof svc.recordSeamVoice === 'function' ? svc.recordSeamVoice : null
 
   return async function preExecuteHook(exec, next) {
     // ★★ 总开关（唯一判据在 `lib/switch/gate.js`）：关 ⇒ 这条缝一个判据都不跑。
@@ -107,7 +137,31 @@ export function createPreExecuteHook(svc) {
       // 判据炸了就 fail-closed：宁可拒一次，也不要静默放行
       reason = `[pipeline] 拦截缝内部异常，按 fail-closed 拒绝本次调用：${String(err?.message ?? err)}`
     }
-    if (typeof reason === 'string' && reason.length > 0) return { kind: 'deny', reason }
+    if (typeof reason === 'string' && reason.length > 0) {
+      // ★★ **绝不静默（用户裁定）**：拒绝必须①说给用户听 ②留得下审计。
+      //    ① 的载体就是下面返回的 `reason`（宿主的工具结果，用户看得到）+ 尾部那行留痕指引；
+      //    ② 走 `lib/intercept/seam-voice.js`：**只追加** `.pipeline/<任务>/audit.jsonl`，
+      //       **不碰 `task.json`** —— 拒绝不是进展（同 lib/reattach.js:498-505 的理由）。
+      const target = targetOf(exec)
+      if (recordSeamVoice !== null) {
+        try {
+          await recordSeamVoice({
+            taskId: seat.taskId,
+            role: seat.role,
+            seat: seat.seat ?? null,
+            agentId: agentIdOf(exec),
+            action: SEAM_VOICE_ACTIONS.TOOL_DENY,
+            criterion: criterionOf(reason),
+            tool: String(exec?.name ?? ''),
+            target,
+            note: '★ 判据落在工具缝（提示词缝不做用户消息判据）—— 真去读源码的那一次在这里被拒',
+          })
+        } catch {
+          /* 留痕失败不影响判决（记录器本身也不抛） */
+        }
+      }
+      return { kind: 'deny', reason: `${reason}\n${DENY_TRACE_POINTER}` }
+    }
     return next()
   }
 }

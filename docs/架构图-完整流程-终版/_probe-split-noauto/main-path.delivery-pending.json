@@ -1,8 +1,0 @@
-{
-  "schemaVersion": 1,
-  "command": "deliver",
-  "status": "pending",
-  "receiptId": "（UUID）",
-  "input": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\_probe-split-noauto\\main-path.candidate.json",
-  "output": "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\_probe-split-noauto\\main-path.html"
-}

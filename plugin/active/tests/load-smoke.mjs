@@ -178,8 +178,13 @@ export function createFakeCtx(opts = {}) {
  * 仍然是"能力只能靠多一条具名通道加"那个形状 —— 没有放宽任何既有工具的名单。
  *
  * ★ 方向仍然一个字没放宽：精确相等。
- */
-export const EXPECTED_TOOL_COUNT = 34
+ *
+ * ---------------------------------------------------------------------------
+ * ★ 2026-10-16 由 34 → 35 → **36**（同一天两次 +1，形状完全相同）：
+ *   · 35 = 记忆域 E0 的 `pipeline_recall`（只读切片）；
+ *   · 36 = 用户第 1 件的 `pipeline_capability_request`（能力申请通道）。
+ *   两次都是「能力只能靠多一条具名通道加，不放宽既有工具的名单」—— 判定方向一个字没放宽：精确相等。 */
+export const EXPECTED_TOOL_COUNT = 36
 
 export async function runLoadSmoke() {
   const items = []
@@ -189,7 +194,14 @@ export async function runLoadSmoke() {
   const mod = await import('../index.js')
   add('index.js 导出 name / inject / apply', mod.name === 'dsh-pipeline' && Array.isArray(mod.inject) && typeof mod.apply === 'function',
     `name=${mod.name}  inject=${JSON.stringify(mod.inject)}  apply=${typeof mod.apply}`)
-  add('inject 只声明 tools（少一个服务依赖就少一种装不上的方式）', mod.inject.length === 1 && mod.inject[0] === 'tools', `inject=${JSON.stringify(mod.inject)}`)
+  // ★★ 2026-10-15（缺陷 B）由"只有一个 tools"改为**精确等于新集合**。
+  //    为什么加 `sessionProjections`：水位（`contextPressure`）与逐轮大纲（`turnOutline`）
+  //    只能从会话投影里读；不声明它 ⇒ 直接取属性就是
+  //    `cannot get property "sessionProjections" without inject`，E5 的水位下调**一次都没生效过**。
+  //    ★ 方向**一个字没放宽**：仍然是精确相等（长度 + 顺序 + 每一项），
+  //      不是"包含" —— 它继续当"装配面被改动"的哨兵。
+  //    ★ 单一出处是 `lib/host-surface.js` 的 `PLUGIN_INJECT`（index.js 只 re-export）。
+  add('inject 精确等于 [tools, sessionProjections]（装配面被改动 ⇒ 这条必红）', mod.inject.length === 2 && mod.inject[0] === 'tools' && mod.inject[1] === 'sessionProjections', `inject=${JSON.stringify(mod.inject)}`)
 
   // --- 正常装载 -----------------------------------------------------------
   {
@@ -230,16 +242,18 @@ export async function runLoadSmoke() {
       `已挂事件：${seamEvents.join(' / ') || '（一条都没挂）'}`,
     )
     add(
-      '★ 中间件条数：pre-execute 1 条 · pre-step 1 条 · post-execute **2 条**（唤醒 + 代码拦截）',
+      '★ 中间件条数：pre-execute 1 条 · pre-step **2 条**（简报 + 记忆注入）· post-execute **3 条**（唤醒 + 记忆 retain + 代码拦截）',
       (f.interceptors.get('tools/pre-execute') ?? []).length === 1 &&
-        (f.interceptors.get('agent/pre-step') ?? []).length === 1 &&
-        (f.interceptors.get('tools/post-execute') ?? []).length === 2,
+        (f.interceptors.get('agent/pre-step') ?? []).length === 2 &&
+        (f.interceptors.get('tools/post-execute') ?? []).length === 3,
       [...f.interceptors.entries()].map(([e, a]) => `${e}: ${a.length}`).join(' · ') +
-        '\n    ★ post-execute 是 2 条**有意**的（2026-10-11「交付即唤醒」）：' +
-        '\n      · 第 1 条 = 唤醒主对话（谁交了东西 ⇒ 叫醒协调者，不管结果里有没有代码）；' +
-        '\n      · 第 2 条 = 结果带代码正文 ⇒ 拦结果（控制角色那道网）。' +
-        '\n      顺序不能反：第 2 条一旦 `{kind:"block"}`，宿主 waterfall 就不会再往下跑 ——' +
-        '\n      而**交付已经发生了**，因为"结果里带了代码"吞掉唤醒是错的。',
+        '\n    ★ 判定方向**一个字没放宽**，仍然是"精确相等"：少一条（能力悄悄消失）或多一条（悄悄多一面）都红。' +
+        '\n      本轮 +2 条是**记忆域 E1**（用户裁定 2 解除了"既有文件零修改"约束）：' +
+        '\n      · `memory-inject`（agent/pre-step）：每席位一次注入最近记忆（可被总开关摘掉）；' +
+        '\n      · `memory-retain`（tools/post-execute，排在 ③ 与 ④ 之间）：把 `pipeline_*` 的结果记进记忆库。' +
+        '\n      仍然复用**既有三个事件名**（`seamEvents.length === 3` 那条断言没变）。' +
+        '\n      ★ post-execute 三条的顺序是**有意**的：唤醒（③）→ **记忆记原始结果** → 结果网（④）；' +
+        '\n        记忆排在结果网之前，才不会记下"被本插件自己换成 feedback 的结果"（设计 04 §1 的裁决）。',
     )
     // ★ 作用域：非管线会话必须直通（这条不成立就是事故）
     {

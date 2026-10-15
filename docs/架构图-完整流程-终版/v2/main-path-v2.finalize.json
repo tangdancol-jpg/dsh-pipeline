@@ -23,7 +23,7 @@
       "durationMs": null,
       "execution": "embedded-in-deliver",
       "command": [
-        "D:\\tool\\Deepseek\\Deepseek harness\\DeepSeek Harness.exe",
+        "<DSH 安装目录>\\DeepSeek Harness.exe",
         "%USERPROFILE%\\.dsh\\skills\\archify\\bin\\archify.mjs",
         "deliver",
         "workflow",
@@ -1083,7 +1083,7 @@
       "exitCode": 0,
       "durationMs": 516,
       "command": [
-        "D:\\tool\\Deepseek\\Deepseek harness\\DeepSeek Harness.exe",
+        "<DSH 安装目录>\\DeepSeek Harness.exe",
         "%USERPROFILE%\\.dsh\\skills\\archify\\bin\\archify.mjs",
         "deliver",
         "workflow",
@@ -2162,7 +2162,7 @@
       "exitCode": 0,
       "durationMs": 122,
       "command": [
-        "D:\\tool\\Deepseek\\Deepseek harness\\DeepSeek Harness.exe",
+        "<DSH 安装目录>\\DeepSeek Harness.exe",
         "%USERPROFILE%\\.dsh\\skills\\archify\\bin\\archify.mjs",
         "check",
         "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\v2\\main-path-v2.html",
@@ -3607,7 +3607,7 @@
       "exitCode": 0,
       "durationMs": 1178,
       "command": [
-        "D:\\tool\\Deepseek\\Deepseek harness\\DeepSeek Harness.exe",
+        "<DSH 安装目录>\\DeepSeek Harness.exe",
         "%USERPROFILE%\\.dsh\\skills\\archify\\bin\\archify.mjs",
         "browser-check",
         "%USERPROFILE%\\.dsh\\dsh_orb\\架构图-完整流程-终版\\v2\\main-path-v2.html",

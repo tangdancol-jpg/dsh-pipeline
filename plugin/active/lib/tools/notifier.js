@@ -7,6 +7,9 @@
  * @module dsh-pipeline/lib/tools/notifier
  */
 
+import { roleLabel } from '../roles.js'
+import { STATE_LABEL } from '../states.js'
+
 // ---------------------------------------------------------------------------
 // 工具定义
 // ---------------------------------------------------------------------------
@@ -132,5 +135,37 @@ export function createSeatNotifier(deps = {}) {
     return r
   }
 
-  return { noteSeatDelivery, nudgeSeat, notifyOnly }
+  /**
+   * ★★ **B3：裁定落地后唤醒"停手等答复"的那个席位**。
+   *
+   * 失败**绝不静默**：把失败原文拼进返回的 summary，让主对话当场看见，
+   * 并且给出等价可达路径（`pipeline_dispatch { notify_only: true }` 手动催 / `reassign` 重派）。
+   *
+   * ★ 2026-10-16：本函数**原样搬出** `lib/tools.js`（连同它上面那段注释与下面这段文案），
+   *   逻辑一个字节没改 —— 搬家的理由是**行数纪律**（`CONVENTIONS.md` §4：单文件 ≤400 行）：
+   *   `lib/tools.js` 已经 404 行，再往上接线就要先抽一块出来。
+   *   抽的就是它（席位侧投递的最后一段，与 `nudgeSeat` 同域），抽完 `lib/tools.js` 掉到 384 行。
+   *   它**只从 `createSeatNotifier` 的返回值里出**（`lib/tools.js` 内部解构后传给 `buildHumanTools`），
+   *   模块级没有第二个导出点 —— 所以这次搬家对**所有调用方**是透明的。
+   */
+  async function wakeResumedSeat(task, role, seat, why, meta = {}) {
+    const body =
+      `【流水线 · 裁定已落地】你之前停手等的那件事有结论了（${why}）。\n` +
+      `任务 ${task.id} 当前状态：${STATE_LABEL[task.state] ?? task.state}（\`${task.state}\`）。\n` +
+      '★ 这条是**运行时上下文**，不是用户说的话。\n' +
+      '下一步：用 pipeline_status 重读任务状态，然后继续你那一份活（你原来的边界不变）。'
+    const r = await nudgeSeat(task, role, seat, body, meta)
+    if (r.ok === true) return { ok: true, line: `★ 已唤醒发起席位「${roleLabel(role)}${seat === null ? '' : `（${seat}）`}」（会话 ${r.sessionId}）。\n` }
+    return {
+      ok: false,
+      line:
+        `⚠ **裁定已落地，但叫不醒发起席位**「${roleLabel(role)}${seat === null ? '' : `（${seat}）`}」—— 这是**看得见的失败**（不是静默）：\n` +
+        `  原因：${r.note}\n` +
+        `  等价可达路径（择一）：\n` +
+        `    · 手动催一次：pipeline_dispatch { task_id: "${task.id}", role: "${role}"${seat === null ? '' : `, seat: "${seat}"`}, notify_only: true, note: "裁定已落地，请继续" }（**不建会话、不改状态**）\n` +
+        `    · 重派同一席位：pipeline_dispatch { task_id: "${task.id}", role: "${role}"${seat === null ? '' : `, seat: "${seat}"`}, reassign: true }\n`,
+    }
+  }
+
+  return { noteSeatDelivery, nudgeSeat, notifyOnly, wakeResumedSeat }
 }

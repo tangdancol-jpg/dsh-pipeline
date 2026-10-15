@@ -146,6 +146,13 @@ export function createTaskStore(opts) {
   // 公开 API
   // -------------------------------------------------------------------------
 
+  /**
+   * ★ E3：**晚绑定的开关读取口** —— `index.js` 里 `createSwitch(...)` 建在 `createTaskStore`
+   * **之后**（`:235` vs `:174`），所以 store 只能拿到一个闭包，不能拿开关对象本身。
+   * 判据仍然只有 `lib/switch/gate.js` 一处（这里一个字都不判）。
+   */
+  const swOf = typeof opts.switchRef === 'function' ? opts.switchRef : () => null
+
   return {
     projectRoot,
     root,
@@ -186,6 +193,8 @@ export function createTaskStore(opts) {
       loadTask,
       persist,
       applyHubSideEffects,
+      /** ★ E3：活文档写盘的闸门与兜底项目目录（见上面的 `swOf`）。 */
+      swOf,
     }),
     // 任务存储 · 席位失联与被拒交付留档 —— 见 `lib/store/liveness.js`
     ...livenessMethods({ now, MAX_REJECTED_PAYLOAD_CHARS, audit, deny, loadTask, persist }),
@@ -256,6 +265,9 @@ export function createTaskStore(opts) {
       hubStandbyBlocks,
       renderStandbyBlock,
       effectiveReviewOk,
+      /** ★ E3：关单是"语义上完整的时刻" —— 活文档在这里重建（见上面的 `swOf`）。 */
+      swOf,
+      projectRoot,
     }),
     // 任务存储 · 角色变更与授权面变更 —— 见 `lib/store/amend.js`
     ...amendMethods({ now, audit, deny, loadTask, persist }),

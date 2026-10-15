@@ -1,0 +1,8 @@
+{
+  "role": "human",
+  "permission": "workdir",
+  "write_class": "workdir",
+  "writes": "workdir",
+  "write_scope": "",
+  "note": "权限档取自 lib/roles.js 的 write_class=workdir（与守门 writeClassOf 同源；本文件不另立判据）。"
+}

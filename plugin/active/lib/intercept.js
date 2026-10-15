@@ -10,11 +10,12 @@
  * 文件布局（对外导出名与拆分前逐一相同，调用方不需要改 import）
  * ---------------------------------------------------------------------------
  *   intercept/seat.js          席位认人（"这个会话是不是管线席位"）
- *   intercept/prompt-rules.js  提示词的两条硬约束 + 席位开场简报（四问）
+ *   intercept/prompt-rules.js  提示词缝的**提示**判据 + 席位开场简报（四问）
+ *   intercept/seam-voice.js    ★★ **绝不静默**：可见文案 + 审计留痕（谁/何时/哪条判据/命中在哪）
  *   intercept/wake-disc.js     从"这一次调用的返回值"里取唤醒判别子
  *   intercept/registry.js      ★ 挂载编排：按总开关**真挂真摘**，并把四条缝装配起来
- *   ../guard/hook-pre.js       ① tools/pre-execute（与 ctx.tools.guard 同一份判据）
- *   ../guard/hook-prompt.js    ② agent/pre-step（提示词硬拦 + 上下文注入）
+ *   ../guard/hook-pre.js       ① tools/pre-execute（与 ctx.tools.guard 同一份判据；★ 判据的落点）
+ *   ../guard/hook-prompt.js    ② agent/pre-step（提示 + 上下文注入；**不再有一票否决**）
  *   ../guard/hook-wake.js      ③ tools/post-execute（交付即唤醒）
  *   ../guard/hook-post.js      ④ tools/post-execute（结果"第二道网"）★ 缺陷现场
  *
@@ -39,6 +40,21 @@
  */
 
 export { createSeatResolver } from './intercept/seat.js'
-export { collectPromptText, judgePrompt, seatBriefing, PROMPT_CODE_READ_RE, STOP_LADDER_FOUR } from './intercept/prompt-rules.js'
+export {
+  collectPromptText,
+  judgePrompt,
+  seatBriefing,
+  STOP_LADDER_FOUR,
+  PROMPT_CRITERIA,
+  PROMPT_ADVICE_FORM,
+} from './intercept/prompt-rules.js'
+// ★★ 绝不静默：任何一次否决都必须①有用户可见的文案 ②落一行审计（`seam-voice.js` 文件头）。
+export {
+  SEAM_VOICE_ACTIONS,
+  createSeamVoiceRecorder,
+  locateHit,
+  criterionOf,
+  seamVoiceEntry,
+} from './intercept/seam-voice.js'
 export { readWakeDisc } from './intercept/wake-disc.js'
 export { INTERCEPT_EVENTS, LIVENESS_CHECK_THROTTLE_MS, registerInterception } from './intercept/registry.js'

@@ -1,0 +1,6 @@
+{
+  "id": "pl-human",
+  "name": "流水线·人工",
+  "description": "人工（Human）· 权限档 workdir —— 异常出口：阻塞、取消、人工放行、回滚。人工动作会在审计日志里留痕。",
+  "order": 115
+}

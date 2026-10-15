@@ -1,0 +1,6 @@
+{
+  "id": "pl-performance",
+  "name": "流水线·性能/压测",
+  "description": "性能/压测（Performance）· 权限档 own-dir —— 给出基准、压测结果与性能回归结论。",
+  "order": 113
+}

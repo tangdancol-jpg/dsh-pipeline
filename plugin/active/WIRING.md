@@ -28,6 +28,11 @@
 | W7 | 产品设计交接物字段表 | `lib/handoff/schemas.js` | `product_design` 交接物**交不进去**（未知类型） |
 | W8 | p1–p8 登记进聚合跑 | `tests/run-all.mjs` | 8 套新测试**不在** `1874` 那个口径里（独立跑仍然可用） |
 | W9 | 开单/派单时建项目目录 | `lib/tools/intake.js`（`L237` 附近） | 项目目录不会自动建（只能靠主对话显式调工具） |
+| **W10** | **记忆域 E0**：`pipeline_recall` 的注册 + 工具总数断言 | `lib/tools.js` + `tests/load-smoke.mjs` + `tests/run-all.mjs` | ★ 工具**根本不存在**（`defineTool` 只在 `buildTools` 里被调用）；且 m5/m6 跑不到（假绿） |
+| **W11** | **记忆域 E1**：retain 缝 + 注入点登记 + 总开关面 + `meterMessage` | `lib/intercept/registry.js` · `lib/hostmsg.js` · `lib/switch/gate.js` | ★ 记忆库永远是空的（只能靠席位自觉调工具）；★ 且 off 下**仍在写盘/注入** = 复现"开关只关一半" |
+
+> **W10 / W11 已经做了**（本批次解除了"既有文件零修改"约束 —— 用户裁定 2）。
+> 逐处改动、行数与覆盖它的测试写在 §W10 / §W11 两节里；`W1`–`W9` 仍是**待办**。
 
 **最小可用接线**：`W1 + W2 + W3 + W5` —— 这四项做完，DEMO 闸门才**真的会拦人**。
 `W4 + W6` 是 P5 那条治理规则的落点；`W7 + W9` 是便利性；`W8` 是测试口径。
@@ -434,10 +439,83 @@ import { runP8ScopeRootCheck } from './p8-scope-root-check.mjs'
 
 ---
 
+## W10 · 记忆域 E0：`pipeline_recall` 的注册 + 两套测试进聚合跑
+
+> ★★ **这一项已经做了**（本批次解除了「既有文件零修改」约束 —— 用户裁定 2）。
+> 本节按 §5 的格式**逐处**记下来：文件:行 · 加了什么 · 为什么非加不可 · 哪个测试覆盖它。
+
+**接通什么**：`lib/tools/memory.js` 的 `buildMemoryTools({ deps, store, load })` —— 只读切片工具 `pipeline_recall`。
+
+| # | 落点（文件:行） | 加了什么 | 为什么**非加不可** | 覆盖它的测试 |
+|---|---|---|---|---|
+| W10.1 | `lib/tools.js:62` | `import { buildMemoryTools } from './tools/memory.js'` | 不 import 就没法调用它 | 全部（`load-smoke` 会因少注册一个工具而红） |
+| W10.2 | `lib/tools.js:278` | `const { memoryRecall } = buildMemoryTools({ deps, store, load })` | ★ `defineTool` **只**在 `buildTools` 里被调用 ⇒ 不在这里调用 = **工具不存在** | `load-smoke`（注册数必须精确等于 35） |
+| W10.3 | `lib/tools.js:389` | `memoryRecall,`（`allTools` 里一行） | 注册循环遍历的是 `allTools` ⇒ 不收进来就等于没产出 | `load-smoke` · `schema-check` |
+| W10.4 | `lib/hostmsg.js:333` | `export function meterMessage(text)`（+ 文档） | ★ `role:'user'` 字面量在全插件**只许出现在 `hostmsg.js`**（`liveness-check` 的 A5 是**机械判据**：扫 `lib/**` 代码行）。计价要向 `ctx.tokenMeter.estimateMessage` 交一条**形状正确**的消息 —— 所以它的唯一合法出处就是这里 | `m6`（计价走宿主 meter）· `liveness-check` A5（0 处违规） |
+| W10.5 | `tests/load-smoke.mjs:190` | `EXPECTED_TOOL_COUNT` 34 → **35** | 该断言语义是"**精确相等**"（少一个=能力消失、多一个=悄悄多一条能力，都红）。多了一个具名工具 ⇒ 这个数**必然**跟着变；方向一个字没放宽 | `load-smoke` |
+| W10.6 | `tests/run-all.mjs:739-740` | 两条登记：`m5` / `m6` | 不登记 = 聚合跑**跑不到** = **假绿**（本域没有 p1–p8 那条"刻意不登记"的理由了） | `run-all` 汇总行（2592 → 现数） |
+
+**新文件（全部新增，一行既有代码没碰）**：
+`lib/memory/bank.js`（落点解析）· `lib/memory/load.js`（读既有档案）·
+`lib/memory/route-time.js`（时间路）· `lib/memory/route-keyword.js`（关键词路）·
+`lib/memory/merge.js`（合并去重 + 确定性重排）· `lib/memory/budget.js`（★ 硬上限）·
+`lib/tools/memory.js`（工具面）· `tests/m5-memory-route-check.mjs` · `tests/m6-memory-budget-check.mjs`。
+
+**不接线的后果**：`pipeline_recall` **根本不存在**（模型看不到它，工具面是全插件唯一给模型的入口）；
+`m5`/`m6` 即使全绿也**不在**聚合口径里 —— 那正是本仓反复写过的"跑不到的全绿 = 假绿"。
+
+**接线的验收点**：`node tests/load-smoke.mjs` 断言注册数 == 35；
+`node tests/run-all.mjs` 的汇总分母包含 `m5` + `m6` 的用例。
+
+---
+
+## W11 · 记忆域 E1：retain 缝 + 注入缝 + 总开关面 + 计价消息的唯一出处
+
+> ★★ **这一项已经做了**（用户裁定 2）。三处点名的接线：`lib/intercept/registry.js` 的 `HOOKS`、
+> `lib/hostmsg.js` 的 `HOST_INJECTION_SITES`、`lib/switch/gate.js` 的 `SWITCH_SURFACES`。
+
+**接通什么**：`lib/memory/retain-hook.js`（`tools/post-execute` → 写库）与
+`lib/memory/inject-hook.js`（`agent/pre-step` → 把最近记忆作为运行时上下文交给席位）。
+
+| # | 落点（文件:行） | 加了什么 | 为什么**非加不可** | 覆盖它的测试 |
+|---|---|---|---|---|
+| W11.1 | `lib/intercept/registry.js:41,42` | 两条 import（记忆域两个 hook 工厂） | 不 import 就挂不上 | `m4` · `m8` · `load-smoke` |
+| W11.2 | `lib/intercept/registry.js:63` | `HOOKS` 加 `memory-inject`（排在开场简报之后） | 不加 ⇒ **记忆永远不进席位**（recall 只能靠席位自己想起来调） | `m8`（挂载数 6）· `load-smoke`（pre-step = 2） |
+| W11.3 | `lib/intercept/registry.js:67` | `HOOKS` 加 `memory-retain`（**插在 ③ 唤醒与 ④ 结果网之间**） | ★ 不加 ⇒ **库永远是空的**（正是用户要排除的"依赖席位自觉"）；★ 位置错了就记成"被本插件换成 feedback 的结果"（设计 04 §1 的裁决） | `m4` · `m8` · `load-smoke`（post-execute = 3） |
+| W11.4 | `lib/intercept/registry.js:194,195` | `svc` 加 `projectDir` / `tokenMeter`（都可能 undefined） | 缝里拿不到项目目录 ⇒ 记忆库落点算不出来（那就只能静默不写） | `m4`（落点取不到 ⇒ 静默不写）· `m8` |
+| W11.5 | `index.js:658-664` | `registerInterception` 传 `projectDir` + `tokenMeter` | 同上（取值处；`ctx.tokenMeter` 拿不到就降级，不新增 `inject` 依赖） | `load-smoke`（`inject` 仍然只有 `tools`） |
+| W11.6 | `lib/switch/gate.js:136-150` | `SWITCH_SURFACES` 加 **2 行**：`memory-retain`（`kind:intercept`）、`memory-inject`（`kind:inject`），都是 `off:'inert'` | ★ 不登记 ⇒ `pipeline_switch {on:false}` 之后记忆**仍在写盘 / 仍在注入** —— 那正是用户报过的"开关只关一半"。★ `switch-off-text-check` 的文案由这张表生成，登记即文案 | `m8`（R15）· `switch-off-no-hooks-check`（挂 6 → 关 0）· `switch-off-text-check` |
+| W11.7 | `lib/hostmsg.js:289-296` | `HOST_INJECTION_SITES` 加 `pre-step-memory-recall` 一行 | ★ 注入点**必须先登记**：一条裸消息就能让整个 turn 以 `reading 'kind'` 收尾（`hook-prompt.js:5-15` 的真实事故）。登记表是"防漏"的判据，自测按它核对 | `m4`（R14：注入形状 + 登记表里那一行逐字一致） |
+| W11.8 | `lib/hostmsg.js:333` | `meterMessage()`（E0 已加；W11 起被 `lib/memory/budget.js` 用） | `role:'user'` 字面量全插件只许住这里（`liveness-check` A5 是**机械判据**：扫 `lib/**` 的代码行） | `m6` · `liveness-check` A5（0 处违规） |
+| W11.9 | `tests/load-smoke.mjs:241` | 中间件条数：pre-step 1→**2**、post-execute 2→**3** | 本轮**有意**新增两条缝 ⇒ 这个计数必然变；判定方向**没放宽**（仍是精确相等） | `load-smoke` |
+| W11.10 | `tests/switch-off-no-hooks-check.mjs:106` | 挂载数 4→**6**（开）/ 0（关） | 同上；"关 ⇒ 0"这条**一个字没动** | `switch-off-no-hooks-check` |
+| W11.11 | `tests/switch-off-text-check.mjs:124` | 缝计数正则扩到 `(?:seam\|memory)-`，期望 4→**6** | ★ 不扩就是**判据本身漏了**：新缝不进计数 ⇒ "每条缝都有闸门"这句话不再成立 | `switch-off-text-check` |
+| W11.12 | `tests/run-all.mjs:741-747` | 登记 `m1` / `m2` / `m3` / `m4` / `m8` | 不登记 = 跑不到 = **假绿** | `run-all` 汇总行 |
+
+**新文件（全部新增）**：`lib/memory/record.js`（形状与校验）· `alias.js`（实体归一）·
+`append.js`（追加写，绝不抛）· `retain-hook.js`（retain 缝）· `retain-transition.js`（迁移 → 记忆）·
+`inject-hook.js`（注入缝）；`load.js` 增加 `readBank()`（读记忆库，坏行跳过）。
+测试：`tests/m1…m4` · `tests/m8`。
+
+**不接线的后果**：`W11.2/W11.3` 不接 ⇒ 记忆库永远是空的（E0 的 `recall` 只能读既有档案）；
+`W11.6` 不接 ⇒ off 之后仍在写盘/注入；`W11.7` 不接 ⇒ 注入出去的是裸消息，**整个 turn 会死**。
+
+**接线的验收点**：`node tests/m8-memory-switch-check.mjs`（off ⇒ `mounted()` 为空 + 库字节不变）；
+`node tests/load-smoke.mjs`（挂载条数 1/2/3）；`node tests/switch-off-no-hooks-check.mjs`（4→6→0）。
+
+**★ 本阶段**没有**做的事（如实写在 WIRING 里，免得被读成"已接"）**：
+`lib/memory/retain-transition.js` 的 `appendTransition` **还没挂到** `lib/store/lifecycle.js` 的迁移出口
+—— 按设计 `06-分阶段.md`，那一步属于 **E3**（与 `lib/store/review.js` 的关单触发一起）。
+
+---
+
 ## 附：本批次**没有**做的事（避免误读）
 
 1. **一个既有文件都没改**（`git diff main...HEAD --name-status` 全是 `A`）——
    所以上面 W1–W9 **全部都没做**。
+   > ★ 记忆域（`W10`/`W11`）是**例外**：用户裁定 2 批准解除该约束，
+   > 限定为"每处只加几行 + 受开关管的面要登记进 `SWITCH_SURFACES` + 有测试覆盖"，
+   > 逐处改动见 §W10 / §W11。
 2. **没有 push、没有 fetch、没有改 remote**；只在本地分支 `feat/project-dir-and-demo` 上提交。
 3. **没有重新生成 `MANIFEST.sha256`**（按用户口径）。
 4. **没有把 P6（同项目 agent 团队复用）做进来** —— 另立项。

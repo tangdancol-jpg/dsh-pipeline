@@ -1,0 +1,8 @@
+{
+  "role": "reviewer",
+  "permission": "own-log",
+  "write_class": "own-log",
+  "writes": "own-log",
+  "write_scope": "",
+  "note": "权限档取自 lib/roles.js 的 write_class=own-log（与守门 writeClassOf 同源；本文件不另立判据）。"
+}

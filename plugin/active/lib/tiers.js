@@ -44,6 +44,11 @@ import { isInside, pathKey, stableStringify, toAbsolute, toStringArray } from '.
 import { buildRelayPolicy } from './context.js'
 import { writeClassOf } from './guard.js'
 import { createHash } from 'node:crypto'
+// ★★ 用户第 2 件（行数纪律）：四槽那一整段搬进 `lib/tiers/roster-slots.js`。
+//    本文件里 `buildRoster` 要**调用** `buildRosterSlots`、`compareDispatchSlots` 与
+//    `validateRoster` 要用 `slotKeyOf` / `ROSTER_SLOT_KEYS` —— 所以除了下面的 re-export，
+//    这里还得**真的 import** 一次（只 re-export 的话它们在模块作用域里不存在）。
+import { buildRosterSlots, slotKeyOf, ROSTER_SLOT_KEYS } from './tiers/roster-slots.js'
 
 /**
  * 分档表。`execution` 是**执行角色**（不含主对话、需求分析、计划）。
@@ -814,443 +819,40 @@ export function seatOwningPath(writers, absPath, projectRoot) {
   return { ...hits[0], overlaps: hits.length > 1 ? hits.map((h) => h.seat) : [] }
 }
 
-/**
- * 校验一份 roster 结构是否自洽（落盘后读回来、或外部传进来时用）。
- *
- * @param {any} roster
- * @returns {{ok:boolean, errors:string[]}}
- */
-/** ★ 名单侧四槽的字段名（与派活通道的四槽常量同源；本层不引入通道，保持可单独加载）。 */
-export const ROSTER_SLOT_KEYS = Object.freeze(['permission', 'mode', 'model', 'reasoning'])
+// ---------------------------------------------------------------------------
+// ★ 用户第 2 件（2026-10-16）：四槽那一整段**原样搬进** `lib/tiers/roster-slots.js`
+//   （连同"一个 AI 一个专属模式"的只读判据搬进 `lib/tiers/roster-mode.js`）。
+//   原因只有一个：**行数纪律** —— 本文件 1388 行，而这次要动 `normalizeRosterSlots`
+//   的模式槽落值（规矩：给 ≥400 行的文件加行 ⇒ 先拆再改）。
+//   行为一个字节没改；下面这些导出名**一个不少**，调用方不用改 import。
+// ---------------------------------------------------------------------------
+export {
+  ROSTER_SLOT_KEYS,
+  ROSTER_PERMISSION_TIERS,
+  ROSTER_MIN_PERMISSION,
+  ROSTER_FULL_PERMISSION,
+  ROSTER_DEFAULT_MODE,
+  ROSTER_ENV_DEFAULT,
+  slotKeyOf,
+  slotRoleNeedsDeclaration,
+  normalizeRosterSlots,
+  rosterSlotTargets,
+  rosterSlotKeys,
+  rosterSlotDeclarations,
+  buildRosterSlots,
+} from './tiers/roster-slots.js'
 
-/** 三档权限（与派活通道的三档同源；逐字相等判定，不做任何归一）。 */
-export const ROSTER_PERMISSION_TIERS = Object.freeze(['read-only', 'workspace-write', 'danger-full-access'])
+// ★ 开对话留痕那一小块也单独成文件（同一条行数纪律），本文件只转出。
+export {
+  DISPATCH_OPEN_AUDIT_FIELDS,
+  DISPATCH_OPEN_ACTION,
+  dispatchOpenRecord,
+} from './tiers/dispatch-open.js'
 
-/** 未声明权限档时落的**最小档**（B3 的数据面）。 */
-export const ROSTER_MIN_PERMISSION = 'read-only'
+export {
+  roleModePlan,
+} from './tiers/roster-mode.js'
 
-/** 「完全」档：默认禁用；要在名单里声明它，必须同时带用户判定记录（B4 / B5 的数据面）。 */
-export const ROSTER_FULL_PERMISSION = 'danger-full-access'
-
-/** 模式槽未声明时的落值 —— 与派活通道的默认会话模式同源。 */
-export const ROSTER_DEFAULT_MODE = 'standard'
-
-/** 模型 / 推理等级未声明时的落值（= 该环境可枚举的默认档，由通道侧读回核对）。 */
-export const ROSTER_ENV_DEFAULT = 'environment-default'
-
-/**
- * ★ **开对话留痕**的字段表（A1 / A2 / B6 的判据落点）。
- *
- * 一条留痕 = 一次开对话请求（**接受与拒绝都留**），字段全部平级、可机读；
- * 拒绝必须带 reason（B6 明文）。
- */
-export const DISPATCH_OPEN_AUDIT_FIELDS = Object.freeze([
-  'actor_role',
-  'actor_seat',
-  'target_role',
-  'target_seat',
-  'permission',
-  'mode',
-  'model',
-  'reasoning',
-  'roster_version',
-  'at',
-  'verdict',
-  'reason',
-])
-
-/** 「开对话」留痕的动作名（走既有 audit 入口，不另建第二套日志）。 */
-export const DISPATCH_OPEN_ACTION = 'dispatch:open'
-
-/**
- * ★ **开对话留痕的一条记录**（A1 / A2 / B6 的字段面）—— 纯函数，不写盘。
- *
- * 只干一件事：把一次「开对话」请求收敛成**恰好 12 个字段**（键名与顺序 = `DISPATCH_OPEN_AUDIT_FIELDS`），
- * 让"被接受"与"被拒绝"在审计流水里是**同一种形状**的记录（机读）。
- * 落盘由 `store.recordDispatchOpen()` 走**既有** audit 入口完成（不另建第二套日志）。
- *
- * 三条刻意的取舍（不是宽容）：
- *   ① **留痕优先于报错**：`verdict` 认不出、或"拒绝却没给原因"时，本函数**仍然产出记录**
- *      （结论落成 reject，原因里写明这次是调用方违约），违约项列进 `defects`。
- *      理由：留痕是审计的底线 —— 一条缺字段的痕迹，也好过"什么都没留下"。
- *   ② **不归一四槽**：permission / mode / model / reasoning **原样照抄**请求里的值（缺就写 null）。
- *      "与名单是否逐字相等"是 `compareDispatchSlots()`（B2）的活，两处职责不许混。
- *   ③ **roster_version 只从名单上取**：它得回答"这次开对话依据的是哪一版名单"（B6）；
- *      名单没有版本位就写 null（老清单）—— 不许编一个 0 冒名"第 0 版"。
- *
- * @param {object} input - { actorRole, actorSeat, targetRole, targetSeat, permission, mode, model, reasoning, verdict, reason }
- * @param {object|null} [roster] - 任务当前 roster（取 `slots_version`）
- * @param {{at?:string}} [opts]
- * @returns {{record:object, defects:string[]}}
- */
-export function dispatchOpenRecord(input = {}, roster = null, opts = {}) {
-  const defects = []
-  const idOf = (v) => (v === null || v === undefined || String(v).length === 0 ? null : String(v))
-  /** 四个槽位原样照抄，但必须是**能被 JSON 序列化**的值（函数会被 JSON.stringify 整键丢掉 ⇒ 记录少字段）。 */
-  const slotOf = (v) => {
-    if (v === undefined || v === null) return null
-    if (typeof v === 'function') return '<function>'
-    if (typeof v === 'string') return v.length === 0 ? null : v
-    if (typeof v === 'number' || typeof v === 'boolean') return v
-    try {
-      const j = JSON.parse(JSON.stringify(v))
-      return j === undefined ? null : j
-    } catch {
-      return String(v)
-    }
-  }
-
-  const verdictRaw = String(input.verdict ?? '').trim().toLowerCase()
-  const ACCEPT = ['accept', 'accepted', 'ok', '接受']
-  const REJECT = ['reject', 'rejected', 'deny', 'denied', '拒绝']
-  let verdict = 'reject'
-  let reason = idOf(input.reason)
-  if (ACCEPT.includes(verdictRaw)) {
-    verdict = 'accept'
-  } else if (REJECT.includes(verdictRaw)) {
-    verdict = 'reject'
-  } else {
-    // 认不出的结论**按未通过落痕**（fail-closed）：不许把"没看懂"记成"接受"。
-    defects.push('VERDICT_INVALID')
-    reason =
-      `结论取值非法（${JSON.stringify(input.verdict ?? null)}）：只能是 accept 或 reject。` +
-      '★ 认不出的结论一律按**未通过**落痕，不许当成接受。'
-  }
-  if (verdict === 'reject' && reason === null) {
-    defects.push('REJECT_REASON_MISSING')
-    reason = '(拒绝但未给出原因 —— 违反 B6：拒绝记录里必须含拒绝原因)'
-  }
-
-  const rv =
-    roster !== null && typeof roster === 'object' && Number.isInteger(roster.slots_version) ? roster.slots_version : null
-
-  /** 键名与顺序**逐字**对齐 DISPATCH_OPEN_AUDIT_FIELDS（机读的那份契约）。 */
-  const record = {
-    actor_role: idOf(input.actorRole),
-    actor_seat: idOf(input.actorSeat),
-    target_role: idOf(input.targetRole),
-    target_seat: idOf(input.targetSeat),
-    permission: slotOf(input.permission),
-    mode: slotOf(input.mode),
-    model: slotOf(input.model),
-    reasoning: slotOf(input.reasoning),
-    roster_version: rv,
-    at: idOf(opts.at) ?? idOf(input.at) ?? new Date().toISOString(),
-    verdict,
-    reason,
-  }
-
-  return { record, defects }
-}
-
-/** 角色在某席位下的映射键。非编写角色没有席位 ⇒ seat 恒为 null。 */
-export function slotKeyOf(roleId, seat) {
-  const role = String(roleId ?? '')
-  const s = seat === null || seat === undefined || String(seat).length === 0 ? null : String(seat)
-  return s === null ? role : `${role}@${s}`
-}
-
-/**
- * 该角色是不是「要落四槽并接受槽位校验」的角色。
- *
- * 只读角色（main、orchestrator、planner、supervisor）**不派活、不落四槽** ——
- * （human 不在其列：它的角色表条目是既有的 `workdir`（异常出口），本单未动它。）
- * 它们本来就是只读的，给它一个权限档没有意义，反而会把"没声明"与"声明了最小档"搅在一起。
- * ⚠️ 这条分界同时是 C4（主管读源码能力为否）与 C5（主管不持有写权限）的同一份数据面：
- *    主管是只读角色 ⇒ 不在此列 ⇒ 名单里不许、也不需要给它声明工作区及以上档位。
- */
-export function slotRoleNeedsDeclaration(roleId) {
-  const cls = writeClassOf(typeof roleId === 'string' ? roleId : String(roleId ?? ''))
-  return cls === 'workdir' || cls === 'own-dir' || cls === 'own-log'
-}
-
-/**
- * 把一条槽位声明收敛成**显式落值**的四槽（B1 的数据面）。
- *
- * 每一槽返回 {value, declared, origin}：
- *   · permission 未声明 ⇒ **显式落最小档**（read-only）、origin=default ——
- *     让"没声明"与"声明了最小档"在数据上可区分（B3）；
- *   · 声明了但不在三档之内 ⇒ 直接拒（不做近似、不做归一）；
- *   · 声明「完全」档 ⇒ 必须同时带用户判定记录，否则拒（B4）；带齐了则原样保留那份记录（B5）。
- *
- * @returns {{ok:true, slots:object} | {ok:false, error:string}}
- */
-export function normalizeRosterSlots(raw, opts = {}) {
-  const r = raw !== null && typeof raw === 'object' ? raw : {}
-  const who = String(opts.who ?? '某席位')
-  const out = {}
-  const put = (key, value, origin) => {
-    out[key] = { value, declared: origin === 'declared', origin }
-  }
-
-  const permRaw = r.permission
-  if (permRaw === undefined || permRaw === null || String(permRaw).trim().length === 0) {
-    put('permission', ROSTER_MIN_PERMISSION, 'default')
-  } else {
-    const perm = String(permRaw).trim()
-    if (!ROSTER_PERMISSION_TIERS.includes(perm)) {
-      return {
-        ok: false,
-        error:
-          `席位 ${who} 的权限档「${perm}」不在三档之内（${ROSTER_PERMISSION_TIERS.join('、')}）。\n` +
-          '★ 逐字相等判定，不做任何归一：名字差一个字就是另一档。',
-      }
-    }
-    put('permission', perm, 'declared')
-  }
-
-  const modeRaw = r.mode
-  // 模式槽允许两种形态：宿主真有的 preset 名（字符串），或一个下发函数（老调用方传函数）。
-  const modeIsFn = typeof modeRaw === 'function'
-  const modeIsName = typeof modeRaw === 'string' && modeRaw.trim().length > 0
-  if (modeIsFn || modeIsName) put('mode', modeIsFn ? modeRaw : modeRaw.trim(), 'declared')
-  else put('mode', ROSTER_DEFAULT_MODE, 'default')
-
-  const modelRaw = r.model
-  if (typeof modelRaw === 'string' && modelRaw.trim().length > 0) put('model', modelRaw.trim(), 'declared')
-  else put('model', ROSTER_ENV_DEFAULT, 'default')
-
-  const reasonRaw = r.reasoning
-  if (typeof reasonRaw === 'string' && reasonRaw.trim().length > 0) put('reasoning', reasonRaw.trim(), 'declared')
-  else put('reasoning', ROSTER_ENV_DEFAULT, 'default')
-
-  const approval = r.permission_approval
-  if (out.permission.value === ROSTER_FULL_PERMISSION) {
-    const a = approval !== null && typeof approval === 'object' ? approval : null
-    const ref = a === null ? '' : String(a.ref ?? '').trim()
-    const at = a === null ? '' : String(a.at ?? '').trim()
-    if (ref.length === 0 || at.length === 0) {
-      return {
-        ok: false,
-        error:
-          `席位 ${who} 声明了「完全」档（${ROSTER_FULL_PERMISSION}），但没有可追溯的**用户判定**记录。\n` +
-          '★ 「完全」档默认禁用：要开它必须同时给出 permission_approval = { ref, at, seat }；' +
-          '缺一项即拒（B4），给了就原样留痕、事后可追溯"谁在什么时候、针对哪个席位判的"（B5）。',
-      }
-    }
-    put('permission_approval', { ref, at, seat: a.seat === undefined ? null : a.seat }, 'declared')
-  }
-
-  return { ok: true, slots: out }
-}
-
-/**
- * ★★ **四槽表的键集合**（B1 的**唯一**数据源）。
- *
- * 现场（2026-10-12）：`lib/store.js` 的写入前置判据自己又算了一遍"哪些席位要落四槽"，
- * 而它把**裸角色键 `writer`** 也算进去了；本函数在编写角色有分区时**故意不产生**这个键
- * （有分区 ⇒ 派活的实体是席位 `writer@writer#1`，不是裸角色）。
- * 两边各算一遍 ⇒ 判据每次都点名 `writer` 没声明四槽 ⇒ **任何计划都出不来**
- * （连插件自带的正例夹具都过不去）。
- *
- * 修法：键集合只有这一个出处 —— 判据与本函数**共用**它，不再各算一遍。
- * `tests/roster-authority-check.mjs` 早就断言过"裸 `writer` 键不该存在"，
- * 所以这不是放宽判据，而是让判据与既定的数据结构一致。
- *
- * @param {string[]} conversations - roster 里的独立对话清单（角色 id）
- * @param {object|null} writers - buildWriters 的结果（编写席位分区）
- * @returns {Array<{role:string, seat:string|null}>}
- */
-export function rosterSlotTargets(conversations, writers) {
-  const parts = writers !== null && typeof writers === 'object' && Array.isArray(writers.partitions) ? writers.partitions : []
-  /** 有分区的角色（编写）：它派活的实体是**席位**，不再要一个裸角色级槽位。 */
-  const seatedRoles = new Set(parts.map(() => ROLE.WRITER))
-  const targets = []
-  for (const role of Array.isArray(conversations) ? conversations : []) {
-    if (seatedRoles.has(role)) continue
-    targets.push({ role, seat: null })
-  }
-  for (const p of parts) {
-    targets.push({ role: ROLE.WRITER, seat: String(p?.seat ?? seatId(p?.index ?? 1)) })
-  }
-  return targets
-}
-
-/**
- * 四槽表的键集合（`<角色>` / `<角色>@<席位>`）—— 判据侧只要键、不要槽位本身时用它。
- *
- * ★ 与 {@link buildRosterSlots} **逐字同源**：只取"要落槽位"的角色
- *   （`slotRoleNeedsDeclaration`；只读角色不派活 ⇒ 不落槽位、也不该被判据点名），
- *   编写角色在有分区时用 `writer@<席位>` 键、**不产生裸 `writer` 键**。
- *
- * @param {string[]} conversations
- * @param {object|null} writers
- * @returns {string[]}
- */
-export function rosterSlotKeys(conversations, writers) {
-  return rosterSlotTargets(conversations, writers)
-    .filter((t) => slotRoleNeedsDeclaration(t.role))
-    .map((t) => slotKeyOf(t.role, t.seat))
-}
-
-/**
- * ★★ **按角色 / 席位取四槽声明值**（名单 → 会话的**唯一取值入口**）。
- *
- * 为什么必须补这一个函数（2026-10-14 复测核实「1d 角色专属模式」时查出的**死路**）：
- *   派活侧原本自己实现了一份取值（`lib/tools.js` 的 `pickRosterSlots`），它只读两处
- *   **裸字段**：`roster.writers.partitions[].seat` 与 `roster.sequence[].role`。
- *   而这两处**从来不承载四槽**：
- *     · `buildRoster` 产出的 `sequence[]` 条目是 `{role, phase, order, requires}`（本文件 :372）；
- *     · `buildWriters` 产出的 `partitions[]` 条目是
- *       `{seat, role_id, layer, scope_paths, interface_owner, deliverables}`（本文件 :689）。
- *   ⇒ 取值**永远是 undefined** ⇒ 每一槽都落回通道兜底
- *     （权限恒为最小档、**模式恒为全局那一个默认值**）。
- *   与此同时，真正的权威来源 `roster.slots`（`buildRosterSlots` 的产物，本文件自己写明是
- *   "『每个席位拿到什么档』的**唯一出处**"）**没有任何派活路径读它** —— 全项目只有
- *   `compareDispatchSlots` 读，而它**没有任何调用点**。
- *
- *   ⇒ 后果：**「一个 AI 一个专属模式」在数据上根本无法成立** ——
- *     名单里就算按角色声明了各自的 mode，也一个字都到不了会话头。
- *
- * 本函数就是那条缺失的取值路径。优先级（逐槽独立判定，不做归一、不做合并）：
- *   ① `roster.slots[<角色>|<角色>@<席位>]` 里 **origin === 'declared'** 的槽（权威表；
- *      且**只认显式声明的** —— `origin==='default'` 是 `buildRosterSlots` 填的占位默认值，
- *      把它当"声明过"会让审计里的 origin 说谎）；
- *   ② `roster.writers.partitions[]` 里该席位的裸同名字段（兼容手写名单）；
- *   ③ `roster.sequence[]` 里该角色的裸同名字段（兼容手写名单）。
- *   三处都没有 ⇒ **不产出这个键**（= 这一槽没给），由通道按契约取兜底并留痕。
- *
- * ★ 纯函数、只读：不建结构、不改名单、不做"请求 vs 名单是否相等"的判定（那是 B2）。
- * ★ 名单里没有四槽时它是**空操作** ⇒ 行为与改造前逐字节等价。
- *
- * @param {object|null} roster
- * @param {string} role
- * @param {string|null} [seat]
- * @returns {Record<string, any>} 只含**取到值**的槽（可能为空对象）
- */
-export function rosterSlotDeclarations(roster, role, seat = null) {
-  const out = {}
-  if (roster === null || roster === undefined || typeof roster !== 'object') return out
-  /** 三处来源按优先级依次补空 —— 先到先得，不覆盖已有值。 */
-  const take = (src) => {
-    if (src === null || src === undefined || typeof src !== 'object') return
-    for (const k of ROSTER_SLOT_KEYS) {
-      if (out[k] === undefined && src[k] !== undefined && src[k] !== null) out[k] = src[k]
-    }
-  }
-  // ① 权威冻结表：只认 declared（default 是占位，不是声明）
-  const table = roster.slots !== null && typeof roster.slots === 'object' ? roster.slots : null
-  if (table !== null) {
-    const entry = table[slotKeyOf(role, seat)]
-    if (entry !== null && entry !== undefined && typeof entry === 'object') {
-      const declared = {}
-      for (const k of ROSTER_SLOT_KEYS) {
-        const cell = entry[k]
-        if (cell !== null && cell !== undefined && typeof cell === 'object' && cell.origin === 'declared' && cell.value !== undefined && cell.value !== null) {
-          declared[k] = cell.value
-        }
-      }
-      take(declared)
-    }
-  }
-  // ② 编写席位上的裸声明
-  if (role === ROLE.WRITER && typeof seat === 'string' && seat.length > 0) {
-    const parts = Array.isArray(roster.writers?.partitions) ? roster.writers.partitions : []
-    take(parts.find((p) => p !== null && p !== undefined && p.seat === seat))
-  }
-  // ③ 角色上的裸声明
-  const seq = Array.isArray(roster.sequence) ? roster.sequence : []
-  take(seq.find((s) => s !== null && s !== undefined && s.role === role))
-  return out
-}
-
-/**
- * ★★ **「一个 AI 一个专属模式」的只读判据**。
- *
- * 需求原文（交付文档 · 需求2）：「**要求追加新的内置模式，满足用于不同 ai 的专属模式**」；
- * 用户在 HR-4dc4643d207f77e8 的裁定原话：「**3) 一个 AI 一个专属模式**」。
- *
- * 这条需求能不能成立，是一个**可机读的事实**，不该靠形容词：
- *   · `declared_count` = 名单里**显式声明**过 mode 的角色/席位有几个；
- *   · `distinct_declared_modes` = 这些声明值里有几个**互不相同**；
- *   · `per_role_ok` = `distinct_declared_modes >= 2`。
- *
- * ★ 为什么阈值取 2：只有一个取值时，"每个角色各自的模式"与"全局一个默认值"
- *   在**数据上无法区分** —— 那正是 1d 长期标「未核实」的实质。
- * ★ 本函数**只读不判**：它不假装知道哪个模式名"适合"哪个角色（那是计划位的活），
- *   只回答"名单里到底有没有按角色分开的模式"。
- *
- * @param {object|null} roster
- * @returns {{rows:Array<{key:string,mode:any,origin:string|null,declared:boolean}>, declared_count:number, total:number, distinct_declared_modes:number, per_role_ok:boolean}}
- */
-export function roleModePlan(roster) {
-  const table = roster !== null && typeof roster === 'object' && roster.slots !== null && typeof roster.slots === 'object' ? roster.slots : {}
-  const rows = Object.keys(table)
-    .sort()
-    .map((key) => {
-      const entry = table[key]
-      const cell = entry !== null && entry !== undefined && typeof entry === 'object' ? entry.mode : undefined
-      const isCell = cell !== null && cell !== undefined && typeof cell === 'object'
-      const origin = isCell && typeof cell.origin === 'string' ? cell.origin : null
-      return {
-        key,
-        mode: isCell && cell.value !== undefined ? cell.value : null,
-        origin,
-        declared: origin === 'declared',
-      }
-    })
-  const distinct = new Set(rows.filter((r) => r.declared).map((r) => String(r.mode)))
-  const declaredCount = rows.filter((r) => r.declared).length
-  return {
-    rows,
-    declared_count: declaredCount,
-    total: rows.length,
-    distinct_declared_modes: distinct.size,
-    per_role_ok: distinct.size >= 2,
-  }
-}
-
-/**
- * 构造名单的**四槽表**（`roster.slots`）—— "每个席位拿到什么档"的唯一出处。
- *
- * @param {string[]} conversations - roster 里的独立对话清单（角色 id）
- * @param {object|null} writers - buildWriters 的结果（编写席位分区）
- * @param {object} input - { slots?: {键: 声明}, strictSlots?: boolean }
- * @returns {{ok:true, slots:object, digest:string, missing:string[]} | {ok:false, error:string}}
- */
-export function buildRosterSlots(conversations, writers, input = {}) {
-  const raw = input.slots !== null && typeof input.slots === 'object' ? input.slots : {}
-  const known = Object.keys(raw)
-  const targets = rosterSlotTargets(conversations, writers)
-  const targetsSet = new Set(targets.map((t) => slotKeyOf(t.role, t.seat)))
-  const strays = known.filter((k) => !targetsSet.has(k))
-  if (strays.length > 0) {
-    return {
-      ok: false,
-      error:
-        `名单四槽表里有 ${strays.length} 个键对不上本次清单里的任何角色或席位：${strays.join('、')}\n` +
-        `本次清单的键：${[...targetsSet].join('、')}\n` +
-        '★ 对不上就是"声明了但没有这个席位"—— 那比不声明更危险：它看起来像已经安排好了。',
-    }
-  }
-
-  const strict = input.strictSlots === true
-  const slots = {}
-  const missing = []
-  for (const t of targets) {
-    const key = slotKeyOf(t.role, t.seat)
-    const declaredHere = Object.hasOwn(raw, key)
-    const needDeclare = slotRoleNeedsDeclaration(t.role)
-    if (!declaredHere && needDeclare) missing.push(key)
-    if (!declaredHere && !needDeclare) continue
-    const who = t.seat === null ? t.role : `${t.role}（席位 ${t.seat}）`
-    const built = normalizeRosterSlots(raw[key], { who })
-    if (built.ok !== true) return { ok: false, error: built.error }
-    slots[key] = built.slots
-  }
-
-  if (strict && missing.length > 0) {
-    return {
-      ok: false,
-      error:
-        `名单缺少 ${missing.length} 个席位的四槽声明：${missing.join('、')}\n` +
-        '★ 四槽（权限档、内置模式、模型、推理等级）是**四个平级字段**，不许打包成一个 options 对象；\n' +
-        '  缺任一槽即不算声明 —— 否则"名单声明什么档、会话实际拿到什么档"就无从判定（B1）。',
-    }
-  }
-
-  return { ok: true, slots, digest: stableStringify(slots), missing }
-}
 
 /**
  * ★ **逐字段严格相等**地比对一次「开对话」请求带下来的四槽与名单里冻结的四槽（B2）。

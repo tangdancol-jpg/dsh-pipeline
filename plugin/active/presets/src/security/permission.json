@@ -1,0 +1,8 @@
+{
+  "role": "security",
+  "permission": "own-dir",
+  "write_class": "own-dir",
+  "writes": "own-dir",
+  "write_scope": "",
+  "note": "权限档取自 lib/roles.js 的 write_class=own-dir（与守门 writeClassOf 同源；本文件不另立判据）。"
+}

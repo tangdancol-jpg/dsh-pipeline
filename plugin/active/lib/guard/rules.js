@@ -10,20 +10,20 @@
 import { isInside, pathKey } from '../util.js'
 import { collectTargets } from './targets.js'
 
-/** 默认的**写**类文件工具名。 */
-export const DEFAULT_WRITE_TOOLS = ['write', 'edit', 'str_replace_editor', 'notebook_edit', 'apply_patch', 'multi_edit']
 
-/** 默认的**读**类文件工具名。 */
-export const DEFAULT_READ_TOOLS = ['read', 'read_image', 'read_file', 'view_file']
 
-/** 默认的 shell 工具名（实测确认：宿主里真实名字是 pwsh / bash）。 */
-export const DEFAULT_SHELL_TOOLS = ['pwsh', 'powershell', 'bash', 'sh', 'cmd', 'shell', 'terminal']
-
-/** shell 工具名的宽松判据（与显式名单取并集）。 */
-export const DEFAULT_SHELL_TOOL_PATTERN = 'pwsh|powershell|bash|\\bsh\\b|cmd|shell|terminal|run_command|exec_command|run_shell'
-
-/** 不参与路径判定、但属于流水线控制的工具名（避免误判）。 */
-export const PIPELINE_TOOL_PREFIX = 'pipeline_'
+// ★ 用户第 1 件（行数纪律）：工具名分类那一块搬进 `lib/guard/tool-names.js`，本文件只转出。
+export {
+  DEFAULT_WRITE_TOOLS,
+  DEFAULT_READ_TOOLS,
+  DEFAULT_SHELL_TOOLS,
+  DEFAULT_SHELL_TOOL_PATTERN,
+  PIPELINE_TOOL_PREFIX,
+  MAX_SCANNED,
+  collectPaths,
+  collectCommandStrings,
+  isShellToolName,
+} from './tool-names.js'
 
 /**
  * ★「只写自己那一片」的角色 —— 把 `lib/roles.js` 的 `writes` 逐字节落到守门上。
@@ -140,33 +140,6 @@ export function checkOwnPath(absPath, task, role, cls) {
 }
 
 
-/** 单个字符串参数最多扫描多少字符（防止拿 1MB 内容跑正则）。 */
-const MAX_SCANNED = 200_000
-
-// ---------------------------------------------------------------------------
-// 路径提取
-// ---------------------------------------------------------------------------
-//
-// ★ 缺陷 ③（真机 T-20261015-bb30bc）：本文件原来自己实现了一份 `collectPaths`，
-//   它把**正文**也当候选路径 ⇒ 正文里一个斜杠就拼出"工作区 + 正文首行"的假路径 ⇒
-//   审核席位写自己的报告被**误拒**，而拒绝文案里那行「目标：…」打的是那个假路径。
-//   现在提取逻辑**收敛到一处**：`lib/guard/targets.js`（显式路径键优先 + 单行补充扫描
-//   + 带来源）。这里只做转出，`collectPaths` 的名字与签名**一个字没变**。
-// ---------------------------------------------------------------------------
-
-export { MAX_SCANNED }
-
-/**
- * 从工具参数里收集目标路径（绝对化后返回）。
- *
- * @param {any} args
- * @param {string} cwd
- * @returns {string[]}
- */
-export function collectPaths(args, cwd) {
-  return collectTargets(args, cwd).map((t) => t.path)
-}
-
 // ---------------------------------------------------------------------------
 // ★ 设计目的（第一性目标）：**防过度工程化** —— 每个 AI 只干自己该干的
 // ---------------------------------------------------------------------------
@@ -251,57 +224,6 @@ export function roleZh(role) {
 }
 
 
-/**
- * 从 shell 工具的实参里收集命令串。
- * pwsh/bash 用 `command`；别的 shell 类工具可能叫 cmd/script/input/code。
- */
-export function collectCommandStrings(args) {
-  const out = []
-  const seen = new Set()
-  const push = (v) => {
-    if (typeof v !== 'string' || v.length === 0 || v.length > MAX_SCANNED || seen.has(v)) return
-    seen.add(v)
-    out.push(v)
-  }
-  if (args === null || typeof args !== 'object') return out
-  for (const k of ['command', 'cmd', 'script', 'input', 'code', 'shell_command']) push(args[k])
-  const walk = (value, depth) => {
-    if (depth > 3) return
-    if (typeof value === 'string') {
-      push(value)
-      return
-    }
-    if (Array.isArray(value)) {
-      for (const v of value) walk(v, depth + 1)
-      return
-    }
-    if (value !== null && typeof value === 'object') for (const v of Object.values(value)) walk(v, depth + 1)
-  }
-  walk(args, 0)
-  return out
-}
-
-/** 工具名是不是 shell 类。 */
-export function isShellToolName(toolName, opts = {}) {
-  const name = typeof toolName === 'string' ? toolName.toLowerCase() : ''
-  if (name.length === 0) return false
-  const list = Array.isArray(opts.shellTools) && opts.shellTools.length > 0 ? opts.shellTools : DEFAULT_SHELL_TOOLS
-  for (const raw of list) {
-    const c = String(raw).toLowerCase()
-    if (c.length === 0) continue
-    if (name === c || name.startsWith(`${c}-`) || name.startsWith(`${c}_`)) return true
-  }
-  const pattern = typeof opts.shellToolPattern === 'string' ? opts.shellToolPattern : DEFAULT_SHELL_TOOL_PATTERN
-  if (pattern.length > 0) {
-    try {
-      if (new RegExp(pattern, 'i').test(name)) return true
-    } catch {
-      /* 配置写错就当没有正则这条路 */
-    }
-  }
-  return false
-}
-
 // ---------------------------------------------------------------------------
 // 守门判据
 // ---------------------------------------------------------------------------
@@ -373,6 +295,19 @@ export const PIPELINE_TOOL_ROLES = {
   //    但工具面按**动作**分流太细，这里与 `pipeline_transition` 同档放开给 main，
   //    席位侧由 `lib/tools/demo.js` 里的 `resolveActor` 与状态机的 `by` 名单兜住。
   pipeline_demo: ['main'],
+  /**
+   * ★★ 用户第 1 件（2026-10-16）：**能力申请通道**。
+   *
+   * 「主对话的限制应该是平常禁止读代码、写面、工具面按角色收紧等，但是**必要时能向用户申请**」。
+   * 只有**主对话**能调 —— 理由与"它就在用户的对话框里"同源：申请要落到**用户**手上，
+   * 而别的角色通向用户的路是既有的两级梯（`pipeline_clarify_request` → `pipeline_human_request`），
+   * 那两条的受理人本来就对，不需要第三条。
+   *
+   * ★ 它是"多一条具名通道"，**没有放宽任何既有工具的名单** ——
+   *   放行一次这件事发生在 `decide.js` 的 `tryCapabilityRelease`（读台账、消耗额度），
+   *   而台账里的额度**来自用户明确答复**（`user_quote` 必填）。
+   */
+  pipeline_capability_request: ['main'],
 }
 
 /**

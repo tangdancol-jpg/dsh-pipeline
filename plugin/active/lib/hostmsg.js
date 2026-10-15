@@ -254,6 +254,19 @@ export const HOST_INJECTION_SITES = [
     why: '席位开场注入：边界卡 + Stop Ladder 四问（★ 就是这一处曾经炸掉子会话）',
   },
   {
+    id: 'pre-step-prompt-advice',
+    where: 'lib/guard/hook-prompt.js · agent/pre-step',
+    field: 'decision.messages[]',
+    form: 'prompt-advice',
+    via: 'hostMessage',
+    why:
+      '★★ **绝不静默**（2026-10-16 真机缺陷）：提示词缝的判据命中时**不再** `{kind:"reject"}` 掉整轮' +
+      '（那条路 turn 根本不开始 ⇒ 拒绝理由没有出口 ⇒ 用户只看到"这一轮 1 秒结束、消息像没发出去"），' +
+      '而是把说明**注入成一条用户看得见的消息**，并落一行 `seam:prompt-advice` 审计' +
+      '（`lib/intercept/seam-voice.js`）。' +
+      '★ 判据口径同时收窄：**用户消息层不再做越界判据**，落点在 `tools/pre-execute`。',
+  },
+  {
     id: 'pre-step-stale-seat-notice',
     where: 'lib/intercept.js · agent/pre-step',
     field: 'decision.messages[]',
@@ -286,6 +299,17 @@ export const HOST_INJECTION_SITES = [
     why: '工具结果拦截的纠正反馈：交的是 `feedback` 内容块，**不是消息**（宿主不读它的 source）',
   },
   {
+    id: 'pre-step-memory-recall',
+    where: 'lib/memory/inject-hook.js · agent/pre-step（挂载由 lib/intercept/registry.js 按闸门决定）',
+    field: 'decision.messages[]',
+    form: 'memory-recall',
+    via: 'hostMessage',
+    why:
+      '★ 记忆注入（E1）：把 `.pipeline/_memory/` 里最近的若干条记忆作为**运行时上下文**交给席位（每席位一次、有硬 token 上限）。' +
+      '★ **必须先登记再加实现**：一条裸消息（`{role,content:"…"}`）就能让整个 turn 以 ' +
+      "`Cannot read properties of undefined (reading 'kind')` 收尾 —— 见 lib/guard/hook-prompt.js:5-15 的那次事故。",
+  },
+  {
     id: 'wake-main-session',
     where: 'lib/wakeup.js · deliver()（触发点见 lib/intercept.js · tools/post-execute）',
     field: '目标会话的 inbox（agent.followup(message)）',
@@ -298,6 +322,29 @@ export const HOST_INJECTION_SITES = [
       '注入点表的这条由 tests/wake-check.mjs 的「注入形状」用例组按表核对。',
   },
 ]
+
+/**
+ * ★ 造一条**计价用的**模型可见消息 —— **只作 `ctx.tokenMeter.estimateMessage()` 的入参**。
+ *
+ * ---------------------------------------------------------------------------
+ * 为什么它住在这里（而不是各调用方自己拼）
+ * ---------------------------------------------------------------------------
+ * `role:'user'` 这个字面量在本插件里**只允许出现在本文件**
+ * （`tests/liveness-check.mjs` 的 A5 是一条**机械判据**：扫 `lib/**` 的每一行代码，
+ * 除 `hostmsg.js` 外出现 `role: 'user'|'assistant'` 就算违规 —— 目的是"不许有人手写会话消息"）。
+ * 计价需要一条**形状正确**的消息当尺子的输入，于是它的唯一合法出处就是这里。
+ *
+ * ⚠️ **它不是注入物**：本函数**故意**不带 `id` / `source`（那两个字段是"要写进会话"的标志）。
+ *    ⇒ 注入一律用 {@link hostMessage}；**绝不许**把本函数的返回值塞进 `messages[]`
+ *      —— 那正是 A5 要防的裸消息（会让整个 turn 以 `reading 'kind'` 收尾）。
+ *    ⇒ 也正因为它不注入，所以**不登记**进 {@link HOST_INJECTION_SITES}（登记表是注入点清单）。
+ *
+ * @param {unknown} text
+ * @returns {{role:'user', content:Array<{type:'text',text:string}>}}
+ */
+export function meterMessage(text) {
+  return { role: 'user', content: [{ type: 'text', text: String(text ?? '') }] }
+}
 
 /**
  * ★ 造一条**宿主形状**的用户消息。

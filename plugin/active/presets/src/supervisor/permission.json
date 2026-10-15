@@ -1,0 +1,8 @@
+{
+  "role": "supervisor",
+  "permission": "readonly",
+  "write_class": "readonly",
+  "writes": "readonly",
+  "write_scope": "",
+  "note": "权限档取自 lib/roles.js 的 write_class=readonly（与守门 writeClassOf 同源；本文件不另立判据）。"
+}

@@ -1,0 +1,83 @@
+{
+  "schema": 1,
+  "note": "本文件是**派生索引**，不是角色清单的第二份真源：validate.js 强制它与 lib/roles.js 的 ALL_ROLE_IDS 逐字相等，不等就报错。",
+  "sourceDir": "src",
+  "generated": "generated/pipeline-presets.patch.yml",
+  "rowIdPrefix": "preset-",
+  "presetIdPrefix": "pl-",
+  "displayNamePrefix": "流水线·",
+  "orderBase": 100,
+  "reservedPresetIds": [
+    "standard",
+    "ptc",
+    "minimal",
+    "cordis",
+    "computer-use"
+  ],
+  "presets": {
+    "main": {
+      "id": "pl-main",
+      "dir": "src/main"
+    },
+    "orchestrator": {
+      "id": "pl-orchestrator",
+      "dir": "src/orchestrator"
+    },
+    "planner": {
+      "id": "pl-planner",
+      "dir": "src/planner"
+    },
+    "supervisor": {
+      "id": "pl-supervisor",
+      "dir": "src/supervisor"
+    },
+    "architect": {
+      "id": "pl-architect",
+      "dir": "src/architect"
+    },
+    "security": {
+      "id": "pl-security",
+      "dir": "src/security"
+    },
+    "writer": {
+      "id": "pl-writer",
+      "dir": "src/writer"
+    },
+    "tester": {
+      "id": "pl-tester",
+      "dir": "src/tester"
+    },
+    "reviewer": {
+      "id": "pl-reviewer",
+      "dir": "src/reviewer"
+    },
+    "archivist": {
+      "id": "pl-archivist",
+      "dir": "src/archivist"
+    },
+    "diagrammer": {
+      "id": "pl-diagrammer",
+      "dir": "src/diagrammer"
+    },
+    "release": {
+      "id": "pl-release",
+      "dir": "src/release"
+    },
+    "docs": {
+      "id": "pl-docs",
+      "dir": "src/docs"
+    },
+    "performance": {
+      "id": "pl-performance",
+      "dir": "src/performance"
+    },
+    "arbiter": {
+      "id": "pl-arbiter",
+      "dir": "src/arbiter"
+    },
+    "human": {
+      "id": "pl-human",
+      "dir": "src/human"
+    }
+  }
+}

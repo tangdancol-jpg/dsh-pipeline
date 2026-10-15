@@ -1,4 +1,4 @@
-﻿<#
+<#
 ============================================================================
  dsh-pipeline · 安装脚本（Windows PowerShell 5.1 / 7 均可）
 ============================================================================
@@ -88,6 +88,11 @@ $RuntimeItems = @(
   'tests',
   'package.json',
   'cordis.patch.yml',
+  # ★ 16 个角色专属 Agent 预设（源 + 生成物一起过去）。`package.json` 的
+  #   `dsh.bundle.patch` 第二条引用的正是 `presets/generated/pipeline-presets.patch.yml`
+  #   —— 少装这一项，那条 patch 就指向不存在的文件（整行不激活）。
+  #   含 `generated/`：产物就在它下面，必须一起同步（`presets/apply.js` 也按同样口径）。
+  'presets',
   'README.md',
   'ARCHITECTURE.md',
   'install.ps1',

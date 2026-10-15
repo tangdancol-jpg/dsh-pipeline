@@ -32,10 +32,15 @@
 import { createHookAudit, createSeamGate } from '../switch/audit.js'
 import { shouldFire } from '../switch/gate.js'
 import { createSeatResolver } from './seat.js'
+import { createSeamVoiceRecorder } from './seam-voice.js'
 import { createPreExecuteHook } from '../guard/hook-pre.js'
 import { createPromptHook } from '../guard/hook-prompt.js'
 import { createWakeHook } from '../guard/hook-wake.js'
 import { createResultNetHook } from '../guard/hook-post.js'
+// ★★ 记忆域的两条缝（E1）：注入（pre-step）与 retain（post-execute）。
+//    实现全在 `lib/memory/**`；本文件只负责**按闸门真挂真摘**（与既有四条缝同一套机制）。
+import { createMemoryInjectHook } from '../memory/inject-hook.js'
+import { createMemoryRetainHook } from '../memory/retain-hook.js'
 import { WAKE_ACTOR_MECHANISM } from '../wakeup.js'
 
 /** 本插件挂上的拦截缝（写出来是为了可审计：报告里要能说清"挂了哪几条"）。 */
@@ -50,11 +55,17 @@ export const INTERCEPT_EVENTS = ['tools/pre-execute', 'agent/pre-step', 'tools/p
  */
 export const LIVENESS_CHECK_THROTTLE_MS = 60 * 1000
 
-/** 四条缝的**登记表**（顺序 = 挂载顺序；id 与 `lib/switch/gate.js` 的清单逐一对应）。 */
+/** 六条缝的**登记表**（顺序 = 挂载顺序；id 与 `lib/switch/gate.js` 的清单逐一对应）。 */
 const HOOKS = [
   { id: 'seam-pre-execute', event: 'tools/pre-execute', make: createPreExecuteHook },
   { id: 'seam-pre-step', event: 'agent/pre-step', make: createPromptHook },
+  // ★★ 记忆注入（E1）：排在开场简报**之后** —— 简报是"你是谁、边界在哪"，记忆是"之前发生过什么"；
+  //    两者都在 `agent/pre-step` 上，各自只注入一次（去重键带 `memory|` 前缀，互不干扰）。
+  { id: 'memory-inject', event: 'agent/pre-step', make: createMemoryInjectHook },
   { id: 'seam-post-execute-wake', event: 'tools/post-execute', make: createWakeHook },
+  // ★★ 记忆 retain（E1）：**排在 ③ 唤醒之后、④ 结果网之前**（设计 `04` §1 的顺序裁决）——
+  //    这样记下的是**原始结果**，而不是"被本插件自己换成 feedback 的结果"。
+  { id: 'memory-retain', event: 'tools/post-execute', make: createMemoryRetainHook },
   { id: 'seam-post-execute-result-net', event: 'tools/post-execute', make: createResultNetHook },
 ]
 
@@ -71,14 +82,28 @@ const HOOKS = [
  * @param {(spec:object)=>Promise<object>} [deps.wakeMain] - 唤醒投递（唯一入口）
  * @param {object} [deps.waker] - 唤醒器本体（席位接管留痕用）
  * @param {(taskId:string)=>Promise<object>} [deps.checkLiveness] - 失联检测
+ * @param {(taskId:string)=>string} [deps.auditFileOf] - ★ 拦截缝的留痕落点（通常 = `store.auditFile`）
  * @param {number} [deps.seatSilenceMs]
  * @param {object} [deps.audit] - 观测台账（不给则自造一个）
- * @returns {{seams:string[], hookIds:string[], mounted:()=>string[], audit:object, seenSeats:Set<string>, staleNoticed:Set<string>, runLivenessCheck:Function, dispose:()=>void}}
+ * @returns {{seams:string[], hookIds:string[], mounted:()=>string[], audit:object, seenSeats:Set<string>, staleNoticed:Set<string>, runLivenessCheck:Function, recordSeamVoice:Function|null, dispose:()=>void}}
  */
 export function registerInterception(ctx, deps) {
   const seatOf = createSeatResolver(deps)
   const warn = typeof deps.warn === 'function' ? deps.warn : () => {}
   const audit = deps.audit ?? createHookAudit({ warn })
+  /**
+   * ★★ **绝不静默的留痕出口**（用户裁定：「只有'拒绝'没有'说明' = 失败」）。
+   *
+   * 落在**只追加**的 `.pipeline/<任务>/audit.jsonl`（与 `lib/reattach.js:530`
+   * 的 `appendAudit`、`lib/orphan.js:1151` 的 `createOrphanAudit` **同一份**文件与行格式），
+   * **不碰 `task.json`** —— 拒绝不是进展（`lib/patrol.js` 的"最后一次进展"读的是
+   * `history` 末条，写了它等于机制自己制造了进展）。
+   *
+   * 给不出 `auditFileOf`（例如自测的最小装配）⇒ 记录器为 null，两条缝各自**跳过**留痕；
+   * 判据与文案一个字都不受影响（留痕是"更好"，不是判决的前提）。
+   */
+  const recordSeamVoice =
+    typeof deps.auditFileOf === 'function' ? createSeamVoiceRecorder(deps.auditFileOf, warn) : null
   const injected = new Set()
   /** 当前真的挂着的缝：hookId → disposer。 */
   const mounted = new Map()
@@ -164,7 +189,7 @@ export function registerInterception(ctx, deps) {
     }
   }
 
-  // --- 服务袋：四条缝共用同一批依赖，各自只取自己要的 ------------------------
+  // --- 服务袋：各条缝共用同一批依赖，各自只取自己要的 ------------------------
   const svc = {
     seatOf,
     warn,
@@ -177,7 +202,14 @@ export function registerInterception(ctx, deps) {
     injected,
     staleNoticed,
     noteStaleKey,
+    /** ★ 两条缝共用的留痕出口（`hook-pre` 的拒绝 / `hook-prompt` 的提示）。 */
+    recordSeamVoice,
     seatSilenceMs: deps.seatSilenceMs,
+    // ★★ 记忆域（E1）要的两样：项目目录（算记忆库落点）+ 计价器（注入的硬上限）。
+    //    两者都**可以是 undefined** —— 拿不到时记忆域自己降级（不写 / 用确定性估算），
+    //    既有四条缝一个字节都不受影响。
+    projectDir: deps.projectDir,
+    tokenMeter: deps.tokenMeter,
   }
 
   // --- 挂 / 摘 ---------------------------------------------------------------
@@ -235,6 +267,8 @@ export function registerInterception(ctx, deps) {
     mounted: () => [...mounted.keys()],
     /** ★ 观测台账（"被问/放行/拦下"计数；只读快照见 `snapshot()`）。 */
     audit,
+    /** ★ 留痕出口（给了 `auditFileOf` 才有；自测直接拿它当判据）。 */
+    recordSeamVoice,
     seenSeats: injected,
     staleNoticed,
     runLivenessCheck,

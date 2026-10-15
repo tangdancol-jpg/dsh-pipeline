@@ -1,0 +1,27 @@
+{
+  "role": "security",
+  "source": "pipeline_boundaries.tool_face.by_role.security.visible",
+  "visible_count": 20,
+  "visible": [
+    "pipeline_task_open",
+    "pipeline_change_audit",
+    "pipeline_boundaries",
+    "pipeline_full_test",
+    "pipeline_bind_role",
+    "pipeline_handoff",
+    "pipeline_transition",
+    "pipeline_rework",
+    "pipeline_status",
+    "pipeline_roster_request",
+    "pipeline_selftest",
+    "pipeline_switch",
+    "pipeline_human_request",
+    "pipeline_clarify_request",
+    "pipeline_security_check",
+    "pipeline_context_report",
+    "pipeline_succession",
+    "pipeline_record_submit",
+    "pipeline_compile_requirement",
+    "pipeline_contacts"
+  ]
+}

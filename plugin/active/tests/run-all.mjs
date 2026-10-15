@@ -111,6 +111,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { leakedTempDirs, runSelfTest } from './selftest-core.mjs'
+import { EXTRA_SUITES } from './registry.mjs'
 
 import { runLoadSmoke } from './load-smoke.mjs'
 import { checkToolSchemas } from './schema-check.mjs'
@@ -155,6 +156,30 @@ import { runSupervisorCheck } from './supervisor-check.mjs'
 // ★★ D1 第 1 件（2026-10-14）：**主对话侧的重启自动认领** ——
 //    「模拟重启后的空令牌表 ⇒ 主对话自动重新绑定成功」+「不该绑的会话不得被绑上」。
 import { runMainReattachCheck } from './main-reattach-check.mjs'
+// ★★ p11（2026-10-15）：**16 个角色专属 Agent 预设**。预设不是文件、是 bundle patch 里的
+//    一条 `@deepseek-ai/dsh-agent-preset` 行；本套钉住六条判据（角色集合双向相等 /
+//    每目录文件齐全 / meta.id 不撞车 / 权限档取值与 writeClassOf 同源 / 生成物可被 YAML
+//    解析且 config.id 唯一 / **五条负例自证**）。角色集合是 **import** `lib/roles.js` 的
+//    `ALL_ROLE_IDS` 来的 —— 测试里没有第二份角色清单。
+import { runPresetsCheck } from './p11-presets-check.mjs'
+// ★★ 守门「静默否决 + 把自己文档当违规」（2026-10-16 真机缺陷）：`agent/pre-step` 的
+//    `{kind:"reject"}` 是宿主的**一票否决** —— turn 不开始 ⇒ 拒绝理由**没有出口**。
+//    现场：把 `pl-main` 预设全文粘进主对话 ⇒ 命中自己文档里的那条规则散文 ⇒
+//    「这一轮 1 秒结束、消息像没发出去」，插件侧零留痕。这一套钉三条：
+//    ① 假阳性（H/I 预测：pl-main 全文 + 那一行 ⇒ 放行）；② 真违规仍被拦（判据落点收窄到
+//    `tools/pre-execute`）；③ 绝不静默（可见文案 + 审计行）。不注册 = 跑不到 = 假绿。
+import { runSilentVetoCheck } from './silent-veto-check.mjs'
+// ★★ 席位路径（真机缺陷的第二条通道 · 用户优先级提升）：**扫的是整轮 prompt** ——
+//    `collectPromptText(payload)` 把 `payload.messages[]` 每条都拼起来跑判据，
+//    席位自己的 persona / 边界卡 / 记忆切片 / 派活单**全在扫描面内**。
+//    这一套钉"席位开工不会被自己的说明书掐死"（回归 16/17）。
+import { runSilentVetoSeatCheck } from './silent-veto-seat-check.mjs'
+// ★★ 第三条路径（**真凶**）：**注入 / 回灌**。席位干完把结论回灌 / 唤醒给主对话，
+//    走 `lib/hostmsg.js` 的注入通道 —— 那条注入消息同样进 prompt 扫描
+//    （`collectPromptText` 只读 `messages[].content`，**一个字节都不读 `source`**）
+//    ⇒ 主对话那一轮被静默掐掉，席位看起来"停了"、任务看起来"卡住了"。
+//    不注册 = 跑不到 = 假绿。
+import { runSilentVetoInjectCheck } from './silent-veto-inject-check.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const verbose = !process.argv.includes('--quiet')
@@ -603,6 +628,68 @@ let ok = true
 }
 
 // ---------------------------------------------------------------------------
+// ★★ p11 · 角色专属 Agent 预设（16 条）。
+//   为什么必须注册进来：`presets/` 是本插件里**唯一会被 DSH 直接读取**的新面
+//   （`package.json` 的 `dsh.bundle.patch` 第二条），它错了不会让任何既有测试变红 ——
+//   只有这一套会。负例自证在**临时副本**上跑，全程不碰真树。
+// ---------------------------------------------------------------------------
+{
+  const r = await runPresetsCheck()
+  suiteTexts.set('p11-presets-check', r.text)
+  parts.push('')
+  parts.push(r.text)
+  passed += r.passed
+  total += r.total
+  if (r.passed !== r.total) ok = false
+}
+
+// ---------------------------------------------------------------------------
+// ★★ 守门「静默否决 + 把自己文档当违规」（2026-10-16 真机缺陷的夹具化回归）。
+//   为什么必须注册进来：本文件是**唯一的汇总口径** —— 注册不进来的用例集跑不到，
+//   而"跑不到"的全绿是**假绿**（本文件头写过三次的同一句话）。
+// ---------------------------------------------------------------------------
+{
+  const r = await runSilentVetoCheck()
+  suiteTexts.set('silent-veto-check', r.text)
+  parts.push('')
+  parts.push(r.text)
+  passed += r.passed
+  total += r.total
+  if (r.passed !== r.total) ok = false
+}
+
+// ---------------------------------------------------------------------------
+// ★★ 席位路径（真机缺陷的第二条通道）：**扫的是整轮 prompt** ⇒ 席位可能被自己的
+//    人格 / 边界卡 / 派活单一票否决，而且那条路 `turn` 根本不开始 ⇒ 零留痕。
+//    单开一套的理由：与"用户消息层不判"是**两个不同的判据面**（一个是文本来源，
+//    一个是生效位置），分开才好按条核对。不注册 = 跑不到 = 假绿。
+// ---------------------------------------------------------------------------
+{
+  const r = await runSilentVetoSeatCheck()
+  suiteTexts.set('silent-veto-seat-check', r.text)
+  parts.push('')
+  parts.push(r.text)
+  passed += r.passed
+  total += r.total
+  if (r.passed !== r.total) ok = false
+}
+
+// ---------------------------------------------------------------------------
+// ★★ 注入 / 回灌路径（真机缺陷的第三条通道 · 用户点名的"真凶"）：
+//    席位结论回灌 → hostmsg 注入 → 命中 prompt 扫描 → 主对话这一轮被静默掐掉，
+//    于是"席位像是停住了 / 任务像是卡住了"，且零报错。不注册 = 跑不到 = 假绿。
+// ---------------------------------------------------------------------------
+{
+  const r = await runSilentVetoInjectCheck()
+  suiteTexts.set('silent-veto-inject-check', r.text)
+  parts.push('')
+  parts.push(r.text)
+  passed += r.passed
+  total += r.total
+  if (r.passed !== r.total) ok = false
+}
+
+// ---------------------------------------------------------------------------
 // ★★ 另两席（守门与状态层 / 通道与派活层）的用例集：**按约定名发现**。
 //
 //   为什么由本文件发现、而不是各自加一行 import：`tests/run-all.mjs` 的注册点
@@ -613,104 +700,7 @@ let ok = true
 //   ⚠️ 刻意**不做 glob 通配**：本文件是静态注册表，通配会把备份件、在制件、别人
 //   放进来的杂项一起扫进来 —— 那是另一种漂移。这里只认三个约定名。
 // ---------------------------------------------------------------------------
-for (const extra of [
-  { file: './gate-states-check.mjs', exportName: 'runGateStatesCheck', zh: '守门与状态层（开对话权的发起方 / 主管两站 / 两次确认）' },
-  { file: './dispatch-channel-check.mjs', exportName: 'runDispatchChannelCheck', zh: '通道与派活层（四槽下发与读回 / 拒绝留痕）' },
-  // ★★ 本条补齐（T-20261011-56a37e）：用户原话里「如果同意…**如果否掉**…」的**下半条**。
-  //    补之前 ①③④ 三道**没有回边**（状态机上从 supervising / ready_review / passed
-  //    各只有一条出边，且那条都要求"确认方点头"）⇒ 主管在那三站说"不满足"时只剩 block/cancel。
-  //    本条把四条否掉回边（含 ② 道既有那条）一起钉住：正例走完回边 + 反例（无记录 / 超预算 /
-  //    越权代发 / 非枢纽任务 / 预算用尽连记录都交不上来）+ ⑤ 不是确认站点 + 四条边同构性。
-  { file: './station-reject-check.mjs', exportName: 'runStationRejectCheck', zh: '站点否掉层（①③④ 三条新回边 + ② 道既有那条的同构性）' },
-  // ★★ P0-1：用户新需求里「**主对话agent递给主管agent**」与
-  //    「需求agent确认后递交主管agent**二次确认**，**无问题后**将架构agent递交计划agent」
-  //    这两段的判据落点。本套给**正例**（新单递单 ⇒ 枢纽激活 + 逐站可达）与
-  //    **反例**（中途单 / 非主对话 / 重复递单 / 递单后主对话仍想自己派需求位 /
-  //    跳过 ②b·②c 交计划 / ②c 缺记录 / 顺序颠倒）—— "反例跑不过就不算实现"。
-  { file: './p01-handoff-entry-check.mjs', exportName: 'runP01HandoffEntryCheck', zh: 'P0-1 入口与补确认环（主对话递给主管 / ②b 需求位确认 + ②c 主管二次确认）' },
-  { file: './notify-only-delivery-check.mjs', exportName: 'runNotifyOnlyDeliveryCheck', zh: '只传话不派活的投递面（递给宿主的 signal 不许是 undefined；调用方真中止时仍然如实失败）' },
-  // ★★ P2-7（2026-10-14）：交接物里的「**谁交的（席位）**」—— 补 `from_seat`。
-  //    现象：真单 T-20261012-8cdee0 的 22 份 handoffs **一份都没有**这个键
-  //    （不是 null，是压根不存在 ⇒ 按 `=== null` 筛不出来）。
-  //    本套钉住四件事：多席位交付**落盘后** `from_seat === 'writer#2'`（判据是读盘）/
-  //    单席位角色交付是**角色名**（不是 undefined / null）/ 旧记录**不迁移、不重写**
-  //    （缺字段照样读得出）/ 取值三级来源可追溯（令牌席位 > 分区席位 > 角色名，
-  //    且绝不误读 `seat_handover` 的 `payload.from_seat`）。
-  //    ★ 全程密闭：夹具自造临时任务目录，**不引用活体真单**（不重蹈 orphan-rescue-check 那条）。
-  { file: './handoff-seat-check.mjs', exportName: 'runHandoffSeatCheck', zh: '交接物席位（P2-7：from_seat 落盘 / 旧记录向后兼容 / 取值来源）' },
-  // ★★ P2-8 的「**仍未验证**」那半边（2026-10-14 第二批）：`wake:delivered` /
-  //    `wake:failed` / `wake:dedup` / `wake:escalated` 这四条各自的"顶走孤儿身份"效果
-  //    —— C3 段只跑了 `wake:skipped` 一支，bug 单 P2-8 把剩下四条**如实登记为未逐条实测**。
-  //    本套把那四条**逐个**放进生产形状里跑：正例（身份一字不变 ⇒ 第 4 轮 abandon +
-  //    播报）/ 反例①（名字改一个字符 ⇒ 身份每轮都换 ⇒ **永不** abandon，"证明正例不是假绿"）/
-  //    反例②（`wake:Delivered` 大小写漂移同样不命中 —— 剔除是**逐字**比对动作名）。
-  //    ★ 全程密闭：时刻写死在盘上，**不靠 sleep 换秒**（不重蹈 P1-12 那条非密闭测试）。
-  { file: './wake-identity-carry-check.mjs', exportName: 'runWakeIdentityCarryCheck', zh: '唤醒留痕与孤儿身份（P2-8：四条名字逐条实测 —— 身份不许被机制自己的留痕顶走）' },
-  // ★★ P1-4：shell 守门的误判（2>$null / 引号里的 => 被当成写文件）、常见绕过写法、
-  //    以及"一个会话绑着多张单时拿最老那张判"的作用域放大。全程密闭（临时项目根）。
-  { file: './shell-guard-check.mjs', exportName: 'runShellGuardCheck', zh: 'shell 守门（P1-4：误判收窄 / 绕过补上 / 多单绑定按活跃单判）' },
-  // ★★ 真机端到端测试（T-20261015-bb30bc）确认的 8 条缺陷 —— 一条修复一个独立小套。
-  //    为什么**逐条**注册而不是合并成一个"修复回归套"：每条修复的判据不同源；合并之后
-  //    "红一条 = 八条一起看"，退化时定位不到是哪一条。
-  //    ★ 八套全程密闭：自造临时项目根，**不引用活体真单**（不重蹈 P1-12 那条）。
-  { file: './f1-scope-root-marker-check.mjs', exportName: 'runF1ScopeRootMarkerCheck', zh: '缺陷①授权面锚点（`.` = 整棵项目根，与渲染口径同一边界）' },
-  { file: './f2-slot-truth-check.mjs', exportName: 'runF2SlotTruthCheck', zh: '缺陷②四槽（声明 vs 事实：声明冻结、占位可覆盖且必须留痕）' },
-  { file: './f3-path-targets-check.mjs', exportName: 'runF3PathTargetsCheck', zh: '缺陷③目标路径（正文不再被当成路径；拒绝文案点名真实目标与来源）' },
-  { file: './f4-tester-exts-check.mjs', exportName: 'runF4TesterExtsCheck', zh: '缺陷④测试位允许面（可执行扩展名补上 + 拒绝文案给替代路径）' },
-  { file: './f5-l0-baseline-check.mjs', exportName: 'runF5L0BaselineCheck', zh: '缺陷⑤L0 改动基线（自批那一刻记一次，R6 前后对比这才有判据）' },
-  { file: './f6-patrol-notice-check.mjs', exportName: 'runF6PatrolNoticeCheck', zh: '缺陷⑥巡检播报（正文按判据本身写，不再一律自称「长时间无进展」）' },
-  { file: './f7-task-purge-check.mjs', exportName: 'runF7TaskPurgeCheck', zh: '缺陷⑦收尾清理（终态单归档/删除：只认终态、先留痕、默认可恢复）' },
-  { file: './f8-nonfinite-hint-check.mjs', exportName: 'runF8NonfiniteHintCheck', zh: '缺陷⑧非有限入参（需求侧提示，不改行为、不代写 boundaries）' },
-  // ★★ 第二批（简报完整版带来的 ⑦b / ⑧ / ⑨ 与 ⑥ 的判据面）：
-  { file: './f6b-patrol-clock-check.mjs', exportName: 'runF6bPatrolClockCheck', zh: '缺陷⑥巡检时钟（可复现判据：输入面逐条 + 现场时刻复算 + A23 幂等键）' },
-  { file: './f8b-shell-attribution-check.mjs', exportName: 'runF8bShellAttributionCheck', zh: '缺陷⑦b/⑧shell 守门（引号里的英文单词不再当命令；拒绝理由按角色归因）' },
-  { file: './f9-transition-record-check.mjs', exportName: 'runF9TransitionRecordCheck', zh: '缺陷⑨不改状态的迁移（必须交代"记了什么"，且不许指向不存在的台账）' },
-  // ★★ 第三批（F11：四槽"声明 vs 生效"同源 + 逐槽证据等级）：
-  { file: './f11-slot-truth-check.mjs', exportName: 'runF11SlotTruthCheck', zh: 'F11 四槽同源（声明 vs 生效；哪一槽是读回来的、哪一槽只是发出去了，逐槽给证据）' },
-  // ★★ 第四批（F12：spawn=false 必须真的不建会话）：
-  { file: './f12-spawn-false-check.mjs', exportName: 'runF12SpawnFalseCheck', zh: 'F12 spawn=false（不许碰宿主 create / subagents.start，只出可粘贴的派活单）' },
-  // ★★ P1–P5 接线（`WIRING.md` §W8）：8 套对照测试**登记进聚合跑**。
-  //    本批次（P1–P5）当初带"既有文件一个都不许改"的约束，所以这 8 套**刻意没登记**
-  //    （理由逐条写在 `CONVENTIONS.md` §6 的"唯一例外"里）；解除约束的这一次补上，
-  //    否则"run-all 全绿"会被读成"新功能也全绿" —— 而它们根本**跑不到**（假绿）。
-  //    ★ 前置改动：这 8 个文件原来是"顶层立即执行 + process.exit()"的写法、没有导出运行器，
-  //      已按本文件既有的 `{passed,total,text}` 约定各补一个 `runPNXxxCheck()`
-  //      （直接 `node tests/pN-*.mjs` 的行为逐字未变）。落在这里而不是各自加 import，
-  //      是沿用下面那条"按约定名发现"的既有通道 —— 发现不到就如实标"尚未落地"。
-  { file: './p1-project-dir-check.mjs', exportName: 'runP1ProjectDirCheck', zh: 'P1 项目目录（幂等建目录 / 复用 / 既存优先 / 与授权面同源）' },
-  { file: './p2-snapshot-version-check.mjs', exportName: 'runP2SnapshotVersionCheck', zh: 'P2 快照版本号（解析 / 段进位 / 序数比较：**禁止字符串排序**）' },
-  { file: './p3-git-init-check.mjs', exportName: 'runP3GitInitCheck', zh: 'P3 git 化闸门（只有显式确认才 init；远端写不可表达）' },
-  { file: './p4-agents-md-check.mjs', exportName: 'runP4AgentsMdCheck', zh: 'P4 AGENTS.md（独立模板 + 幂等四情形落盘）' },
-  { file: './p5-product-catalog-check.mjs', exportName: 'runP5ProductCatalogCheck', zh: 'P5 产品目录 + 产品设计文档（分组校验：空 MVP 被拒 / 每条带验收判据）' },
-  { file: './p6-demo-phase-check.mjs', exportName: 'runP6DemoPhaseCheck', zh: 'P6 DEMO 阶段（三档策略 / ★W3 接线专项：未确认不得进 ready_dev / 三条软约束）' },
-  { file: './p7-hub-required-check.mjs', exportName: 'runP7HubRequiredCheck', zh: 'P7 L3+ 强制主管（先设后撤 / 需求位派活判据）' },
-  { file: './p8-scope-root-check.mjs', exportName: 'runP8ScopeRootCheck', zh: 'P8 授权面锚点（项目目录与授权面同源）' },
-  // ★★ 2026-10-16（用户原则：代码判定优先于 AI 判断）：把两条**存疑项**判据化。
-  //    它们不是"再补一个用例"，而是把原来只能靠人读代码确认的两件事变成**会红的断言**：
-  //      · p9  —— W6 的调用点**传对了参数没有**：探针记录 `requirementConfirmed` 的实际取值，
-  //              并把"照 WIRING 原文会 BAD_TIER 误拒"做成断言（见该文件 §③）。
-  //      · p10 —— `STATE_OWNER` 漏登记即红（判据：状态全集 ⊆ owner 键集合）。
-  { file: './p9-orchestrator-dispatch-gate-check.mjs', exportName: 'runP9OrchestratorDispatchGateCheck', zh: 'P9 需求位派活判据（W6 判据化：接线处传的参数 + 照原文会误拒的对照）' },
-  { file: './p10-state-owner-check.mjs', exportName: 'runP10StateOwnerCheck', zh: 'P10 STATE_OWNER 完整性（状态全集 ⊆ owner 键集合，漏一个即红）' },
-  // ★★ 第五批（缺陷⑬：`pipeline_switch` 关掉后插件仍在拦 —— "开关只关一半"）：
-  //    现场是**两条相邻调用**：`pipeline_switch {on:false}` 返回「任何调用都不再被本插件拦」，
-  //    紧接着那次调用的**结果仍被 `tools/post-execute` 的"第二道网"换掉**。
-  //    ★ 刻意拆成**六套各自只测一件事**（用户原话：「分文件，分文件」）——
-  //      合并成一套"开关大测试"之后，"红一条 = 六件事一起看"，退化时定位不到是哪一件：
-  //        · off ⇒ 结果不过滤      （缺陷现场）
-  //        · on  ⇒ 结果被过滤      （正例对照：没有它，"off 不过滤"可能只是"缝本来就坏了"）
-  //        · off ⇒ 无 hook 生效    （**计数**判据：挂载面 0 + 触发面 7 个 spy 全 0）
-  //        · off ⇒ 不注入/不写盘   （唤醒咽喉 + 主对话记账面）
-  //        · off ⇒ 周期机制停表    （巡检 / 孤儿单自恢复两条 setInterval）
-  //        · 关掉的文案 = 事实     （面清单驱动文案 + 防漂移条数核对）
-  //    夹具在 `switch-fixtures.mjs`（**不是测试**，刻意不登记 —— 它没有断言）。
-  { file: './switch-off-no-filter-check.mjs', exportName: 'runSwitchOffNoFilterCheck', zh: '开关回归：off ⇒ 含代码正文的工具结果**不被过滤**（缺陷现场）' },
-  { file: './switch-on-filter-check.mjs', exportName: 'runSwitchOnFilterCheck', zh: '开关回归：on ⇒ 含代码正文的工具结果**被过滤**（与今天行为一致）' },
-  { file: './switch-off-no-hooks-check.mjs', exportName: 'runSwitchOffNoHooksCheck', zh: '开关回归：off ⇒ **无任何 hook 生效**（挂载面 0 + 7 个 spy 计数全 0）' },
-  { file: './switch-off-no-inject-check.mjs', exportName: 'runSwitchOffNoInjectCheck', zh: '开关回归：off ⇒ 不注入会话、不写项目目录（唤醒咽喉 + 记账面）' },
-  { file: './switch-off-mechanisms-check.mjs', exportName: 'runSwitchOffMechanismsCheck', zh: '开关回归：off ⇒ 巡检 / 孤儿单自恢复**停表**（不是空转）' },
-  { file: './switch-off-text-check.mjs', exportName: 'runSwitchOffTextCheck', zh: '开关回归：关掉的**文案 = 事实**（面清单驱动 + 防漂移条数核对）' },
-]) {
+for (const extra of EXTRA_SUITES) {
   let mod = null
   try {
     mod = await import(extra.file)

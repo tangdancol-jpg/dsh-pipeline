@@ -12,6 +12,8 @@ import { join } from 'node:path'
 import { ST, STATE_LABEL } from '../states.js'
 import { ROLE, roleLabel } from '../roles.js'
 import { fullHash, nowIso } from '../util.js'
+// ★ E3：关单是"语义上完整的时刻" —— 记忆域在这里把该任务的记忆综合进项目活文档（设计 04 §3.1）。
+import { refreshLiveDocForTask } from '../memory/live-doc-write.js'
 
 /**
  * 任务存储 · 交接物核对、打回、关单、制品
@@ -33,6 +35,8 @@ export function reviewMethods(ctx) {
     hubStandbyBlocks,
     renderStandbyBlock,
     effectiveReviewOk,
+    swOf,
+    projectRoot,
   } = ctx
 
   return {
@@ -317,6 +321,11 @@ export function reviewMethods(ctx) {
       })
       task.history.push(entry)
       await persist(task)
+
+      // ★★ E3（设计 `04-§3.1`）：**关单 = 语义上完整的时刻** —— 把这张单的记忆综合进项目活文档。
+      //   不接这一句 ⇒ 活文档永远停在最初那份，**它就不是活文档**（验收判据就是这一条）。
+      //   它**绝不抛**、内容不变就不重写（幂等），且受总开关管（`memory-live-doc`）。
+      await refreshLiveDocForTask(task, { swOf, projectDir: projectRoot })
 
       return { ok: true, task, report: task.close_report, summary: `任务 ${task.id} 已关闭。放行依据：${task.close_report.review_ok_handoff}（审核 OK，制品 ${task.close_report.artifact_version}）。` }
     },

@@ -88,6 +88,29 @@ export function guardVerdict(sw) {
 }
 
 /**
+ * ★ 「这条面现在该不该动手？」—— {@link shouldFire} 的**晚绑定**形态。
+ *
+ * 为什么需要它：`index.js` 里 `createSwitch(...)` 建在 `createTaskStore(...)` **之后**，
+ * 所以 store 那一侧（状态迁移 / 关单的触发点）拿不到开关对象本身，只能拿一个闭包。
+ * 判据**仍然只有这一处**（调用方不许自己写 `sw.isOn()`）；闭包抛错 ⇒ 按"不动手"。
+ *
+ * @param {(()=>object|null)|object|null|undefined} swOf - 开关对象，或"返回开关"的闭包
+ * @param {string} surfaceId - `SWITCH_SURFACES` 里的 `id`
+ * @returns {boolean}
+ */
+export function surfaceAllowed(swOf, surfaceId) {
+  let sw = swOf ?? null
+  if (typeof swOf === 'function') {
+    try {
+      sw = swOf()
+    } catch {
+      return false
+    }
+  }
+  return shouldFire(sw, surfaceId)
+}
+
+/**
  * ★★ **受总开关管的面的清单**（= "关 = 彻底摘干净"的可执行定义）。
  * @type {ReadonlyArray<{id:string, label:string, kind:string, off:string, where:string, why:string}>}
  */
@@ -110,11 +133,11 @@ export const SWITCH_SURFACES = Object.freeze([
   },
   {
     id: 'seam-pre-step',
-    label: '拦截缝 ② `agent/pre-step`（提示词硬拦 + 上下文注入）',
+    label: '拦截缝 ② `agent/pre-step`（提示词提示 + 上下文注入）',
     kind: 'intercept',
     off: 'inert',
     where: 'lib/guard/hook-prompt.js（挂载同上）',
-    why: '它**完全没读开关**：`judgePrompt` 会把提示词 `{kind:"reject"}` 掉，还会注入边界卡与失联提示。off 下两者都必须不发生 ⇒ 这条缝不挂。',
+    why: '它**完全没读开关**：`judgePrompt` 命中时会注入一条用户看得见的说明（+ `seam:prompt-advice` 审计），还会注入边界卡与失联提示。off 下三者都必须不发生 ⇒ 这条缝不挂。★ 2026-10-16 起它**不再一票否决**（`{kind:"reject"}` 那条路没有出口，用户只看到"消息像没发出去"）。',
   },
   {
     id: 'seam-post-execute-wake',
@@ -131,6 +154,38 @@ export const SWITCH_SURFACES = Object.freeze([
     off: 'inert',
     where: 'lib/guard/hook-post.js（挂载同上）',
     why: '它把**已经拿到的工具结果**整个换成一段反馈（`{kind:"block"}`）。这是最容易被用户看见的一种"还在拦"—— 现场证据就是它。',
+  },
+  {
+    id: 'memory-retain',
+    label: '记忆域 · retain 缝（`tools/post-execute`，把 `pipeline_*` 结果记进 `<项目>/.pipeline/_memory/`）',
+    kind: 'intercept',
+    off: 'inert',
+    where: 'lib/memory/retain-hook.js（挂载由 lib/intercept/registry.js 按闸门决定）',
+    why: '★ 它是记忆域**唯一会写盘**的面。不登记 ⇒ 关掉功能之后记忆**仍在写盘** —— 那正是用户报过的"开关只关一半"（本文件头部的现场记录）。',
+  },
+  {
+    id: 'memory-inject',
+    label: '记忆域 · 注入缝（`agent/pre-step`，把最近记忆作为运行时上下文交给席位）',
+    kind: 'inject',
+    off: 'inert',
+    where: 'lib/memory/inject-hook.js（挂载同上；注入点已登记进 lib/hostmsg.js 的 HOST_INJECTION_SITES）',
+    why: '★ 它是"本插件往会话里说话"的一条新面。不登记 ⇒ off 下仍往会话注入记忆 ⇒ 插件还在说话。',
+  },
+  {
+    id: 'memory-live-doc',
+    label: '记忆域 · 活文档（状态迁移 / 关单触发重建 `<项目>/.pipeline/_memory/MEMORY.md`）',
+    kind: 'mechanism',
+    off: 'inert',
+    where: 'lib/memory/live-doc-write.js · liveDocAllowed()（触发点在 lib/store/lifecycle.js 与 lib/store/review.js）',
+    why: '★ 它是记忆域**第二个会写项目目录**的面（第一个是 retain）。不登记 ⇒ 关掉功能之后活文档**仍在被改写** —— 与用户报过的"开关只关一半"是同一类缺陷。',
+  },
+  {
+    id: 'user-rulings',
+    label: '记忆域 · 跨项目用户裁定库（装配期把裁定发布成 `<dsh-home>/skills/<名字>/SKILL.md`）',
+    kind: 'mechanism',
+    off: 'inert',
+    where: 'lib/memory/user-rulings.js · publishRulings() 的第一句（触发点在 index.js 装配处的 ctx.effect）',
+    why: '★ 它是本插件**唯一会往家目录写文件**的面（用户裁定：裁定库落成可见可编辑的 SKILL.md）。不登记 ⇒ 关掉功能之后它照旧写盘。⚠️ off **不删**已发布的文件（那是给人看的、且用户可能手改过）。',
   },
   {
     id: 'wake-delivery',

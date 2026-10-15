@@ -1163,7 +1163,7 @@
     {
       "step": "archify validate（几何第 1 轮探针）",
       "argv": [
-        "D:\\tool\\Deepseek\\Deepseek harness\\DeepSeek Harness.exe",
+        "<DSH 安装目录>\\DeepSeek Harness.exe",
         "%USERPROFILE%\\.dsh\\skills\\archify\\bin\\archify.mjs",
         "validate",
         "workflow",
@@ -1177,7 +1177,7 @@
     {
       "step": "archify finalize",
       "argv": [
-        "D:\\tool\\Deepseek\\Deepseek harness\\DeepSeek Harness.exe",
+        "<DSH 安装目录>\\DeepSeek Harness.exe",
         "%USERPROFILE%\\.dsh\\skills\\archify\\bin\\archify.mjs",
         "finalize",
         "workflow",

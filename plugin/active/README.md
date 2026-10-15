@@ -160,9 +160,26 @@ tester 交 full_test_request（改动面 / 已跑过的定向 / 为什么定向�
 
 | 缝 | 事件 | 拦什么 / 给什么 |
 |---|---|---|
-| ① | `tools/pre-execute`（PreToolUse） | **同一份守门判据**：编写跑测试 / 控制角色读代码 / 写到授权面外 / 退休席位动手 ⇒ `{kind:"deny", reason}` |
-| ② | `agent/pre-step`（UserPromptSubmit） | **注入**席位边界卡 + Stop Ladder 四问（每席位一次）；**硬拦**"让编写跑测试 / 让控制角色读代码"的提示词 ⇒ `{kind:"reject"}` |
+| ① | `tools/pre-execute`（PreToolUse） | **同一份守门判据**：编写跑测试 / 控制角色读代码 / 写到授权面外 / 退休席位动手 ⇒ `{kind:"deny", reason}`（理由用户可见；★ 并落一行 `seam:tool-deny` 审计，见下） |
+| ② | `agent/pre-step`（UserPromptSubmit） | **注入**席位边界卡 + Stop Ladder 四问（每席位一次）；★ **不否决**：判据命中只注入一条**用户看得见的说明**（+ `seam:prompt-advice` 审计）—— **用户消息层不做越界判据**（用户有权粘贴任何东西），判据落点在 ① |
 | ③ | `tools/post-execute`（PostToolUse） | **第二道网**：控制角色的工具结果里带代码正文 ⇒ `{kind:"block", feedback:[…]}` |
+
+> ★★ **绝不静默**（2026-10-16 真机缺陷）：`agent/pre-step` 的 `{kind:"reject"}` 是宿主的
+> **一票否决** —— turn 根本不开始，所以拒绝理由**没有任何出口**（现场：把 `pl-main`
+> 预设全文粘进主对话 ⇒ 命中自己文档里的那条规则散文 ⇒ **这一轮 1 秒结束、消息像没发出去**，
+> 插件侧零留痕）。修法三条：①**用户消息层不做越界判据**（那条规则的本意是拦
+> **Agent 自己去看实现**，不是拦用户叙述规则）；②判据落点收窄到 ① 的 `tools/pre-execute`；
+> ③ 凡是否决 / 提示，**必有可见文案 + 一行审计**（`lib/intercept/seam-voice.js`，
+> 只追加 `.pipeline/<任务>/audit.jsonl`，**不碰 `task.json`**——拒绝不是进展）。
+> ★★ **扫的是整轮 prompt**（三条路径全中招）：判据的输入端是 `collectPromptText(payload)`
+> （`lib/intercept/prompt-rules.js:73-81`，调用点 `lib/guard/hook-prompt.js:81`）——
+> 它把 `payload.messages[]` 里**每一条**消息**拼起来**再跑正则，而且
+> **一个字节都不读 `m.source`**。所以下面三**类**文本被同等对待：
+> ① **用户输入**；② **席位派活 / 唤醒**（派活单 + runtime context + 记忆切片 + 边界卡 + notify + persona 首尾 —— 席位可能被**自己的人设**掐死）；
+> ③ ★ **注入 / 回灌**（真凶）：席位干完 → 结论经 `lib/hostmsg.js` 回灌 / 唤醒给主对话 → 那条**注入消息**命中扫描 → 主对话这一轮被静默掐掉（UI 显示"已完成，用时 1 秒"）→ **席位看起来"停住了"、任务看起来"卡住了"，且零报错**。
+> 回归：`node tests/silent-veto-check.mjs`（① 语料 A/B/C）·
+> `node tests/silent-veto-seat-check.mjs`（② 回归 16/17）·
+> `node tests/silent-veto-inject-check.mjs`（③ 回归 19/20）。
 
 **为什么不走 `dsh-hooks-claude-code`**：`dsh-hook-protocol` 自己的 README 就写着
 「定制行为请避开整个组：原生 Cordis 插件拥有完整的 harness API」；而且 (b) 要往别人的

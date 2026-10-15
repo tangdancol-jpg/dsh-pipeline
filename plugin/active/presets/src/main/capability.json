@@ -1,0 +1,97 @@
+{
+  "role": "main",
+  "why": "用户原话：「补全主对话的能力，不能比 Computer Use 模式能力差」。Computer Use 模式（`computer-use` 预设，由 `dsh-orb/cordis.patch.yml` 的 `preset-computer-use` 定义）里主对话拿得到的能力，`pl-main` 也要拿得到；差别只允许落在**限制**上（禁读代码 / 写面 readonly / 工具面按角色收紧），不允许落在**能力**上。",
+  "note": "本文件只列**底座行之外**的追加行。`render.js` 的 BASE_PLUGIN_ROWS（agent-instructions / tool-bash / tool-pwsh / tool-fs / tool-fs-search / tool-jobs）与 persona 已由渲染器给出，不在这里重复 —— 重复登记 = 第二份真源。",
+  "source": {
+    "kind": "shipped-preset",
+    "file": "<dsh-home>/profiles/<profile>/node_modules/dsh-orb/cordis.patch.yml",
+    "entry": "insert[0].id === 'preset-computer-use'",
+    "note": "该文件不是 DSH 自带（不在 app.asar 里），而是 dsh-orb 这个插件包自带的 bundle patch —— 所以它**不在本仓库**里，只能在本机 profile 的 node_modules 下取到。测试在取到它时逐字比对；取不到时用下面 source.rows 这份**冻结快照**（含 sha256）比对，并如实登记'未与现场范本比对'。",
+    "vendorSha256Checked": false,
+    "rows": [
+      { "id": "persona", "name": "@deepseek-ai/dsh-persona", "coveredBy": "render.js 的 persona 行（16 个角色都有）" },
+      { "id": "tool-bash", "name": "@deepseek-ai/dsh-tool-bash", "coveredBy": "render.js 的 BASE_PLUGIN_ROWS" },
+      { "id": "tool-pwsh", "name": "@deepseek-ai/dsh-tool-pwsh", "coveredBy": "render.js 的 BASE_PLUGIN_ROWS" },
+      { "id": "compaction", "name": "cordis:group", "coveredBy": "本文件的 capabilities[].rows" },
+      { "id": "compaction-basic", "name": "@deepseek-ai/dsh-compaction-basic", "coveredBy": "compaction 组的子行（范本里嵌在 group 的 config 列表里；本快照按扫描器的口径平铺记录）" },
+      { "id": "command-compact", "name": "@deepseek-ai/dsh-command-compact", "coveredBy": "compaction 组的子行" },
+      { "id": "tool-result-pruner", "name": "@deepseek-ai/dsh-compaction-tool-result-pruner", "coveredBy": "compaction 组的子行" },
+      { "id": "tool-ask-user", "name": "@deepseek-ai/dsh-tool-ask-user", "coveredBy": "本文件的 capabilities[].rows" },
+      { "id": "tool-web", "name": "@deepseek-ai/dsh-tool-web", "coveredBy": "本文件的 capabilities[].rows" },
+      { "id": "tool-computer-use", "name": "dsh-orb/computer-use", "coveredBy": "本文件的 capabilities[].rows" },
+      { "id": "tool-code-agent", "name": "dsh-orb/computer-use/code-agent", "coveredBy": "**刻意不纳入**，见 excluded" }
+    ]
+  },
+  "capabilities": [
+    {
+      "key": "desktop-gui",
+      "zh": "桌面 GUI 操作",
+      "requiredBy": "用户原话点名的 5 项之一",
+      "rows": [
+        { "id": "tool-computer-use", "name": "dsh-orb/computer-use", "config": { "postActionWaitMs": 600 } }
+      ]
+    },
+    {
+      "key": "web",
+      "zh": "网页检索与抓取",
+      "requiredBy": "用户原话点名的 5 项之一",
+      "rows": [
+        { "id": "tool-web", "name": "@deepseek-ai/dsh-tool-web", "config": { "fetch": true, "searchTimeoutMs": 60000 } }
+      ]
+    },
+    {
+      "key": "ask-user",
+      "zh": "向用户提问",
+      "requiredBy": "用户原话点名的 5 项之一",
+      "rows": [
+        { "id": "tool-ask-user", "name": "@deepseek-ai/dsh-tool-ask-user" }
+      ]
+    },
+    {
+      "key": "shell",
+      "zh": "Shell",
+      "requiredBy": "用户原话点名的 5 项之一（**已在底座行**：tool-bash / tool-pwsh 按平台互斥）",
+      "rows": []
+    },
+    {
+      "key": "fs-read",
+      "zh": "文件读取",
+      "requiredBy": "用户原话点名的 5 项之一（**已在底座行**：tool-fs / tool-fs-search）",
+      "rows": []
+    },
+    {
+      "key": "compaction",
+      "zh": "长会话上下文压缩",
+      "requiredBy": "Computer Use 模式里有这一组；缺了它 = 长会话更早撑爆 —— 能力面**不低于**要求它也在",
+      "rows": [
+        {
+          "id": "compaction",
+          "name": "cordis:group",
+          "group": true,
+          "isolate": { "compaction": true, "toolResultPruner": true },
+          "children": [
+            { "id": "compaction-basic", "name": "@deepseek-ai/dsh-compaction-basic" },
+            { "id": "command-compact", "name": "@deepseek-ai/dsh-command-compact" },
+            {
+              "id": "tool-result-pruner",
+              "name": "@deepseek-ai/dsh-compaction-tool-result-pruner",
+              "config": { "thresholdChars": 8192, "headChars": 4096, "tailChars": 1024 }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "excluded": [
+    {
+      "id": "tool-code-agent",
+      "name": "dsh-orb/computer-use/code-agent",
+      "why": "它在 Computer Use 里的职责是「把一个 stretch 交给后台代码代理」。在 `pl-main` 里这件事有**更受控的等价物**：`pipeline_dispatch`（派活进流水线，带角色、席位、授权面与守门）。两条通道并存会让主对话有一条**绕过三权分立**的干法 —— 那不是「能力不低于」，那是把本插件的机制拆掉。★ 这是**唯一**未纳入的一行，逐条理由在此，供用户定夺（存疑项）。",
+      "dependsOn": "orb-code-agent-registry（同一个 dsh-orb 包）"
+    }
+  ],
+  "coupling": {
+    "note": "本文件里 `dsh-orb/*` 三行（含被排除的那条）要求部署方装了 dsh-orb。装了才有桌面 GUI 能力 —— 而用户点名要的正是它。没装 dsh-orb 的部署方：请删掉 `tool-computer-use` 那一条 capability（`presets/validate.js` 的 ⑨ 会告诉你删了之后差哪一项）。",
+    "rowsRequiringDshOrb": ["tool-computer-use", "tool-code-agent"]
+  }
+}

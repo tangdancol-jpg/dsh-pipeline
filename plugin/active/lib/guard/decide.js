@@ -28,7 +28,14 @@ import {
 } from './rules.js'
 import { scanCommandWithScripts } from './scripts.js'
 import { collectTargets, targetLine } from './targets.js'
+// ★★ 用户第 1 件（2026-10-16）：**能力额度闸**。
+//    「平常不许用 / 必要时应先向用户申请 / 批准后只放行一次」三句话全在
+//    `capability-gate.js` 里（分类 → 台账 → 消耗一次性额度）；本文件只留**接线**。
+//    ⚠ 它**不覆盖** shell 内容判据（§4）与授权面判据（§3a）：
+//      那两条不是"一种能力"，是边界集合（见 `capability.js` 文件头）。
+import { CAPABILITY, createCapabilityGate } from './capability-gate.js'
 import {
+  makeTaskOf,
   agentIdOf,
   bindingForAgent,
   owningSeat,
@@ -68,29 +75,7 @@ function decide(exec, deps) {
   /** ★ 继任后退休的会话 id 集合（同步可查）。 */
   const retired = deps?.retired ?? null
 
-  /**
-   * ★ 从**同步索引**里取任务。
-   *
-   * 守门必须同步判定，而任务数据在盘上、读取是异步的 —— 所以索引是"缓存"，
-   * **取不到就是取不到**。取不到时下面所有靠 `task.projectRoot / taskSelfDir / writers`
-   * 的判据都会**静默跳过**（fail-open）。
-   *
-   * 这里刻意**不改成 fail-closed**：索引为空是"还没热身"，不是"调用方可疑"；
-   * 一次误拦会打断正当工作。但**绝不能静默** —— 所以回调 `onMissingTask` 留痕，
-   * 让"这段判据没跑到"这件事在日志里看得见。
-   */
-  const taskOf = (taskId) => {
-    const t = deps?.taskIndex?.get(taskId) ?? null
-    if (t === null && typeof deps?.onMissingTask === 'function') {
-      try {
-        deps.onMissingTask({ taskId, tool: name, role: binding?.role ?? null, seat: binding?.seat ?? null })
-      } catch {
-        /* 留痕失败绝不该影响判定 */
-      }
-    }
-    return t
-  }
-
+  const taskOf = makeTaskOf({ deps, tool: name, bindingOf: () => binding })
   const cfg = deps?.config ?? {}
   const tokens = deps?.tokens
   if (tokens === undefined) return undefined
@@ -115,6 +100,8 @@ function decide(exec, deps) {
   }
   // ★ 绑着多张单时挑"还没结束、最近绑定"的那张（P1-4 的作用域放大，见 bindingForAgent）
   const binding = bindingForAgent(tokens, agentId, deps?.taskIndex ?? null)
+  /** ★★ 用户第 1 件：能力额度闸 —— **调用级**（一次调用只消耗一份额度，见 `capability-gate.js`）。 */
+  const capGate = createCapabilityGate({ role: binding?.role ?? '', tool: name, cfg: deps?.config ?? {}, task: binding === null ? null : taskOf(binding.taskId) })
 
   // 非流水线工具、且调用方没有绑定任何角色 → 与流水线无关，直接放行。
   // （守门只约束流水线参与者，绝不去管无关会话 —— 这是与其它插件共存的前提。）
@@ -245,10 +232,13 @@ function decide(exec, deps) {
       const task = taskOf(binding.taskId)
       if (task !== null) {
         const targets = collectTargets(args, task.projectRoot).filter((t) => t.path.length > 0)
+        /** ★ 本次调用的**全部**目标（额度必须覆盖它们全部才放行，见 `tryRelease` 的 ④）。 */
+        const writeTargets = targets.map((t) => t.path)
         for (const t of targets) {
           const p = t.path
           if (!isInside(task.projectRoot, p)) continue // 项目外不归本插件管
           if (cls === 'readonly' || cls === 'none') {
+            if (capGate.take(CAPABILITY.WRITE_FILE, writeTargets)) continue // 用户第 1 件：已批准 ⇒ 放行一次
             return (
               `${TAG} 拒绝：角色「${roleZh(binding.role)}」**只读** —— 它没有任何写文件的权限。\n` +
               `工具：${name}\n${targetLine(t)}\n任务：${binding.taskId}\n` +
@@ -308,11 +298,13 @@ function decide(exec, deps) {
     if (task !== null && binding.role !== 'writer' && binding.role !== 'human') {
       const cwd = task.projectRoot
       const targets = collectTargets(args, cwd)
+      const writeTargets = targets.map((t) => t.path).filter((p) => p.length > 0)
       for (const t of targets) {
         const p = t.path
         if (p.length === 0) continue
         if (!isInside(task.projectRoot, p)) continue
         if (isInside(task.reportsDir, p)) continue // 报告目录是允许的
+        if (capGate.take(CAPABILITY.WRITE_FILE, writeTargets)) continue // 用户第 1 件：已批准 ⇒ 放行一次
         return (
           `${TAG} 拒绝：角色「${binding.role}」不得修改项目源码制品。\n` +
           `工具：${name}\n${targetLine(t)}\n任务：${binding.taskId}（受保护根：${task.projectRoot}）\n` +
@@ -514,11 +506,14 @@ function decide(exec, deps) {
     const task = taskOf(binding.taskId)
     if (task !== null && NO_CODE_READ_ROLES.includes(binding.role)) {
       const targets = collectTargets(args, task.projectRoot)
+      /** ★ 本次调用的**全部**目标（额度必须覆盖它们全部才放行，见 `tryRelease` 的 ④）。 */
+      const readTargets = targets.map((t) => t.path).filter((p) => p.length > 0)
       for (const t of targets) {
         const p = t.path
         if (p.length === 0) continue
         if (!isInside(task.projectRoot, p)) continue
         if (isInside(task.pipelineDir, p)) continue // 任务卡 / 需求档 / 交接物是它们该看的
+        if (capGate.take(CAPABILITY.READ_SOURCE, readTargets)) continue // 用户第 1 件：已批准 ⇒ 放行一次
         return (
           `${TAG} 拒绝：${roleZh(binding.role)}不得读取代码正文。\n` +
           `工具：${name}\n${targetLine(t)}\n任务：${binding.taskId}\n` +
@@ -553,8 +548,11 @@ function decide(exec, deps) {
       const task = taskOf(binding.taskId)
       if (task !== null) {
         const targets = collectTargets(args, task.projectRoot).filter((t) => t.path.length > 0)
+        /** ★ 本次调用的**全部**目标（额度必须覆盖它们全部才放行，见 `tryRelease` 的 ④）。 */
+        const searchTargets = targets.map((t) => t.path)
         const scopedToPipeline = targets.length > 0 && targets.every((t) => isInside(task.pipelineDir, t.path))
         if (!scopedToPipeline) {
+          if (capGate.take(CAPABILITY.SEARCH_SOURCE, searchTargets)) return undefined // 已批准 ⇒ 放行一次
           return (
             `${TAG} 拒绝：${roleZh(binding.role)}不得用检索工具翻源码树。\n` +
             `工具：${name}\n任务：${binding.taskId}\n` +

@@ -9,6 +9,8 @@
 
 import { ROLE, roleLabel } from '../roles.js'
 import { checkSuccessionActor } from '../context.js'
+// ★ E5（04 §7.4）：`recall` 的用量在**水位上报**里可见 —— 否则参数调不动（无观测）。
+import { lastRecallUsage } from '../memory/budget.js'
 import { isSpawnableRole } from '../transport/index.js'
 import { S, tool, resolveActor } from './kit.js'
 
@@ -220,10 +222,20 @@ export function buildRecordTools(ctx) {
       report_id: S('string', '上报 id'),
       level: S('string', '档位：ok / warn / succession / hard_limit'),
       observed_tool_calls: S('number', '插件观测到的本席位工具调用次数'),
+      recall_usage: S('string', '★ E5：本进程**最近一次** `pipeline_recall` 的用量（上限 / 实付 / 条数 / 是否被水位下调）；还没跑过 ⇒ 一句人话'),
     },
     async run(args, exec) {
       const actor = resolveActor(args, exec, deps)
-      if (actor.ok !== true) return { ok: false, summary: actor.error, report_id: '', level: '', observed_tool_calls: 0 }
+      /**
+       * ★ E5（`04` §7.4）：本进程**最近一次** `pipeline_recall` 的用量 —— 一行人话。
+       * 无观测就调不动参数（"上限设多少合适"只能靠猜），所以每次水位上报都捎上它。
+       */
+      const recallUsage = () => {
+        const u = lastRecallUsage()
+        if (u === null) return '（本进程还没有 recall 记录）'
+        return `最近一次 recall：上限 ${u.limit} / 实付 ${u.tokens} token，返回 ${u.count} 条${u.reduced_by.length > 0 ? `（★ 被 ${u.reduced_by} 下调过）` : ''}`
+      }
+      if (actor.ok !== true) return { ok: false, summary: actor.error, report_id: '', level: '', observed_tool_calls: 0, recall_usage: recallUsage() }
       // ★ 客观观测：本席位在插件眼里调用过多少次工具（不是模型说的）
       // ★ 更正 B（本轮改名）：先校验收件人 —— 发给**已退场的分配 AI**等于发进黑洞。
       const wantTo = typeof args.to_planner_agent === 'string' && args.to_planner_agent.trim().length > 0
@@ -244,7 +256,7 @@ export function buildRecordTools(ctx) {
             '★ 计划 AI 自己也会继任 —— 发给一个已经退场的席位，那条消息永远不会有人看。',
             '  先用 pipeline_contacts 查「当前分配 AI 是谁」，再发。',
           ].join('\n')
-          return { ok: false, summary: lines0, report_id: '', level: '', observed_tool_calls: 0 }
+          return { ok: false, summary: lines0, report_id: '', level: '', observed_tool_calls: 0, recall_usage: recallUsage() }
         }
       }
 
@@ -259,7 +271,7 @@ export function buildRecordTools(ctx) {
         requestedSuccession: args.requested_succession === true,
         observed,
       })
-      if (res.ok !== true) return { ok: false, summary: res.error, report_id: '', level: '', observed_tool_calls: observed.tool_calls }
+      if (res.ok !== true) return { ok: false, summary: res.error, report_id: '', level: '', observed_tool_calls: observed.tool_calls, recall_usage: recallUsage() }
       indexTask(res.task.id, res.task)
 
       // ★ 更正 C（本轮改名）：到触发线时**通知分配 AI（= 计划 AI）**，而不是通知主对话 ——
@@ -290,10 +302,11 @@ export function buildRecordTools(ctx) {
       }
       return {
         ok: true,
-        summary: res.summary + notifyNote,
+        summary: res.summary + notifyNote + `\n\n★ 取回用量观测：${recallUsage()}`,
         report_id: res.report.report_id,
         level: res.report.level,
         observed_tool_calls: observed.tool_calls,
+        recall_usage: recallUsage(),
       }    },
   })
 

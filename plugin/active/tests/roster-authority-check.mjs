@@ -78,30 +78,7 @@ function createRecorder() {
 }
 
 /** 本套用的清单夹具：L3（安全敏感，10 个独立对话）+ 单编写席位。 */
-const SEAT = 'writer#1'
-const FIXTURE_WRITERS = {
-  count: 1,
-  reason: '夹具：单席位（count=1 是同一套机制的退化情形）',
-  partitions: [{ seat: SEAT, scope_paths: ['.'], deliverables: ['夹具产物'] }],
-}
-function fixture(over = {}) {
-  return buildRoster({
-    tier: 'L3',
-    reason: '名单权威层自测夹具（不落盘）',
-    judgedBy: 'planner',
-    writers: FIXTURE_WRITERS,
-    ...over,
-  })
-}
-
-/** 一份"四槽声明齐全"的夹具（strict 模式下必须齐）。 */
-function fullSlots(over = {}) {
-  const base = { 'writer@writer#1': { permission: 'workspace-write' } }
-  for (const r of ['architect', 'security', 'tester', 'reviewer', 'diagrammer', 'archivist']) {
-    base[r] = { permission: 'read-only' }
-  }
-  return { ...base, ...over }
-}
+import { FIXTURE_WRITERS, SEAT, fixture, fullSlots } from './roster-fixtures.mjs'
 
 export async function runRosterAuthorityCheck() {
   const rec = createRecorder()
@@ -314,10 +291,24 @@ export async function runRosterAuthorityCheck() {
       const bad = compareDispatchSlots(R, req)
       rec.add('D B2', `★ 只差 ${slot} 一个字段 ⇒ 拒，且报出 want / got`, bad.ok === false && bad.mismatches.length === 1 && bad.mismatches[0].slot === slot, JSON.stringify(bad.mismatches))
     }
-    const minOk = compareDispatchSlots(R, { role: 'tester', seat: null, permission: 'read-only', mode: ROSTER_DEFAULT_MODE, model: ROSTER_ENV_DEFAULT, reasoning: ROSTER_ENV_DEFAULT })
-    rec.add('D B2', '★ 名单里声明为最小档的席位：请求照抄 ⇒ 通过', minOk.ok === true, JSON.stringify(minOk.mismatches))
-    const minBad = compareDispatchSlots(R, { role: 'tester', seat: null, permission: 'workspace-write', mode: ROSTER_DEFAULT_MODE, model: ROSTER_ENV_DEFAULT, reasoning: ROSTER_ENV_DEFAULT })
+    // ★ 用户第 2 件（2026-10-16）：名单没声明 mode 的席位，现在落的是**按角色取的 `pl-<role>`**
+    //   （改前是全局 `ROSTER_DEFAULT_MODE`）。"请求照抄名单"这条判据的语义没变 ——
+    //   它要证的是**逐字段严格相等**，所以照抄的必须是**名单自己的值**，不是某个写死的常量
+    //   （写死常量会让这条判据在落值规则变化时变成"测常量"）。
+    const copyOf = (role, seat = null) => {
+      const e = R.slots[slotKeyOf(role, seat)] ?? {}
+      const pick = (k, fallback) => (e[k] === undefined ? fallback : e[k].value)
+      return { role, seat, permission: pick('permission', null), mode: pick('mode', null), model: pick('model', null), reasoning: pick('reasoning', null) }
+    }
+    const minReq = copyOf('tester')
+    const minOk = compareDispatchSlots(R, minReq)
+    rec.add('D B2', `★ 名单里声明为最小档的席位：请求照抄 ⇒ 通过（照抄的是名单自己的值，含角色专属预设 ${String(minReq.mode)}）`, minOk.ok === true, JSON.stringify(minOk.mismatches))
+    const minBad = compareDispatchSlots(R, { ...minReq, permission: 'workspace-write' })
     rec.add('D B2', '★ 未声明档位的席位：请求里塞一个更高档 ⇒ 拒（名单说最小档就是最小档）', minBad.ok === false && minBad.mismatches[0].slot === 'permission', JSON.stringify(minBad.mismatches))
+    const modeBad = compareDispatchSlots(R, { ...minReq, mode: 'standard' })
+    rec.add('D B2', '★ 且 mode 也不许自己换（名单给的是角色专属预设）', modeBad.ok === false && modeBad.mismatches[0].slot === 'mode', JSON.stringify(modeBad.mismatches))
+    void ROSTER_DEFAULT_MODE
+    void ROSTER_ENV_DEFAULT
     const noRoster = compareDispatchSlots({}, { role: 'writer', seat: SEAT })
     rec.add('D B2', '没有四槽表的老清单 ⇒ 直接拒（不许"没名单就放行"）', noRoster.ok === false, JSON.stringify(noRoster.mismatches))
   }

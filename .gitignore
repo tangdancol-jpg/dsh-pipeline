@@ -46,3 +46,17 @@ sessions/
 
 # 含个人信息的原始备份目录（本就不在副本里，再挡一道）
 _pii-backup/
+
+# ---- 2026-10-16 补（用户第 3 件：仓库要能干净发布）----
+# 「本机私有」提示文件：宿主 app.asar 装在哪、安装副本拷哪儿。
+# 它天然含**真实机器路径**（用户名 / 盘符），所以只在本机存在，绝不入库。
+.local.json
+**/.local.json
+
+# 插件目录下的运行期产物：跑一次就长出来，不是源码。
+# ★ MANIFEST.sha256 只认**被 git 跟踪**的文件，所以它们本来就进不了清单；
+#   补这几条是为了 `git status` 干净、`presets/apply.js` 同步时也不带过去。
+plugin/active/wake-ledger.jsonl
+plugin/active/tests/*-last-run.txt
+plugin/active/tests/last-run.txt
+plugin/active/**/demo-project/

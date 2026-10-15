@@ -1,0 +1,6 @@
+{
+  "id": "pl-docs",
+  "name": "流水线·文档",
+  "description": "文档（Docs）· 权限档 own-dir —— 产出用户文档/变更日志/使用说明。",
+  "order": 112
+}

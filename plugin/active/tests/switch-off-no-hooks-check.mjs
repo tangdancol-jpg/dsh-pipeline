@@ -1,4 +1,4 @@
-﻿/**
+/**
  * dsh-pipeline · 开关回归 · **off ⇒ 没有任何 hook 生效**（计数为 0，不是看文案）
  * ============================================================================
  *     node tests/switch-off-no-hooks-check.mjs
@@ -103,9 +103,11 @@ export async function runSwitchOffNoHooksCheck() {
     const mountedBack = live.ic.mounted().length
     rec.add(
       'D 中途翻转即时跟随',
-      '★★ 开 ⇒ 挂 4 条；中途关 ⇒ **立刻摘成 0 条**、结果立刻不再被过滤；再开 ⇒ 挂回 4 条（不重启）',
-      mountedBefore === 4 && mountedAfterOff === 0 && mountedBack === 4 && midBody.includes('function add(a, b)') && !midBody.includes('不看代码'),
-      `挂载数：开=${mountedBefore} → 关=${mountedAfterOff} → 再开=${mountedBack}\n关掉时那次调用返回：${midBody.slice(0, 200)}`,
+      '★★ 开 ⇒ 挂 6 条；中途关 ⇒ **立刻摘成 0 条**、结果立刻不再被过滤；再开 ⇒ 挂回 6 条（不重启）',
+      mountedBefore === 6 && mountedAfterOff === 0 && mountedBack === 6 && midBody.includes('function add(a, b)') && !midBody.includes('不看代码'),
+      `挂载数：开=${mountedBefore} → 关=${mountedAfterOff} → 再开=${mountedBack}\n关掉时那次调用返回：${midBody.slice(0, 200)}` +
+        '\n    ★ 4 → 6 是**记忆域 E1** 的两条新缝（`memory-inject` / `memory-retain`）：' +
+        '\n      判定方向一个字没放宽 —— 仍然是"开时精确等于总条数、关时精确等于 0"。',
     )
     live.dispose()
   } catch (err) {

@@ -11,9 +11,14 @@
  *      · **非管线会话 ⇒ 一律 `next()`**（作用域；这是"不做就是事故"那条）
  *   B. `agent/pre-step` (UserPromptSubmit)
  *      · 注入：席位开场拿到边界卡 + Stop Ladder 四问（只注入一次）
- *      · 硬拦：编写席位收到"跑测试"的提示词 ⇒ `{kind:'reject'}`
- *      · 硬拦：控制角色收到"读代码"的提示词 ⇒ `{kind:'reject'}`
- *      · 非管线会话 ⇒ 不注入、不拦
+ *      · **不否决**：编写席位收到"跑测试"的提示词 ⇒ 注入**用户看得见的说明**
+ *        （`{kind:'enter'}` + `messages[]`）★ 2026-10-16 口径修正 —— 见
+ *        `tests/silent-veto-check.mjs`（那条路原来是 `{kind:'reject'}`，
+ *        而 reject 是宿主的**一票否决**：turn 不开始 ⇒ 理由没有出口 ⇒ 用户只看到
+ *        "这一轮 1 秒结束、消息像没发出去"）
+ *      · **用户消息层不做越界判据**：控制角色收到"读代码"的提示词 ⇒ 放行
+ *        （判据落点在 `tools/pre-execute`：Agent 真去读源码的那一次被拒）
+ *      · 非管线会话 ⇒ 不注入、不判
  *   C. `tools/post-execute` (PostToolUse)
  *      · 控制角色的工具结果里带代码正文 ⇒ `{kind:'block', feedback:[...]}`
  *      · 执行角色（编写/测试）⇒ 原样放行（不误伤）
@@ -289,16 +294,23 @@ export async function runInterceptCheck() {
       `第二次 pre-step 返回的 messages 条数：${(second?.messages ?? []).length}`,
     )
 
-    // --- 硬拦①：编写 + 测试命令 ---
+    // --- ★ 口径修正：编写 + 测试命令 ⇒ **可见说明**（不是 `{kind:"reject"}`）---
+    //
+    //   2026-10-16 真机缺陷：`agent/pre-step` 的 `reject` 是宿主的**一票否决** ——
+    //   turn 根本不开始，所以拒绝理由**没有任何出口**（用户只看到"消息像没发出去"）。
+    //   ⇒ 判据改为"注入一条用户看得见的说明 + 落一行审计"，这一轮照常进行；
+    //     真正的拦截仍在 `tools/pre-execute`（编写真去跑测试时当场被拒）。
+    //   完整回归（含 pl-main 全文的假阳性）见 `tests/silent-veto-check.mjs`。
     const r1 = await step(W, ['先跑一下 npm test 看看过不过，然后把结果写进提交说明'])
+    const r1text = (r1?.messages ?? []).map(messageText).join('\n')
     rec.add(
       'B UserPromptSubmit',
-      '★★ 硬拦①：提示词让**编写**跑测试 ⇒ `{kind:"reject"}`',
-      r1?.kind === 'reject' && hit(r1.reason, '编写|不跑测试'),
-      `返回：${JSON.stringify(r1)?.slice(0, 80)}\n理由原文：\n${indent(r1?.reason ?? '')}`,
+      '★★ 编写 + 提示词里的"跑测试" ⇒ **注入用户看得见的说明**（`{kind:"enter"}` + `messages[]`，**不是** `{kind:"reject"}`）',
+      r1?.kind === 'enter' && hit(r1text, '编写|不跑测试|不是拒绝') && r1text.length > 40,
+      `返回 kind=${JSON.stringify(r1?.kind)}\n注入的说明：\n${indent(r1text.split('\n').slice(0, 6).join('\n'))}`,
     )
 
-    // --- 硬拦②：控制角色 + 读代码 ---
+    // --- ★ 口径修正：用户消息层不做越界判据 ---
     {
       const f2 = await createGuardFixture({ stopAfter: 3 })
       open.push(f2.h)
@@ -321,22 +333,32 @@ export async function runInterceptCheck() {
       })
       rec.add(
         'B UserPromptSubmit',
-        '★★ 硬拦②：提示词让**控制角色**读代码 ⇒ `{kind:"reject"}`',
-        r2?.kind === 'reject' && hit(r2.reason, '不看代码|读实现'),
-        `返回：${JSON.stringify(r2)?.slice(0, 80)}\n理由原文：\n${indent(r2?.reason ?? '')}`,
+        '★★ **用户消息层不做越界判据**：控制角色收到"读一下源码"的提示词 ⇒ **放行**（判据落点在 `tools/pre-execute`）',
+        r2?.kind === 'enter',
+        `返回 kind=${JSON.stringify(r2?.kind)}${r2?.kind === 'reject' ? `\n★ 被拦理由：\n${indent(r2?.reason ?? '')}` : ''}`,
       )
-      // 对照：同一句话给**编写**席位 ⇒ 放行（它本来就该读代码）
-      const r3 = await callTool(f2.h, 'pipeline_status', { task_id: f2.taskId, role_token: f2.tokens.writer }, f2.agents.writer)
-      void r3
+      // 对照：真去读源码的那一次调用 ⇒ 拒（判据落在工具缝）
+      const r2b = await host2.emit('tools/pre-execute', {
+        name: 'read',
+        arguments: { path: 'src/fizzbuzz.js' },
+        agent: { id: mainAgent },
+      })
       rec.add(
         'B UserPromptSubmit',
-        '对照：同一句"读一下源码"发给**编写**席位 ⇒ 不拦（不误伤正当角色）',
+        '★★ 同一句"读一下 src/fizzbuzz.js"：**Agent 真去读** ⇒ `{kind:"deny"}`（判据确实还在，只是落点收窄了）',
+        r2b?.kind === 'deny',
+        `返回：${JSON.stringify(r2b)?.slice(0, 100)}\n${indent(r2b?.reason ?? '')}`,
+      )
+      // 对照：同一句话给**编写**席位 ⇒ 放行（它本来就该读代码）
+      rec.add(
+        'B UserPromptSubmit',
+        '对照：同一句"读一下源码"发给**编写**席位 ⇒ 不判（不误伤正当角色）',
         judgePrompt({ role: 'writer', taskId: 'T', seat: null }, '先读一下 src/fizzbuzz.js 的实现，看看逻辑对不对') === null,
         `judgePrompt(writer, ...) = ${JSON.stringify(judgePrompt({ role: 'writer', taskId: 'T', seat: null }, '先读一下 src/fizzbuzz.js 的实现，看看逻辑对不对'))}`,
       )
     }
 
-    // --- 作用域：非管线会话不注入不拦 ---
+    // --- 作用域：非管线会话不注入不判 ---
     const outsider = await step('user-own-session', ['先跑一下 npm test', '再读一下 src/x.js'])
     rec.add(
       'B UserPromptSubmit',

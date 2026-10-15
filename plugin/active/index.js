@@ -106,6 +106,8 @@ import { autoReattachMain, formatMainReattachReport } from './lib/reattach.js'
 // ★★ 2026-10-14 新增：**孤儿单自恢复**（席位被切断 ⇒ 自己意识到 + 自己重新投递）。
 import { createOrphanAudit, createOrphanRescue } from './lib/orphan.js'
 import { detectRunFailure, sessionsRootOf } from './lib/runfail.js'
+// ★★ E4：跨项目"用户裁定"库（装配期发布成 `<dsh-home>/skills/<名字>/SKILL.md`）。
+import { publishRulingsForProject } from './lib/memory/user-rulings.js'
 import { pathKey, PACKAGE_ROOT } from './lib/util.js'
 
 /** 插件名。 */
@@ -118,12 +120,11 @@ export const name = 'dsh-pipeline'
 export const NS = 'dsh-pipeline'
 
 /**
- * 只依赖工具注册表。
- * 刻意不注入 sessions / subagents —— 少一个服务依赖就少一种"装不上"的方式。
- * 子代理通道在运行期用 `ctx.subagents` 做**存在性判断**（没有就退回人工通道），
- * 而不是声明式依赖。
+ * 装配期依赖（`inject`）—— **精确集合**、每一项"为什么在"、以及**为什么别的不在**
+ * （可选服务走运行期探测而不是装配期依赖），全部在 `lib/host-surface.js` 的单一出处里。
+ * 这里只做**一行接线**；改这个面要**重启 DSH** 才生效（装配期依赖，热重载不重新装配）。
  */
-export const inject = ['tools']
+export { PLUGIN_INJECT as inject } from './lib/host-surface.js'
 
 /** 版本号（与 package.json 保持一致；日志与收据里会打印）。 */
 export const TOOL_VERSION = '0.1.0'
@@ -213,6 +214,8 @@ export function apply(ctx, rawConfig) {
       }
       return last ?? { known: false, found: false, evidence: null, source: 'none', note: '没有可取证的席位。' }
     },
+    /** ★ E3：`sw` 建在下面（`:235`）⇒ 这里只能给一个闭包；判据仍然只有 `lib/switch/gate.js` 一处。 */
+    switchRef: () => sw,
   })
   // ★ 通道侧留痕出口：通道不可达 / 「完全」档被拒 / 归组建不起来 —— 这三类判决
   //   都必须落盘。写进**既有**的 `.pipeline/<任务>/audit.jsonl`（只追加），不新开机制。
@@ -540,6 +543,29 @@ export function apply(ctx, rawConfig) {
   }
 
   // -------------------------------------------------------------------------
+  // 2.05) ★★ **E4：跨项目"用户裁定"库**（装配期把本项目记忆库里的裁定发布成 SKILL.md）
+  // -------------------------------------------------------------------------
+  //
+  //   用户裁定（本单硬约束①）：裁定库落成 **`<dsh-home>/skills/<名字>/SKILL.md`** ——
+  //   **可见、可编辑**；**不用**运行时注册（`ctx.skills.register()`）⇒ 也**不把 `skills`
+  //   写进 `inject`**（写进去就多一种"少一个服务依赖就装不上"的形态，而
+  //   `tests/load-smoke.mjs:200` 把"依赖只有一个"写成了既有断言）。
+  //
+  //   ★ 四条硬要求全在 `lib/memory/user-rulings.js` 里（幂等 / 不覆盖外来文件 / 写前备份 /
+  //     只在确有用例时写）。这里只负责"什么时候发布一次"：**装配期一次**，
+  //     与巡检、孤儿单自恢复那些 `ctx.effect` 并列（同一个装配段、同一种语义）。
+  //   ★ 总开关：off ⇒ `publishRulings()` 第一句就返回（面清单里的 `user-rulings` 那一行）。
+  //   ★ 绝不抛：发布失败只留一句 warn（它不该影响工具面、守卫、拦截缝的挂载）。
+  ctx.effect(() => {
+    void publishRulingsForProject({
+      projectDir: store.projectRoot,
+      swOf: () => sw,
+      warn: (m) => ctx.logger?.warn?.(`[pipeline] ${m}`),
+    })
+    return () => {}
+  }, 'pipeline: user-rulings skill')
+
+  // -------------------------------------------------------------------------
   // 2.1) ★★ **E 路 ③：按"该席位实际能用的工具面"惰性收紧**（少给定义 ≠ 放宽拒绝）
   // -------------------------------------------------------------------------
   //
@@ -636,6 +662,16 @@ export function apply(ctx, rawConfig) {
         warn: (m) => ctx.logger?.warn?.(m),
         getTask: (taskId) => store.peek?.(taskId) ?? null,
         /**
+         * ★★ **拦截缝的留痕落点**（用户裁定：「只有'拒绝'没有'说明' = 失败」）。
+         *
+         * 落 `.pipeline/<任务>/audit.jsonl`（**只追加**）—— 与 `lib/reattach.js` 的
+         * 认领留痕、`lib/orphan.js` 的自恢复留痕**同一份文件、同一套行格式**。
+         * ⚠️ **刻意不走 `store.recordAudit()`**：那个会 push `task.history` 并重写
+         *    `task.json`，而**"拒绝"不是进展** —— `lib/patrol.js` 的
+         *    "最后一次进展时刻"读的正是 `history` 的末条（同 `lib/reattach.js:498-505`）。
+         */
+        auditFileOf: (id) => store.auditFile(id),
+        /**
          * ★★ **主对话侧的重启自动认领**（D1 第 1 件）—— 搭在这条**既有**缝的最前面调用。
          *
          * 为什么搭这里而不是自己再挂一条 `ctx.on('tools/pre-execute')`：
@@ -654,6 +690,15 @@ export function apply(ctx, rawConfig) {
         waker: wakeup,
         // ★ 失联检测的静默阈值（席位简报里那条提示要用它，与 store 用**同一个**值）
         seatSilenceMs: config.seatSilenceMs,
+        // ★★ 记忆域（E1）：项目目录（算 `.pipeline/_memory/` 落点）+ 计价器（注入的硬上限）。
+        projectDir: projectRoot,
+        tokenMeter: (() => {
+          try {
+            return ctx.tokenMeter ?? null
+          } catch {
+            return null
+          }
+        })(),
         /**
          * ★ 失联检测的**处置**入口（`tools/pre-execute` 那条缝调它）。
          *

@@ -11,13 +11,13 @@ import { ROLE, ROLES, roleLabel } from '../roles.js'
 import { ST, STATE_LABEL } from '../states.js'
 import { agentIdOf } from '../guard.js'
 import { DEFAULT_SEAT_SILENCE_MS, formatDuration } from '../liveness.js'
-import { rosterSlotDeclarations } from '../tiers.js'
 // ★★ P5 接线（W6）：`tier ≥ L3` 无主管 ⇒ 需求位不可派。判断"档位落地没落地"要用
 //    `isUnknownTier` 分流（`tier-order.js` 自己就是这么要求的：未知与非法是两件事）。
 import { isUnknownTier } from '../tiers/tier-order.js'
 import { describeSlotDivergence, resolveEffectiveSlots } from '../roster/slot-truth.js'
 import { DISPATCH_SLOT_KEYS, isSpawnableRole } from '../transport/index.js'
 import { toStringArray } from '../util.js'
+import { dispatchSlots } from './dispatch-slots.js'
 import { describeScopePaths } from '../scope/root-marker.js'
 import { S, tool, resolveActor, dispatchEventFor } from './kit.js'
 
@@ -27,56 +27,6 @@ import { S, tool, resolveActor, dispatchEventFor } from './kit.js'
  */
 export function buildDispatchTools(ctx) {
   const { deps, config, store, tokens, transport, indexTask, notifyOnly, load } = ctx
-
-  /**
-   * ★ **四槽下发**（权限档 / 模式 / 模型 / 推理等级）—— 四个**独立顶层字段**，绝不打包。
-   *
-   * 为什么必须在这里补这一手（这是「四槽被丢弃」的唯一现场）：
-   *   通道侧（`lib/transport/index.js`）的四槽落地**早就齐了** ——
-   *   `normalizeSlots` → `create({agentPreset})` → `permissionPresets.set` + 读回核对 →
-   *   `selectModel` + 全局默认还原。但**派活这一端从来没把四槽交出去过**：
-   *   `transport.spawnRole(spec)` 的 spec 里只有 `task / roster / role / seat`，
-   *   于是 `normalizeSlots(spec, 兜底)` 四槽**全部落进兜底分支** ——
-   *   权限恒为最小档、模式恒为配置默认、模型与推理等级恒为「未指定 ⇒ 不调 selectModel」。
-   *   表现出来就是：名单里写了「工作区」，开出来的会话还是只读 ⇒ 编写席写不了盘。
-   *
-   * 取值优先级（**逐槽独立判定，不做归一、不做近似、不做四槽之间的合并**）：
-   *   ① 本次请求显式给的（`args.permission` / `args.mode` / `args.model` / `args.reasoning`）；
-   *   ② 名单里为该**席位**（`roster.writers.partitions[].seat`）或该**角色**
-   *      （`roster.sequence[].role`）声明的同名字段；
-   *   ③ 都没有 ⇒ **返回 `undefined`**（= 这一槽没给），交给通道按契约取兜底并留痕：
-   *      权限落最小档 `read-only`、模式落 `config.sessionPreset`、模型 / 推理等级落环境枚举默认档。
-   *
-   * ★ 本函数**只读不写**：不新建名单结构、不改名单字段、不做「请求 vs 名单是否相等」的判定
-   *   （那条判据是 B2，属守门层，不在本文件）。名单里没有这四个键时它是个空操作 ——
-   *   这正是「名单槽位尚未落地时，行为与改造前逐字节等价」的保证。
-   */
-  function pickRosterSlots(roster, role, seat) {
-    // ★ 2026-10-14（1d 复测）：取值**收敛到唯一一处** —— `tiers.rosterSlotDeclarations`。
-    //
-    //   改前的实现在本文件里又抄了一份"从名单取值"的逻辑，而它只读
-    //   `roster.writers.partitions[].seat` 与 `roster.sequence[].role` 两处**裸字段**；
-    //   这两处**从来不承载四槽**（`sequence[]` 是 `{role,phase,order,requires}`、
-    //   `partitions[]` 是 `{seat,role_id,layer,scope_paths,interface_owner,deliverables}`）
-    //   ⇒ 取值永远 undefined ⇒ **模式恒为全局那一个默认值**，
-    //   `roster.slots` 那张权威冻结表**没有任何派活路径读它**。
-    //   ⇒ 「一个 AI 一个专属模式」在数据上无法成立（1d 长期标「未核实」的实质）。
-    //
-    //   现在改为：权威表里 **origin==='declared'** 的槽优先，再退两处裸声明。
-    //   名单没有四槽时返回 `{}` ⇒ 与改造前**逐字节等价**（仍走通道兜底 + 留痕）。
-    return rosterSlotDeclarations(roster, role, seat)
-  }
-
-  /** 四槽取值（见 {@link pickRosterSlots}）；返回值永远是四个**分开的**键。 */
-  function dispatchSlots(task, role, seat, args) {
-    const fromRoster = pickRosterSlots(task === null || task === undefined ? null : task.roster, role, seat)
-    const out = {}
-    for (const k of DISPATCH_SLOT_KEYS) {
-      const asked = args === null || args === undefined ? undefined : args[k]
-      out[k] = typeof asked === 'string' && asked.length > 0 ? asked : fromRoster[k]
-    }
-    return out
-  }
 
   // =========================================================================
   // 3. pipeline_dispatch —— 主对话派活

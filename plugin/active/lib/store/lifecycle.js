@@ -15,6 +15,9 @@ import { clamp, newTaskId, nowIso, shortHash, toStringArray } from '../util.js'
 import { seatKey, upsertDispatch } from '../liveness.js'
 import { RESUME_EVENTS } from './shared.js'
 import { describeTransitionRecord } from './transition-record.js'
+// ★ E3（设计 04 §3.3 / §3.1）：状态迁移落一条 `kind:'transition'` 记忆，并让活文档跟着更新。
+import { appendTransition } from '../memory/retain-transition.js'
+import { refreshLiveDocForTask } from '../memory/live-doc-write.js'
 
 /**
  * 任务存储 · 开单、认领、查询、状态迁移
@@ -22,7 +25,7 @@ import { describeTransitionRecord } from './transition-record.js'
  * @param {object} ctx - `createTaskStore` 闭包里本组用到的名字（由 `lib/store.js` 原位传入）
  */
 export function lifecycleMethods(ctx) {
-  const { projectRoot, root, now, cache, taskFile, audit, deny, loadTask, persist, applyHubSideEffects } = ctx
+  const { projectRoot, root, now, cache, taskFile, audit, deny, loadTask, persist, applyHubSideEffects, swOf } = ctx
 
   return {
     /**
@@ -383,6 +386,13 @@ export function lifecycleMethods(ctx) {
       })
       task.history.push(entry)
       await persist(task)
+
+      // ★★ E3（设计 `04-§3.3` + `§3.1`）：迁移出口是记忆域**唯一**能同时拿到
+      //   `from` / `to` / 任务对象的地方 —— 所以"落一条迁移记忆"与"活文档跟着更新"
+      //   （库变了 ⇒ 活文档该变）都挂在这一句上。两句都**绝不抛**、都受总开关管：
+      //   写失败只 warn，被包裹的这次 `pipeline_transition` 照旧返回原结果。
+      await appendTransition(task.project_dir ?? projectRoot, { task, from, to: res.to, event: input.event, at: nowIso(now()), by: input.actorRole }, { swOf })
+      await refreshLiveDocForTask(task, { swOf, projectDir: projectRoot })
 
       /**
        * ★★ **缺陷 ⑨**：`from === to` 的迁移必须自己交代"记了什么"。
