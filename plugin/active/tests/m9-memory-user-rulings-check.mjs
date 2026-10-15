@@ -209,9 +209,9 @@ async function main() {
     // ---- ⑥ 家目录候选（不硬编码）------------------------------------------
     lines.push('')
     lines.push('【⑥ skills 根目录的候选（与 dsh-skill-filesystem 的发现根同源）】')
-    const cands = skillsRootCandidates({ DSH_SKILLS_DIR: 'X:\\s', DSH_HOME: 'X:\\h' }, '%USERPROFILE%')
+    const cands = skillsRootCandidates({ DSH_SKILLS_DIR: 'X:\\s', DSH_HOME: 'X:\\h' }, '<用户目录>')
     ok(cands[0] === 'X:\\s' && cands.includes(join('X:\\h', 'skills')), '★ 显式 `DSH_SKILLS_DIR` 优先，其次 `$DSH_HOME/skills`（照 `lib/liveness.js` 同一套写法）', JSON.stringify(cands))
-    ok(defaultSkillsRoot({}, '%USERPROFILE%').endsWith(join('.dsh', 'skills')), '★ 都取不到 ⇒ `~/.dsh/skills`', defaultSkillsRoot({}, '%USERPROFILE%'))
+    ok(defaultSkillsRoot({}, '<用户目录>').endsWith(join('.dsh', 'skills')), '★ 都取不到 ⇒ `~/.dsh/skills`', defaultSkillsRoot({}, '<用户目录>'))
   } finally {
     rmSync(skills, { recursive: true, force: true })
     rmSync(project, { recursive: true, force: true })

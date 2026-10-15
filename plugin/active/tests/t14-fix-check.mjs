@@ -286,7 +286,7 @@ export async function runT14FixCheck() {
     const { ensureProjectGroupForTest } = await import('../lib/transport/index.js')
     const calls = []
     const ctx = { get: () => ({ create: async (a, b) => { calls.push(a ?? b); return { id: 'ws-1', created: true } } }) }
-    const profileDir = process.env.DSH_PROFILE_DIR ?? '%USERPROFILE%\\.dsh\\profiles\\desktop'
+    const profileDir = process.env.DSH_PROFILE_DIR ?? 'C:\\<用户目录>\\.dsh\\profiles\\desktop'
     const g1 = await ensureProjectGroupForTest(ctx, {}, { task: { id: 'T-1', project_root: profileDir } })
     rec.add(
       'B7 分组名',

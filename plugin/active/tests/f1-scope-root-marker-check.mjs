@@ -59,7 +59,7 @@ export async function runF1ScopeRootMarkerCheck() {
   const rec = createRecorder()
 
   // 真机的布局形状（profile 工作区 里装着 node_modules/dsh-pipeline）
-  const PROJECT = pathKey('%USERPROFILE%/.dsh/profiles/desktop')
+  const PROJECT = pathKey('C:/<用户目录>/.dsh/profiles/desktop')
   const PACKAGE = pathKey(`${PROJECT}/node_modules/dsh-pipeline`)
   const CTX = { anchor: PACKAGE, projectRoot: PROJECT }
 
