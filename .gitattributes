@@ -1,0 +1,66 @@
+# .gitattributes —— 行尾统一（本仓库单一约定：LF）
+# ============================================================================
+# 为什么需要它：本机 core.autocrlf=true，检出到工作树的是 CRLF，而
+# presets/render.js 产出的是 LF —— p11⑤/⑥ 与 p12① 的「逐字节相等」判据
+# 因此恒红（生成物 1320 行 CRLF vs 渲染器 0 处 CRLF）。把约定写进仓库，
+# 判据就不再依赖每个人本机的 core.autocrlf。
+#
+# ★ 读取顺序：**同一属性最后匹配的一行生效**。所以「兜底」写在最前、
+#   「显式」写在中间、二进制写在最后。
+
+# ---- 兜底：其余文本一律 LF ----
+# text=auto ⇒ git 自动识别二进制并跳过，不会改坏图片 / 压缩包。
+* text=auto eol=lf
+
+# ---- 源码 ----
+*.js         text eol=lf
+*.mjs        text eol=lf
+*.cjs        text eol=lf
+
+# ---- 配置 / 数据 ----
+*.json       text eol=lf
+*.yml        text eol=lf
+*.yaml       text eol=lf
+
+# ---- 文档 ----
+*.md         text eol=lf
+*.txt        text eol=lf
+
+# ---- 脚本 ----
+*.ps1        text eol=lf
+*.sh         text eol=lf
+*.cmd        text eol=lf
+
+# ---- 校验清单与 git 自身配置 ----
+*.sha256     text eol=lf
+.gitignore   text eol=lf
+.gitattributes text eol=lf
+
+# ---- 二进制：显式声明，永不参与行尾转换 ----
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.gif    binary
+*.webp   binary
+*.ico    binary
+*.bmp    binary
+*.woff   binary
+*.woff2  binary
+*.ttf    binary
+*.otf    binary
+*.eot    binary
+*.pdf    binary
+*.zip    binary
+*.gz     binary
+*.tgz    binary
+*.7z     binary
+*.rar    binary
+*.docx   binary
+*.xlsx   binary
+*.pptx   binary
+*.wasm   binary
+*.node   binary
+*.exe    binary
+*.dll    binary
+*.so     binary
+*.dylib  binary
