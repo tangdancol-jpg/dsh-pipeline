@@ -11,10 +11,10 @@
 .
 ├── README.md                  ← 本文件
 ├── .gitignore
+├── .gitattributes             ← 行尾统一：文本一律 LF
 ├── MANIFEST.sha256            ← 逐文件 sha256（不含自身）
 ├── plugin/
-│   ├── active/                ← 插件源码（维护这一份）
-│   └── src/                   ← 运行期文件的副本，不维护
+│   └── active/                ← 插件源码（唯一一份）
 ├── dashboard/                 ← 本地只读控制面板（见 dashboard/README.md）
 └── docs/                      ← 实现报告、交付文档、架构图
 ```
@@ -23,8 +23,8 @@
 
 ## 一、插件源码：`plugin/active/`
 
-`plugin/active/` 是要维护的那一份，对应安装后 `profiles/desktop/node_modules/dsh-pipeline/` 下的文件。
-`plugin/src/` 只是插件运行期需要的文件复制出来的副本，内容落后于 `active`，不要在那里改。
+`plugin/active/` 是唯一一份，对应安装后 `profiles/desktop/node_modules/dsh-pipeline/` 下的文件。
+（原先还并存一份重构前的单体旧版 `plugin/src/`，内容落后且无任何引用，已删除；历史里仍保留。）
 
 ### 模块布局
 
