@@ -21,6 +21,8 @@ import {
 import { ROLE, roleLabel } from '../roles.js'
 import { nowIso, toStringArray } from '../util.js'
 import { checkAllSeatsSubmitted } from './shared.js'
+// ★★ P4 接线（`WIRING.md` §W3）：DEMO 两个闸门的**名字**从闸门模块取，不手抄字符串。
+import { DEMO_GATE_GUARD, DEMO_ROUND_GUARD } from '../guard/demo-gate.js'
 
 /**
  * 任务存储 · 迁移前置条件
@@ -829,6 +831,25 @@ export function preconditionMethods(ctx) {
             )
           }
           break
+        }
+        // ★★ P4 接线（`WIRING.md` §W3）：DEMO 闸门 ------------------------------
+        //
+        //   `demo_confirm → ready_dev`（事件 `demo_confirmed`）这条边**必须**有用户确认。
+        //   判据本体在 `lib/guard/demo-gate.js`，经 `store.checkDemoPrecondition` 转发 ——
+        //   工具层与守门层调的是**同一份**实现（与既有各闸门同一条规矩）。
+        //
+        //   ★ 为什么判在**这一层**、而不是在工具里判：工具能被绕过（直接调 transition），
+        //     状态机这一层绕不过去。闸门装在"必经之路"上才算闸门。
+        //   ★ 为什么放在 `default:` **之前**：`main`→`transition` 走的是
+        //     `applyTransition` 拿到 `guard` 名再回来查这张表（`store/lifecycle.js`）。
+        //     名字没登记时落到 `default:` —— 那是一条**明确的拒绝**（`INTERNAL`），
+        //     不是"默认放行"；但那条判词既不是 `DEMO_NOT_CONFIRMED`、也没有"下一步"，
+        //     对模型与用户都是误导。登记进来才拦得**对**。
+        //   ★ 不接线的后果：未获用户确认时向 `ready_dev` 的推进拿不到正确的判据 ——
+        //     验收 A17 不成立，W1 接好了也一样（状态能走通，但理由说不清）。
+        case DEMO_GATE_GUARD:
+        case DEMO_ROUND_GUARD: {
+          return this.checkDemoPrecondition(task, name, input)
         }
         default:
           return deny('INTERNAL', `未知的前置条件「${name}」（插件内部错误）。`)

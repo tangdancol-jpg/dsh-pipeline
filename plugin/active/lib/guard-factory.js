@@ -29,6 +29,8 @@ import { join } from 'node:path'
 
 import { DEFAULT_WRITE_TOOLS, agentIdOf, bindingForAgent, guardDecision, owningChangeScopeEntry } from './guard.js'
 import { GUARD_WRITE_ALLOWED_SOURCE, WRITE_LEDGER_FILE_NAME, WRITE_LEDGER_KIND, parseWriteLedger } from './hashgate.js'
+// ★★ 功能开关的**唯一判据**（缺陷"开关只关一半"的根因修复：谁都不许自己写 `sw.isOn()`）。
+import { guardVerdict } from './switch/gate.js'
 import { fullHash, isInside, pathKey, resolveAgainstAnchor } from './util.js'
 
 /** 内部异常时的拒绝文案（要能一眼看出是插件 bug，而不是模型操作错）。 */
@@ -534,16 +536,16 @@ export function createGuardFor(deps) {
   return function pipelineGuard(exec) {
     // ④ 功能开关：关掉 = 本守卫弃权（返回 undefined，不是"允许"）。
     //    放在 try 外面、且早于一切判据 —— 关掉之后不应该再有任何本插件的理由文本。
-    if (sw !== undefined && sw !== null) {
-      let on
-      try {
-        on = sw.isOn() === true
-      } catch (err) {
-        // 开关自己坏了：宁可照常守（fail-closed），也不能因为读开关失败就静默放行。
-        return `${INTERNAL_FAILURE_PREFIX}\n读功能开关失败：${String(err?.message ?? err)}`
-      }
-      if (!on) return undefined
+    //
+    //    ★★ **判据只有一处**：`lib/switch/gate.js` 的 `guardVerdict()`。
+    //       本文件**不许**自己写 `sw.isOn()` —— 那正是"开关只关一半"的成因
+    //       （四面各自读、各自漂移）。它同时把"读不出来"单独报出来。
+    const gate = guardVerdict(sw)
+    if (gate.error !== null) {
+      // 开关自己坏了：宁可照常守（fail-closed），也不能因为读开关失败就静默放行。
+      return `${INTERNAL_FAILURE_PREFIX}\n读功能开关失败：${gate.error}`
     }
+    if (gate.skip) return undefined
 
     try {
       // ★ 客观观测：每经过一次工具调用就记一笔（按 agent 分桶）。

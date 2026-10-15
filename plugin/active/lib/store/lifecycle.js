@@ -176,6 +176,16 @@ export function lifecycleMethods(ctx) {
       const entry = await audit(id, ROLE.MAIN, 'open', { requirement_digest: shortHash(requirement), agent: input.actorAgentId })
       task.history.push(entry)
       await persist(task)
+      /**
+       * ★★ P5 接线（`WIRING.md` §W4）：**开单先强制设主管**（裁定 1 / 定稿 §3.5 的 `pending` 那一条）。
+       *
+       * ★ 刻意**不做试算**：`pending` 时还没有 tier，先猜档位再决定设不设主管，
+       *   会在"猜 L1、实际 L4"时留下一个**没有责任人的补救动作**。
+       * ★ 幂等：`hubForceOnOpen` 自己判重，重复调用不写盘。
+       * ★ 放在两次 persist **之后**：强制设主管要把 `hub_requirement` 与上面那条 `open`
+       *   审计行一起落进同一个任务卡，顺序反了会把审计行挤掉。
+       */
+      await this.hubForceOnOpen(id, { by: input.actorRole })
 
       return { ok: true, task, summary: `已开单 ${id}，状态：${STATE_LABEL[ST.PENDING]}。下一步：pipeline_orchestrate 做**需求分析**（出任务卡 + 不清楚处清单；分配 AI 是后面 planner 的事）。` }
     },

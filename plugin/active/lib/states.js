@@ -37,6 +37,10 @@
 //   角色 id 的唯一出处是 roles.js（`ROLE`），手抄一份就是漂移的入口。
 //   依赖方向是单向的（roles.js 不 import 任何模块），不会成环。
 import { ROLE } from './roles.js'
+// ★★ P4 接线：DEMO 阶段的两个新状态与四条边。定义体在 `lib/states/demo-phase.js`，
+//   本表**只做合并**（那一条正是 `WIRING.md` §W1；不接 ⇒ DEMO 阶段在真机上不存在）。
+//   ★ 本文件**不手抄**那两个状态 id —— 唯一出处是 `states/demo-phase.js`（规范 §7）。
+import { DEMO_ST, DEMO_STATE_LABEL, demoPhaseMerge, demoStateOwners } from './states/demo-phase.js'
 
 /** 状态 id。 */
 export const ST = {
@@ -134,6 +138,13 @@ export const ST = {
   AWAITING_HUMAN: 'awaiting_human',
   BLOCKED: 'blocked',
   CANCELLED: 'cancelled',
+  /**
+   * ★★ DEMO 阶段（P4 接线）：复杂任务先出**可操作前端 DEMO**，**用户确认后**才继续后端。
+   * ★ 为什么不直接并进 `ready_dev`：`ready_dev` 是"活已切好、只等派"，而这里是
+   *   "DEMO 还在做 / 等用户点头" —— **下一步该催谁**完全不同（催做 DEMO 的人 vs 催用户）。
+   */
+  DEMO_BUILDING: DEMO_ST.BUILDING,
+  DEMO_CONFIRM: DEMO_ST.CONFIRM,
 }
 
 /**
@@ -195,6 +206,8 @@ export const STATE_LABEL = {
   [ST.AWAITING_HUMAN]: '等待人工答复',
   [ST.BLOCKED]: '已阻塞',
   [ST.CANCELLED]: '已取消',
+  // ★★ P4 接线：DEMO 两个状态的标签（同样从 `states/demo-phase.js` 取，不手抄字符串）。
+  ...DEMO_STATE_LABEL,
 }
 
 /** 终态：到了就不可再迁（除人工重开）。 */
@@ -660,6 +673,19 @@ export const TRANSITIONS = [
   { from: '*', event: 'block', to: ST.BLOCKED, by: ['main', 'human'], note: '任意非终态可阻塞' },
   { from: ST.BLOCKED, event: 'unblock', to: '(previous)', by: ['main', 'human'], note: '解除阻塞，回到阻塞前的状态' },
   { from: '*', event: 'cancel', to: ST.CANCELLED, by: ['main', 'human'], note: '任意非终态可取消' },
+
+  // --- ★★ P4 接线：DEMO 阶段的四条边（定义在 `lib/states/demo-phase.js`，本表只做合并）----
+  //
+  //   planning ──plan_ready_demo──▶ demo_building ──demo_submitted──▶ demo_confirm
+  //                                       ▲                                │
+  //                                       └──────demo_rework───────────────┤
+  //                                       ready_dev ◀──demo_confirmed──────┘
+  //
+  //   ★ 为什么要**在这里**合并：`applyTransition()` 只认本表里登记过的 `(from, event)` ——
+  //     表里没有 `demo_building`，`planning → demo_building` 这条边走不通，DEMO 阶段等于不存在。
+  //   ★ `demo_confirmed` 那条边挂的闸门名是 `demo_confirmed` —— 判据体在
+  //     `lib/guard/demo-gate.js`，由 `lib/store/precondition.js` 转发（见 `WIRING.md` §W3）。
+  ...demoPhaseMerge({ ST, ROLE }).transitions,
 ]
 
 /** 状态 → 该状态下"轮到的角色"（用于催办与守门）。 */
@@ -689,6 +715,16 @@ export const STATE_OWNER = {
   [ST.AWAITING_HUMAN]: 'main',
   [ST.BLOCKED]: 'human',
   [ST.CANCELLED]: null,
+  /**
+   * ★★ DEMO 两个状态的 owner（P4 接线补齐）。
+   *
+   * 不补的后果是**可执行的**：`STATE_OWNER` 恒等于"全部状态 ⇒ 谁"这张表，
+   * 缺一个键就答不出"这一步该催谁"（`deliver.js` 取到 `undefined ?? null`，
+   * 就成了"没人可催"）。两个状态各有明确的人可催，所以**不是** `null`：
+   *   · `demo_building` ⇒ 编写席（DEMO 还在做）；`demo_confirm` ⇒ 主对话（等用户点头）。
+   * ★ 与 `TRANSITIONS` 同一条纪律：条目来自 `states/demo-phase.js`，本文件不手抄角色 id。
+   */
+  ...demoStateOwners({ ROLE }),
 }
 
 /**

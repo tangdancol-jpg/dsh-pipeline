@@ -10,6 +10,9 @@
 import { ROLE, roleLabel } from '../roles.js'
 import { ST } from '../states.js'
 import { agentIdOf } from '../guard.js'
+// ★ 功能开关的**唯一判据 + 文案**（不许自己写 `sw.isOn()` —— 见 lib/switch/gate.js）。
+import { isEnabled } from '../switch/gate.js'
+import { mutatingOffRefusal } from '../switch/text.js'
 import { toStringArray } from '../util.js'
 
 /** 审批链站名 → 人话（pipeline_full_test 用）。 */
@@ -233,104 +236,12 @@ const renderFor = (spec) =>
  *   为什么两处都要判：守门管的是"越权"，开关管的是"这功能本身开没开"，
  *   两者是正交的。而且守门对**没有身份**的调用方是放行的（守门只约束流水线
  *   参与者），所以关掉之后光靠守门拦不住"开单"这类动作 —— 必须在工具层再判一次。
+ *
+ * ★★ `rememberMainCaller` **搬去了 `lib/wakeup/main-contact.js`**（它自己一件事：
+ *   主对话会话登记，含它的开关判据）。这里**再转出一次**，是为了让既有的
+ *   `import { rememberMainCaller } from '../lib/tools.js'` 一字不改还能用。
  */
-/**
- * ★★ **记下"主对话在这个会话里"**（交付即唤醒的第四步要用的那一份输入）。
- *
- * ---------------------------------------------------------------------------
- * 为什么是这里
- * ---------------------------------------------------------------------------
- * 唤醒消息必须投到**主对话所在会话**，而这个 id **只有主对话自己调用插件工具时**
- * 才拿得到（`exec.agent.id`，见 `guard.js` 的 `agentIdOf`）。所以挂在
- * {@link tool} 的**唯一出口**上：任何一次 pipeline 工具调用都会顺手记一次。
- *
- * 两条纪律：
- *   · **只有主对话记** —— 席位的会话 id 不是唤醒目标（投错了主对话还是收不到）；
- *   · **不抛** —— 记账失败绝不能把这次工具调用带崩（唤醒是副作用，不是判据）。
- *
- * ★ 登记表有两层：内存（`deps.wakeup.registry`，进程内即查即用）+ 落盘
- *   （`task.contacts.main`，进程重启后 `pipeline_contacts` 还能查到）。
- *   只在**发生变化**时才落盘 —— 别让每次工具调用都写一次任务文件。
- *
- * @param {object} deps
- * @param {object} exec
- * @returns {boolean} 是否真的记下了（测试用）
- */
-export function rememberMainCaller(deps, exec, opts = {}) {
-  if (deps === null || deps === undefined) return false
-  const wakeup = deps.wakeup
-  if (wakeup === null || wakeup === undefined || typeof wakeup.rememberMain !== 'function') return false
-  const tokens = deps.tokens
-  if (tokens === null || tokens === undefined) return false
-  const agentId = agentIdOf(exec)
-  if (agentId === null) return false
-
-  /**
-   * ★★ **这个会话手上的每一张"我是主对话"的单** —— 一张都不能漏。
-   *
-   * 2026-10-11 的现场（用户原话："唤醒从约 22:17 之后就不响了"）就出在这里：
-   * 原来这里写的是 `tokens.roleOfAgent(agentId)`，而它是按 `Map` 插入顺序返回
-   * **第一条**命中 —— 主对话会话为每一张开过/认领过的单都持有一枚 `main` 令牌，
-   * 于是它永远返回**最早那张单**。结果：`rememberMain` 每次都在刷新老单，
-   * **新单的 `task.contacts.main` 一个字节都落不下来**，新单的交付唤醒全部
-   * `wake:skipped / no-main-session`（老单却一切正常，特别像"某个时间点之后
-   * 突然坏了"，其实是"之后开的新单都没登记过"）。
-   *
-   * 修法：**不做取舍**，把该会话手上的主对话任务**全部**登记一遍。
-   * 这同时就是"自愈"—— 主对话换了会话 id（重开 / 重启 / 重新认领）之后，
-   * 它**下一次**调用任何 pipeline 工具就会把新会话 id 覆盖进每一张单的
-   * `contacts.main`（`store.rememberMainContact` 认的是"值变了才写盘"，
-   * 没变就是零成本的空转）。
-   *
-   * 为什么不是"从 `args.task_id` 里取"：那个字段**不是每个工具都有**
-   * （`pipeline_selftest` / `pipeline_switch` 就没有），漏一条路径就漏一张单。
-   * 令牌表才是"这张单的主对话是谁"的**权威来源**（它是 `task_open` / `reattach`
-   * 亲手铸的），不在参数字符串上赌。
-   */
-  let taskIds = []
-  try {
-    taskIds = typeof tokens.tasksOfAgent === 'function'
-      ? tokens.tasksOfAgent(agentId, ROLE.MAIN)
-      : // 退化路径：宿主加载的是旧版 tokens（热替换的半途状态）时，退回老行为，
-        // 至少不比改之前差；不做猜测式的补全。
-        (() => {
-          const one = tokens.roleOfAgent(agentId, undefined)
-          return one !== null && one !== undefined && one.role === ROLE.MAIN ? [one.taskId] : []
-        })()
-  } catch {
-    return false
-  }
-  if (!Array.isArray(taskIds) || taskIds.length === 0) return false
-
-  let any = false
-  for (const taskId of taskIds) {
-    if (typeof taskId !== 'string' || taskId.length === 0) continue
-    try {
-      // ★ 一张单失败不影响其它单 —— 唤醒是副作用，不是判据。
-      if (wakeup.rememberMain(taskId, agentId, 'tool-call') === true) any = true
-    } catch {
-      void 0
-    }
-    /**
-     * ★★ **A28(c)：主对话的"接管"留痕。**
-     *
-     * 「送达 ≠ 接管」的主对话侧判据是：**目标确实据此推进了**
-     * （状态迁移 / 派活 / 答复），或者明确回复"已收到但不推进"并留下可见留痕。
-     * 所以这里**只认会改状态的那类工具**（`opts.mutating === true`）——
-     * 一次 `pipeline_status` 只读查询**不算**接管，把它算进去就会把
-     * "18 小时零动作"洗成"已接管"，A28 当场失效。
-     */
-    if (opts.mutating === true && typeof wakeup.markConsumed === 'function') {
-      try {
-        wakeup.markConsumed(taskId, { by: 'main', action: String(opts.action ?? 'tool-call') })
-      } catch {
-        void 0
-      }
-    }
-  }
-  return any
-}
-
+export { rememberMainCaller } from '../wakeup/main-contact.js'
 export function tool(deps, spec) {
   const { defineTool, sw, defineToolDegraded } = deps
 
@@ -358,14 +269,6 @@ export function tool(deps, spec) {
    */
   const shape = (value) => normalizeOutput(spec.output, value)
 
-  /** 开关关闭时的统一拒绝文案。 */
-  const offRefusal = () =>
-    '[pipeline] 多 AI 协调功能当前是**关闭**状态，本动作不会执行。\n' +
-    `工具：${spec.name}\n` +
-    '怎么恢复：把 DSH 窗口右上角头部那一排里的「多AI 协调」开关点成「开」，' +
-    '或者让主对话调用 pipeline_switch { on: true }，或者调用 pipeline_switch 不带参数直接翻转。\n' +
-    '关闭状态下仍然可用的是只读动作：pipeline_status（查历史任务）、pipeline_switch（看/改开关）、pipeline_selftest（自检）。'
-
   return defineTool({
     name: spec.name,
     description: spec.description,
@@ -374,8 +277,9 @@ export function tool(deps, spec) {
     output: { schema: outputSchemaFor(spec), render: renderFor(spec) },
     async execute(args, exec) {
       try {
-        if (spec.mutating === true && sw !== undefined && sw !== null && sw.isOn() !== true) {
-          return shape({ ok: false, summary: offRefusal() })
+        // ★ 关掉时的拒答文案搬去了 `lib/switch/text.js`（与工具返回 / 启动日志同一出处）。
+        if (spec.mutating === true && !isEnabled(sw)) {
+          return shape({ ok: false, summary: mutatingOffRefusal(spec.name) })
         }
         const out = shape(await spec.run(args ?? {}, exec))
         // -----------------------------------------------------------------

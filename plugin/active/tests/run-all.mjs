@@ -669,6 +669,47 @@ for (const extra of [
   { file: './f11-slot-truth-check.mjs', exportName: 'runF11SlotTruthCheck', zh: 'F11 四槽同源（声明 vs 生效；哪一槽是读回来的、哪一槽只是发出去了，逐槽给证据）' },
   // ★★ 第四批（F12：spawn=false 必须真的不建会话）：
   { file: './f12-spawn-false-check.mjs', exportName: 'runF12SpawnFalseCheck', zh: 'F12 spawn=false（不许碰宿主 create / subagents.start，只出可粘贴的派活单）' },
+  // ★★ P1–P5 接线（`WIRING.md` §W8）：8 套对照测试**登记进聚合跑**。
+  //    本批次（P1–P5）当初带"既有文件一个都不许改"的约束，所以这 8 套**刻意没登记**
+  //    （理由逐条写在 `CONVENTIONS.md` §6 的"唯一例外"里）；解除约束的这一次补上，
+  //    否则"run-all 全绿"会被读成"新功能也全绿" —— 而它们根本**跑不到**（假绿）。
+  //    ★ 前置改动：这 8 个文件原来是"顶层立即执行 + process.exit()"的写法、没有导出运行器，
+  //      已按本文件既有的 `{passed,total,text}` 约定各补一个 `runPNXxxCheck()`
+  //      （直接 `node tests/pN-*.mjs` 的行为逐字未变）。落在这里而不是各自加 import，
+  //      是沿用下面那条"按约定名发现"的既有通道 —— 发现不到就如实标"尚未落地"。
+  { file: './p1-project-dir-check.mjs', exportName: 'runP1ProjectDirCheck', zh: 'P1 项目目录（幂等建目录 / 复用 / 既存优先 / 与授权面同源）' },
+  { file: './p2-snapshot-version-check.mjs', exportName: 'runP2SnapshotVersionCheck', zh: 'P2 快照版本号（解析 / 段进位 / 序数比较：**禁止字符串排序**）' },
+  { file: './p3-git-init-check.mjs', exportName: 'runP3GitInitCheck', zh: 'P3 git 化闸门（只有显式确认才 init；远端写不可表达）' },
+  { file: './p4-agents-md-check.mjs', exportName: 'runP4AgentsMdCheck', zh: 'P4 AGENTS.md（独立模板 + 幂等四情形落盘）' },
+  { file: './p5-product-catalog-check.mjs', exportName: 'runP5ProductCatalogCheck', zh: 'P5 产品目录 + 产品设计文档（分组校验：空 MVP 被拒 / 每条带验收判据）' },
+  { file: './p6-demo-phase-check.mjs', exportName: 'runP6DemoPhaseCheck', zh: 'P6 DEMO 阶段（三档策略 / ★W3 接线专项：未确认不得进 ready_dev / 三条软约束）' },
+  { file: './p7-hub-required-check.mjs', exportName: 'runP7HubRequiredCheck', zh: 'P7 L3+ 强制主管（先设后撤 / 需求位派活判据）' },
+  { file: './p8-scope-root-check.mjs', exportName: 'runP8ScopeRootCheck', zh: 'P8 授权面锚点（项目目录与授权面同源）' },
+  // ★★ 2026-10-16（用户原则：代码判定优先于 AI 判断）：把两条**存疑项**判据化。
+  //    它们不是"再补一个用例"，而是把原来只能靠人读代码确认的两件事变成**会红的断言**：
+  //      · p9  —— W6 的调用点**传对了参数没有**：探针记录 `requirementConfirmed` 的实际取值，
+  //              并把"照 WIRING 原文会 BAD_TIER 误拒"做成断言（见该文件 §③）。
+  //      · p10 —— `STATE_OWNER` 漏登记即红（判据：状态全集 ⊆ owner 键集合）。
+  { file: './p9-orchestrator-dispatch-gate-check.mjs', exportName: 'runP9OrchestratorDispatchGateCheck', zh: 'P9 需求位派活判据（W6 判据化：接线处传的参数 + 照原文会误拒的对照）' },
+  { file: './p10-state-owner-check.mjs', exportName: 'runP10StateOwnerCheck', zh: 'P10 STATE_OWNER 完整性（状态全集 ⊆ owner 键集合，漏一个即红）' },
+  // ★★ 第五批（缺陷⑬：`pipeline_switch` 关掉后插件仍在拦 —— "开关只关一半"）：
+  //    现场是**两条相邻调用**：`pipeline_switch {on:false}` 返回「任何调用都不再被本插件拦」，
+  //    紧接着那次调用的**结果仍被 `tools/post-execute` 的"第二道网"换掉**。
+  //    ★ 刻意拆成**六套各自只测一件事**（用户原话：「分文件，分文件」）——
+  //      合并成一套"开关大测试"之后，"红一条 = 六件事一起看"，退化时定位不到是哪一件：
+  //        · off ⇒ 结果不过滤      （缺陷现场）
+  //        · on  ⇒ 结果被过滤      （正例对照：没有它，"off 不过滤"可能只是"缝本来就坏了"）
+  //        · off ⇒ 无 hook 生效    （**计数**判据：挂载面 0 + 触发面 7 个 spy 全 0）
+  //        · off ⇒ 不注入/不写盘   （唤醒咽喉 + 主对话记账面）
+  //        · off ⇒ 周期机制停表    （巡检 / 孤儿单自恢复两条 setInterval）
+  //        · 关掉的文案 = 事实     （面清单驱动文案 + 防漂移条数核对）
+  //    夹具在 `switch-fixtures.mjs`（**不是测试**，刻意不登记 —— 它没有断言）。
+  { file: './switch-off-no-filter-check.mjs', exportName: 'runSwitchOffNoFilterCheck', zh: '开关回归：off ⇒ 含代码正文的工具结果**不被过滤**（缺陷现场）' },
+  { file: './switch-on-filter-check.mjs', exportName: 'runSwitchOnFilterCheck', zh: '开关回归：on ⇒ 含代码正文的工具结果**被过滤**（与今天行为一致）' },
+  { file: './switch-off-no-hooks-check.mjs', exportName: 'runSwitchOffNoHooksCheck', zh: '开关回归：off ⇒ **无任何 hook 生效**（挂载面 0 + 7 个 spy 计数全 0）' },
+  { file: './switch-off-no-inject-check.mjs', exportName: 'runSwitchOffNoInjectCheck', zh: '开关回归：off ⇒ 不注入会话、不写项目目录（唤醒咽喉 + 记账面）' },
+  { file: './switch-off-mechanisms-check.mjs', exportName: 'runSwitchOffMechanismsCheck', zh: '开关回归：off ⇒ 巡检 / 孤儿单自恢复**停表**（不是空转）' },
+  { file: './switch-off-text-check.mjs', exportName: 'runSwitchOffTextCheck', zh: '开关回归：关掉的**文案 = 事实**（面清单驱动 + 防漂移条数核对）' },
 ]) {
   let mod = null
   try {

@@ -26,7 +26,10 @@
  *
  *   6. **一个界面上能点的总开关**（`lib/switch.js` / `lib/switch-routes.js` / `lib/client.js`）
  *      DSH 窗口右上角头部那一排里的「多AI 协调」按钮 —— 开 = 上面 1~5 全管；
- *      关 = 守门弃权、流水线写操作被拒，回到普通 DSH 行为。
+ *      关 = **本插件不再拦任何调用、不再往任何会话注入消息**（四条拦截缝全直通、
+ *      唤醒不投递、巡检与孤儿单自恢复停表），只剩"流水线写操作被拒"这一条**故意**保留。
+ *      ★ 逐条面清单与唯一闸门在 `lib/switch/gate.js` 的 `SWITCH_SURFACES` / `isEnabled()` ——
+ *        它就是"关 = 彻底摘干净"的可执行定义（缺陷"开关只关一半"的根因修复）。
  *      ★ 关掉时**不注销守卫、不注销工具**（结构恒常、行为可变）：
  *        守卫注销再注册会改变它在 `ToolLayer.guards` 里的顺序，而守卫链是
  *        "取第一个非 undefined"（`dsh-tools:2646-2651`）—— 顺序一变，与
@@ -74,6 +77,13 @@ import { makeTaskIndexEntry } from './lib/guard.js'
 import { createCallCounter } from './lib/context.js'
 import { createTaskStore } from './lib/store.js'
 import { createSwitch, defaultSwitchStateFile } from './lib/switch.js'
+// ★★ 总开关（缺陷"开关只关一半"）：判据/面清单在 lib/switch/gate.js，
+//    文案在 lib/switch/text.js，周期机制起停在 lib/switch/mechanisms.js，
+//    唤醒投递闸门在 lib/switch/waker-gate.js。**本文件只做接线**。
+import { isEnabled } from './lib/switch/gate.js'
+import { offModeStartupLines } from './lib/switch/text.js'
+import { createMechanismItems, createSwitchDrivenMechanisms } from './lib/switch/mechanisms.js'
+import { withSwitchGate } from './lib/switch/waker-gate.js'
 import { registerInterception } from './lib/intercept.js'
 import { fullTestCredential } from './lib/testscope.js'
 import { hashGateBlocksTests, hashGateEscalationPending } from './lib/hashgate.js'
@@ -329,7 +339,12 @@ export function apply(ctx, rawConfig) {
   //   登记发生在**每一次** pipeline 工具调用之后（`lib/tools.js` 的唯一出口），
   //   所以它不依赖任何一条特定路径。
   const mainSessions = createMainSessionRegistry()
-  const wakeup = createWaker({
+  /**
+   * ★★ **总开关**：唤醒是本插件"往会话里说话"的唯一咽喉（四条来路都走它），
+   *    所以在装配处包一层就够 —— 见 `lib/switch/waker-gate.js`。
+   *    ★ `createWaker` 本体（`lib/wakeup/waker.js`）**一个字节都不用改**。
+   */
+  const wakeup = withSwitchGate(createWaker({
     ctx,
     registry: mainSessions,
     /** ★★ 已播报账本：让「同一条事件恰播一次」**跨进程**成立（A19）。 */
@@ -352,7 +367,7 @@ export function apply(ctx, rawConfig) {
       return r
     },
     warn: (m) => ctx.logger?.warn?.(m),
-  })
+  }))
 
   const deps = {
     defineTool: DEFINE_TOOL,
@@ -372,6 +387,17 @@ export function apply(ctx, rawConfig) {
     //    会话"（`lib/tools.js` 的 `rememberMainCaller` 读它），拦截缝的触发点读
     //    `deps.wakeMain` 投递。见 lib/wakeup.js 的文件头。
     wakeup,
+    /**
+     * ★★ P1 接线（`WIRING.md` §W9）：**DSH 用户目录** —— 全新项目的默认父根
+     * （`<DSH 用户目录>/projects/<首单 task_id>`）从这里算。
+     *
+     * 取值顺序：profile 配置里的 `config.dshHome` > 宿主自己导出的 `DSH_HOME` 环境变量。
+     * 两处都没有 ⇒ 空串：`resolveProjectDir` 会给出**可读的** `NO_DSH_HOME` 拒绝，
+     * **不会崩**，也不影响"既存根优先 / 授权面公共根"那两条更常见的解析路径。
+     */
+    dshHome: typeof config.dshHome === 'string' && config.dshHome.trim().length > 0
+      ? config.dshHome
+      : String(process.env.DSH_HOME ?? ''),
   }
 
   // -------------------------------------------------------------------------
@@ -596,13 +622,17 @@ export function apply(ctx, rawConfig) {
   //
   //   作用域：**只有本插件派出去的管线席位**受影响（判据 = 该 agentId 在令牌表里绑了角色）；
   //   其它会话（用户自己的对话、别的项目、别的插件）一律直通。
-  //   kill-switch：`config.intercept === true`（配置层）+ 总开关 `sw.isOn()`（即时）。
+  //   kill-switch：`config.intercept === true`（配置层）+ 总开关（即时）。
+  //   ★ 总开关的判据**只有一处**：`lib/switch/gate.js` 的 `isEnabled()` / `shouldFire()`。
+  //     四条缝**关掉时不挂**（真挂真摘，见 `lib/intercept/registry.js`），且各自第一句
+  //     仍问一次闸门 —— 两层，前者可断言"挂着的缝 = 0"，后者覆盖两次采样之间的调用。
   let interception = null
   if (config.intercept === true && guardFn !== null && typeof ctx.on === 'function') {
     try {
       interception = registerInterception(ctx, {
         tokens,
         guard: guardFn,
+        sw,
         warn: (m) => ctx.logger?.warn?.(m),
         getTask: (taskId) => store.peek?.(taskId) ?? null,
         /**
@@ -645,7 +675,12 @@ export function apply(ctx, rawConfig) {
         },
       })
       ctx.effect(() => interception.dispose, 'pipeline: interception seams')
-      ctx.logger?.info?.(`[pipeline] 拦截缝已挂：${interception.seams.join(' / ')}（只对管线席位生效）`)
+      // ★ 如实播报：本条由本插件管，但**此刻真的挂着几条**要看闸门（关掉 ⇒ 0 条）。改前那句
+      //   无条件说"已挂"，开关关着时它就是假的 —— 与"开关只关一半"同一类问题。
+      ctx.logger?.info?.(
+        `[pipeline] 拦截缝就绪：${interception.seams.join(' / ')}（只对管线席位生效；` +
+          `当前挂载 ${interception.mounted().length} 条${interception.mounted().length === 0 ? ' —— 总开关是关的，一条都不挂' : ''}）`,
+      )
     } catch (err) {
       ctx.logger?.warn?.(`[pipeline] 拦截缝挂载失败（守门与工具不受影响）：${String(err?.message ?? err)}`)
     }
@@ -769,12 +804,7 @@ export function apply(ctx, rawConfig) {
         }
       },
     })
-    patrol.start()
     ctx.effect(() => () => patrol.stop(), 'pipeline: patrol (report-only sweep)')
-    ctx.logger?.info?.(
-      `[pipeline] 巡检兜底已启动：每 ${Math.round(config.patrolIntervalMs / 60000)} 分钟一轮，` +
-        `无进展口径 ${Math.round(config.patrolStallMs / 60000)} 分钟，未接管升级口径 ${Math.round(config.wakeUnconsumedMs / 60000)} 分钟（**只播报，不动作**）。`,
-    )
   }
 
   // -------------------------------------------------------------------------
@@ -786,14 +816,34 @@ export function apply(ctx, rawConfig) {
   //     · 自恢复（本条）**识别 + 自己重新投递**（走 `notify_only` 的同一份实现）。
   //   判据不同源、动作不同，互不冒充（A24 的同一条纪律）。
   if (orphanRescue !== null) {
-    orphanRescue.start()
-    ctx.logger?.info?.(
-      `[pipeline] 孤儿单自恢复已启动：每 ${Math.round(config.orphanIntervalMs / 60000)} 分钟一轮，` +
-        `判定窗 ${Math.round(config.orphanGraceMs / 60000)} 分钟，失败退避 ${Math.round(config.orphanRedeliverBackoffMs / 60000)} 分钟，` +
-        `同一身份最多重投 ${config.orphanMaxRedeliverAttempts} 次（**不建会话、不派新席位、不改状态**）。`,
-    )
+    // 起停与**如实播报**都在 `lib/switch/mechanisms.js` 的条目工厂里（本文件不写第二份）。
   } else {
     ctx.logger?.info?.('[pipeline] 孤儿单自恢复已关闭（config.orphanRescueEnabled=false）—— 席位被切断时不会有人重新投递。')
+  }
+
+  // -------------------------------------------------------------------------
+  // 3.4.1) ★★ **总开关 = 唯一权威：关 ⇒ 两条周期机制整个停表**（缺陷的"半挂面"）
+  // -------------------------------------------------------------------------
+  //
+  //   改前这两条周期的定时器与开关**毫无关系**：关掉功能之后它们照跑照写
+  //   （往会话注入 + 写 `.pipeline` 账本/审计 + 主动往席位会话重投）。
+  //   现在交给 `lib/switch/mechanisms.js`：**停表**（不是"跑着但空转"），
+  //   订阅式跟随开关翻转，起停幂等、抛错只留痕。
+  //   为什么是导出工厂而不是写在这里：它会真的起停定时器、真的影响磁盘写入，
+  //   必须能被自测独立复现与断言（与 `createSeatFaceTightener` 同一条理由）。
+  // -------------------------------------------------------------------------
+  {
+    const mechanisms = createSwitchDrivenMechanisms({
+      sw,
+      warn: (m) => ctx.logger?.warn?.(m),
+      items: createMechanismItems({
+        patrol,
+        orphanRescue,
+        config,
+        log: (m) => ctx.logger?.info?.(m),
+      }),
+    })
+    ctx.effect(() => () => mechanisms.dispose(), 'pipeline: switch ⇄ 周期机制起停')
   }
 
   // -------------------------------------------------------------------------
@@ -914,9 +964,10 @@ export function apply(ctx, rawConfig) {
   }
 
   if (routeMounted) {
+    // ★ 关掉时的说明**唯一出处**在 `lib/switch/text.js`（与 `pipeline_switch` 的返回同一份）。
     const rmsg =
       `[pipeline] 开关 UI 端点已就绪：GET/POST ${STATE_PATH}（右上角「多AI 协调」按钮走它）。` +
-      (snap.on ? '' : '\n[pipeline] ⚠ 当前开关是**关**：守门已弃权，流水线写入动作会被拒。')
+      offModeStartupLines(snap, STATE_PATH).join('')
     ctx.logger?.info?.(rmsg)
     console.log(rmsg)
   } else if (config.switchRoute !== false) {
@@ -1183,7 +1234,8 @@ export function createSeatFaceTightener(opts = {}) {
       const role = String(bound.role ?? '')
       if (role.length === 0) return null
       if (config?.guardEnabled !== true) return null
-      if (typeof sw?.isOn === 'function' && sw.isOn() !== true) return null
+      // ★ 判据唯一出处：lib/switch/gate.js（不许自己写 sw.isOn()）。
+      if (!isEnabled(sw)) return null
       const f = typeof face === 'function' ? face() : null
       const deny = Array.isArray(f?.by_role?.[role]?.denied) ? f.by_role[role].denied : []
       const record = { agent: agentId, role, denied: [...deny], restricted: false, note: '' }

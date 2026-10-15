@@ -367,6 +367,12 @@ export const PIPELINE_TOOL_ROLES = {
    *   它是"收尾清理"的**具名入口**，不是给主对话开 shell 后门。
    */
   pipeline_task_purge: ['main'],
+  // ★★ P1 接线：项目目录与仓库 —— 与关单同档，只有主对话能开（它决定"在哪干活"）。
+  pipeline_project_init: ['main'],
+  // ★★ P4 接线：DEMO 阶段 —— `plan`/`confirm` 是主对话的决定；`round` 由编写席位交，
+  //    但工具面按**动作**分流太细，这里与 `pipeline_transition` 同档放开给 main，
+  //    席位侧由 `lib/tools/demo.js` 里的 `resolveActor` 与状态机的 `by` 名单兜住。
+  pipeline_demo: ['main'],
 }
 
 /**
@@ -417,6 +423,11 @@ export const HANDOFF_DIRECTION = {
   //   而这里漏了 ⇒ 声明能产、实际交不出（主管"否掉预算用尽 ⇒ 升人工"那条唯一出口就断在这里）。
   human_request: ['orchestrator', 'planner', 'architect', 'security', 'writer', 'tester', 'reviewer', 'release', 'docs', 'performance', 'arbiter', 'human', 'supervisor', 'diagrammer', 'archivist'],
   seat_handover: ['orchestrator', 'planner', 'architect', 'security', 'writer', 'tester', 'reviewer', 'release', 'docs', 'performance', 'arbiter', 'diagrammer', 'supervisor', 'archivist'],
+  // ★★ P3 接线（`WIRING.md` §W7 的配套）：产品目录 + 产品设计文档。
+  //    必须与 `handoff/schemas/product-design.js` 的 `from` 逐字一致 ——
+  //    本文件自己的规矩：**这里漏写而 handoff 写了 = 悄悄多一条能力（不可接受）**，
+  //    漏了它 `guard/decide.js` 的 pre-dispatch 方向检查会因为 `undefined` 直接跳过。
+  product_design: ['orchestrator'],
 }
 
 /** 单条拒绝理由的统一抬头 —— 拒绝原文要能被人一眼认出是谁拦的。 */

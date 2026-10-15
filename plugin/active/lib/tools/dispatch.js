@@ -12,6 +12,9 @@ import { ST, STATE_LABEL } from '../states.js'
 import { agentIdOf } from '../guard.js'
 import { DEFAULT_SEAT_SILENCE_MS, formatDuration } from '../liveness.js'
 import { rosterSlotDeclarations } from '../tiers.js'
+// ★★ P5 接线（W6）：`tier ≥ L3` 无主管 ⇒ 需求位不可派。判断"档位落地没落地"要用
+//    `isUnknownTier` 分流（`tier-order.js` 自己就是这么要求的：未知与非法是两件事）。
+import { isUnknownTier } from '../tiers/tier-order.js'
 import { describeSlotDivergence, resolveEffectiveSlots } from '../roster/slot-truth.js'
 import { DISPATCH_SLOT_KEYS, isSpawnableRole } from '../transport/index.js'
 import { toStringArray } from '../util.js'
@@ -237,6 +240,32 @@ export function buildDispatchTools(ctx) {
         task = un.task
         revived = { from: un.from, to: un.to }
         indexTask(task.id, task)
+      }
+      /**
+       * ★★ P5 接线（`WIRING.md` §W6）：`tier ≥ L3` 且**没有主管席位** ⇒ 需求位不可派
+       * （裁定 1 / 定稿 §3.5）。判据本体在 `lib/tiers/hub-required.js`，经
+       * `store.hubCanDispatchOrchestrator` 转发（与既有各闸门同一条规矩）。
+       *
+       * ★ 判在**这一刻**（"要不要放开 orchestrator"的决策点）：放到后面判，会话已经建出来了。
+       * ★ 判在 `roster === null` 那个分支**之外**：有清单但清单里没 supervisor 正是要拦的形状。
+       *
+       * ⚠️⚠️ `requirementConfirmed` 传的是**"档位有没有落地"**，**不是** `state !== PENDING`
+       *   （`WIRING.md` §W6 的示例那样写）。那个代理判据过宽：`analyzing` 的单子档位还没落地
+       *   （`tier` 仍是 `null`），会被算成"已确认" ⇒ `tierOrdinal(null)` ⇒ `BAD_TIER` ⇒ **误拒**；
+       *   实测把 `reassign:true`（席位失联后唯一必然可用的恢复路径）挡死，liveness 三条正例全红。
+       *   改判"档位是否落地"后两边都成立：已落地且无主管 ⇒ 拒；未知 ⇒ 走"还没落地"分支
+       *   （主管是开单时先强制设上的那个，W4）⇒ 放行。完整现场见 W6 那条提交。
+       */
+      if (role === ROLE.ORCHESTRATOR) {
+        const hubOk = await store.hubCanDispatchOrchestrator(task.id, {
+          requirementConfirmed: !isUnknownTier(task.hub_requirement?.tier),
+          by: actor.role,
+        })
+        // ★ 不返回 `code`：本工具 output 是 `additionalProperties:false`，多一个键过不了
+        //   宿主输出校验（output-check 跑的就是这条）。
+        if (hubOk.ok !== true) {
+          return { ok: false, agent_id: '', role, seat: String(args.seat ?? ''), token: '', summary: hubOk.error }
+        }
       }
       // ★ 引导步：角色清单还没产出时，能派的只有**产出清单链条上的那两个**。
       //   否则会死锁 —— 没有清单就派不出它们，没有它们就产不出清单。

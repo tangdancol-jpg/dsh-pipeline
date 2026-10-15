@@ -58,6 +58,10 @@ import { humanMethods } from './store/human.js'
 import { statusMethods } from './store/status.js'
 import { dispatchSlotMethods } from './store/dispatch-slots.js'
 import { purgeMethods } from './store/purge.js'
+// ★★ P4/P5 接线（`WIRING.md` §W2）：DEMO 阶段的推进/回退与「L3+ 强制主管」两组方法。
+//    本文件**只做展开** —— 判定与写盘都在各自的新模块里（规范 §5：不往大文件堆）。
+import { demoMethods } from './store/demo.js'
+import { hubRequireMethods } from './store/hub-require.js'
 
 export {
   REPLY_CHANNELS,
@@ -300,6 +304,12 @@ export function createTaskStore(opts) {
      * ★ 缺陷 ⑦：这条是"删除任务"唯一的具名入口（**不碰** shell 判据，也不放宽它）。
      */
     ...purgeMethods({ root, taskDir, deny, loadTask, cache, cacheStamp }),
+    // ★★ P4 接线：DEMO 阶段的推进/回退与三条软约束 —— 见 `lib/store/demo.js`。
+    //    不展开的后果：`store.demoRound` 等全是 `undefined`，工具一调就崩；
+    //    且 `checkPrecondition` 里的 `this.checkDemoPrecondition(...)` 找不到方法。
+    ...demoMethods({ now, audit, deny, loadTask, persist }),
+    // ★★ P5 接线：L3+ 强制主管（先设后撤）—— 见 `lib/store/hub-require.js`。
+    ...hubRequireMethods({ now, audit, deny, loadTask, persist }),
 
     /**
      * 往本任务的 audit.jsonl 追加一行（**工具层写审计的正规入口**）。

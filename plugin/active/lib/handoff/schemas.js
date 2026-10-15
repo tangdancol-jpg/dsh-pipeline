@@ -9,6 +9,10 @@
 
 import { HUB_STATION_NAMES } from '../states.js'
 import { F, HUMAN_REASON_KINDS, HUMAN_DECISION_KINDS, HUMAN_TIMEOUT_BEHAVIORS, HUMAN_URGENCIES } from './fields.js'
+// ★★ P3 接线（`WIRING.md` §W7）：`product_design` 的字段表。
+//    ★ 注意 `handoff/schemas.js`（文件）与 `handoff/schemas/`（目录）**同名不同物**，
+//      Node 的解析不会混淆（`./schemas.js` vs `./schemas/x.js`），人读代码时要看清。
+import { PRODUCT_DESIGN_KIND, PRODUCT_DESIGN_SCHEMA } from './schemas/product-design.js'
 
 /**
  * 交接物 schema 表。
@@ -657,4 +661,10 @@ export const HANDOFF_SCHEMAS = {
       'timeout_behavior',
     ],
   },
+
+  // ★★ P3 接线（`WIRING.md` §W7）：产品目录 + 产品设计文档（与 DEMO **同批一次确认**，
+  //    裁定 6 / 验收 A15）。字段表定义在 `lib/handoff/schemas/product-design.js`，本表只做合并。
+  //    ★ 不接线的后果：`submitHandoff` 按 `HANDOFF_SCHEMAS[kind]` 找字段表，表里没有这个类型
+  //      ⇒ 该类型交接物**根本交不进去**，P3 的结构校验（空 MVP 被拒等）在真机上不生效。
+  [PRODUCT_DESIGN_KIND]: PRODUCT_DESIGN_SCHEMA,
 }

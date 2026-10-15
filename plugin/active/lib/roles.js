@@ -146,7 +146,10 @@ export const ROLES = {
     //   「需求不清楚处」清单；那份清单会被提交到主对话 → 用户人工确认。
     handoffKinds: ['requirement_analysis', 'full_test_review', 'human_request', 'clarification_reply', 'seat_handover',
       // ★ T-20261011-56a37e：第③④道站点的**需求位那一侧**确认（双确认缺它不可）。
-      'station_confirm'],
+      'station_confirm',
+      // ★★ P3 接线：产品目录 + 产品设计文档（与 DEMO 同批一次确认，裁定 6 / 验收 A15）。
+      //    与 `guard/rules.js` 的 HANDOFF_DIRECTION、`handoff/schemas.js` 的 from 三处一致。
+      'product_design'],
     canRework: false,
     canRequestRosterChange: false,
     summary:

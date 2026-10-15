@@ -1,0 +1,159 @@
+# dsh-pipeline · 目录与文件规范（CONVENTIONS）
+
+> 本文件是**新增代码的规矩**，不是"建议"。
+> 它的存在理由只有一个：**文件拆分是刚需** —— 拆分方式决定了这活能不能多人并行写
+> （用户裁定 9：「文件按域/职责拆分是**项目管理刚需**，且决定**编写能否并行**」）。
+
+- 适用范围：`plugin/active/lib/**` 与 `plugin/active/tests/**` 下的**新增**文件
+- 生效时间：本批次（P1–P5）起
+- 本批次的一条**临时**附加约束（见 §6）：**既有文件一个都不许改**
+
+---
+
+## 1. 目录树
+
+```
+plugin/active/
+├── CONVENTIONS.md                  ← 本文件：目录与文件规范
+├── WIRING.md                       ← 接线待办（新模块 → 既有文件的落点）
+├── lib/
+│   ├── project/                    P1·P2 — 项目目录 / 仓库 / 快照 / AGENTS.md
+│   │   ├── id.js                   project_id ↔ project_dir 绑定
+│   │   ├── layout.js               目录布局 + 授权面公共根 + 同源判定
+│   │   ├── create.js               幂等建目录
+│   │   ├── resolve.js              解析顺序（已绑定 > 既存根 > 授权面 > 全新）
+│   │   ├── policy.js               git 优先 / 快照保留策略
+│   │   ├── git-run.js              git 唯一调用口（白名单 + 远端写黑名单）
+│   │   ├── git-init.js             git 化闸门 + init + 首次 commit
+│   │   ├── snapshot-parse.js       快照版本号解析 + 段→序数
+│   │   ├── snapshot-next.js        段进位（01…99 → A-01…）
+│   │   ├── snapshot-compare.js     序数比较（禁止字符串排序）
+│   │   ├── snapshot-dir.js         快照目录命名与幂等创建
+│   │   ├── agents-md.js            AGENTS.md 渲染 + 幂等落盘
+│   │   └── agents-md.template.md   AGENTS.md 模板（**独立成文件**）
+│   ├── design/                     P3 — 产品目录与产品设计文档
+│   │   ├── catalog-groups.js       MVP 必须 / 后续再说 两组
+│   │   ├── catalog-schema.js       结构校验（空 MVP 被拒）
+│   │   └── doc.js                  渲染 + 落 docs/product-design.md
+│   ├── states/                     P4 — 新增状态（demo 阶段）★ 不往 states.js 堆
+│   │   ├── demo-phase.js           两个新状态 + 四条边 + 合并器
+│   │   └── demo-tier-policy.js     档位策略（L0–L1 跳 / L2 问 / L3+ 必出）
+│   ├── store/                      P4·P5 — 状态推进判据（新增文件）
+│   │   ├── demo.js                 DEMO 唯一写点
+│   │   ├── demo-rounds.js          轮次账本与三条软约束（纯函数）
+│   │   └── hub-require.js          强制主管唯一写点（先设后撤）
+│   ├── guard/                      P4 — 闸门
+│   │   └── demo-gate.js            未获确认不得进 ready_dev
+│   ├── tiers/                      P5 — 档位规则
+│   │   ├── tier-order.js           档位→序数（禁止字符串比较档位）
+│   │   └── hub-required.js         L3+ 强制主管的纯策略
+│   ├── tools/                      P1·P4 — 工具面
+│   │   ├── project.js              pipeline_project_init
+│   │   └── demo.js                 pipeline_demo
+│   └── handoff/schemas/            P3 — 交接物字段表（一类型一文件）
+│       └── product-design.js       product_design
+└── tests/                          一测试一文件：pN-<slug>-check.mjs
+    ├── p1-project-dir-check.mjs
+    ├── p2-snapshot-version-check.mjs
+    ├── p3-git-init-check.mjs
+    ├── p4-agents-md-check.mjs
+    ├── p5-product-catalog-check.mjs
+    ├── p6-demo-phase-check.mjs
+    ├── p7-hub-required-check.mjs
+    └── p8-scope-root-check.mjs
+```
+
+## 2. 每个目录的职责（一句话，判归属时照这句问自己）
+
+| 目录 | 负责什么 | **不**负责什么 |
+|---|---|---|
+| `lib/project/` | 项目目录 / 仓库 / 快照 / AGENTS.md —— "这一单落在哪个目录、怎么留版本点" | 状态机、闸门、角色权限 |
+| `lib/design/` | 产品目录的**结构**与产品设计文档的**渲染** | 交接物的字段表（那在 `handoff/`）、落盘角色权限（那在 `guard/`） |
+| `lib/states/` | **新增**状态与其迁移 | 既有状态机本体（`lib/states.js`）；状态里发生的副作用 |
+| `lib/store/` | **状态推进的判据**与落盘（"能不能往前走" + "写哪几个字段"） | 判据本身（纯函数放域目录，如 `tiers/`、`design/`） |
+| `lib/guard/` | **闸门**：拦下不该发生的推进 | 状态迁移表（那在 `states/`）、存储写入 |
+| `lib/tiers/` | **档位规则**（纯策略，不读盘） | 档位存在哪、谁写它 |
+| `lib/tools/` | **工具面**：参数表、输出契约、人话摘要 | 判定与写盘（都委托出去） |
+| `lib/handoff/schemas/` | 交接物**字段表**，一类型一文件 | 校验实现（委托给域目录） |
+| `tests/` | 一测试一文件，**可直接 `node` 跑** | 测试框架、共享夹具库 |
+
+## 3. 命名规则
+
+### 3.1 实现文件：`lib/<域>/<职责>.js`
+
+- **域**是上面那张表里的一级目录名（`project` / `design` / `states` / `store` / `guard` / `tiers` / `tools` / `handoff`）
+- **职责**是**小写连字符**的名词短语，回答"这个文件负责哪一件事"：`snapshot-parse`、`catalog-schema`、`hub-required`
+- 一个文件**只放一件事**。判断标准：**它的改动原因是不是只有一个？**
+  - 反例：`snapshot.js` 同时管"解析""进位""比大小""建目录" —— 四种改动原因，拆成四个文件
+  - 正例：`snapshot-parse.js` 只在"版本号形态变了"时才改
+- **禁止**：`utils.js` / `helpers.js` / `misc.js` / `common.js` 这类**说不出职责**的名字
+- **禁止**：`xxx-v2.js` / `xxx-new.js` 这类版本后缀 —— 要改就改原文件，要么换一个说得出职责的名字
+
+### 3.2 测试文件：`tests/<编号>-<slug>-check.mjs`
+
+- **编号**：`pN`（本批次的阶段号），保证阅读顺序 = 依赖顺序
+- **slug**：被测对象的**短名**，小写连字符（`project-dir`、`snapshot-version`、`git-init`）
+- **后缀**：固定 `-check`，后缀之后固定 `.mjs`
+- 例：`tests/p2-snapshot-version-check.mjs`
+- 一个测试文件**只测一件事**（与实现文件同一条纪律）
+
+### 3.3 文档文件
+
+- 顶层规范与待办用**全大写**：`CONVENTIONS.md`、`WIRING.md`
+- 模板类文件加 `.template` 中缀：`agents-md.template.md`
+
+## 4. 单文件行数上限
+
+| 对象 | 上限 | 超了怎么办 |
+|---|---|---|
+| **任何新增文件** | **≤ 400 行** | **按职责继续拆** —— 不许放宽上限 |
+| 单个测试文件 | ≤ 400 行 | 拆成两个测试文件（各测一件事），不要写"综合大测试" |
+
+- 超过 400 行 = **本批次失败**（不是"下次注意"）
+- 需要更多行时，**按职责拆**。示意（不限于此）：
+  - `snapshot.js` 超限 → `snapshot-parse.js`（解析与序数换算）/ `snapshot-next.js`（进位）/ `snapshot-dir.js`（目录命名与创建）
+  - `catalog.js` 超限 → `catalog-schema.js`（结构校验）/ `catalog-groups.js`（MVP/后续 分组）
+- 每个文件**顶部第一行**必须有一行注释，写清"**这个文件负责什么**"：
+  ```js
+  // 快照版本号 · 解析与序数换算：把 `b.2026.10.15.A-01` 拆开并换成可比较的整数序数。
+  ```
+
+## 5. 禁止往既有大文件堆叠
+
+**这条是本规范的核心。**
+
+- **禁止**把新功能追加进既有的大文件（`lib/states.js` 871 行、`lib/tiers.js` 1302 行、
+  `lib/index.js` 1257 行、`lib/tools.js`、`lib/store/precondition.js` 839 行 …）
+- 新状态、新闸门、新工具、新判据一律**新开文件**，既有文件只允许**接线**（import + 一行调用/展开）
+- 接线的那几行写进 `WIRING.md`（**落点、行号、具体那一行、为什么必须接、不接的后果**）
+- 改到既有 **> 500 行**的文件时，**先抽取再改**：把要动的那一块先搬进新文件、行为不变，
+  再在最小面积上做真正的改动
+
+**判断"这算不算堆叠"的一句话判据**：
+> 如果这次改动让一个既有文件**多出 30 行以上**，那多半应该是一个新文件。
+
+## 6. 新文件必须登记进 `tests/run-all.mjs`
+
+- 新测试**默认**要登记进 `plugin/active/tests/run-all.mjs`（否则聚合跑跑不到它，
+  而"跑不到"的全绿是**假绿** —— 那条理由原样写在 `run-all.mjs` 的注释里）
+- 登记点：文件顶部的 import 区 + `process.exit(ok ? 0 : 1)` 之前的运行块（当前在 `:747`）
+
+> ### ⚠️ 本批次的**唯一例外**（必须写在这里，否则后人会以为漏登记了）
+>
+> 本批次（P1–P5）带一条**更硬**的附加约束：**既有文件一个都不许改**（用户裁定）。
+> `tests/run-all.mjs` 是既有文件，所以 **p1–p8 这 8 套测试本批次刻意没有登记**。
+>
+> 这不是"忘了"，是**有意为之**，代价也说清楚：
+> - p1–p8 **必须能独立运行**：`node tests/pN-<slug>-check.mjs`，自带断言与退出码，**不依赖** run-all；
+> - 在**解除"零修改"约束的那一次提交**里，它们要按本节规则补登记 —— 具体落点见 `WIRING.md` §8；
+> - 在那之前，**不要**把"run-all 全绿"当成"p1–p8 也全绿"。
+
+## 7. 其它几条落到实处的纪律
+
+- **纯函数放域目录，副作用放 `store/`/`tools/`**：判定（`tiers/hub-required.js`、`design/catalog-schema.js`）
+  与写盘（`store/hub-require.js`、`design/doc.js`）分开，测试才不必造一个 store
+- **一个常量只有一个出处**：角色 id 从 `lib/roles.js` 取、状态 id 从对应的 `states/*.js` 取，
+  不许手抄字符串（手抄一份就是漂移的入口）
+- **拒绝要给"下一步"**：所有拒绝文案必须写清**为什么**与**怎么办** —— 只写"不行"的判词
+  会让模型原地重试
+- **测试先红后绿**：每条新测试都要有"旧代码红 → 新代码绿"的运行记录，否则无法证明它测的是真东西

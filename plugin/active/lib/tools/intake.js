@@ -16,6 +16,9 @@ import { toStringArray } from '../util.js'
 import { describeScopePaths } from '../scope/root-marker.js'
 import { NONFINITE_BOUNDARY_HINT, boundaryHintLine } from '../intake/boundary-hints.js'
 import { describeL0Baseline, ensureL0Baseline } from '../store/l0-baseline.js'
+// ★★ P1 接线（`WIRING.md` §W9）：开单后**自动**建项目目录的那一步。
+//    逻辑本体在新模块 `lib/project/auto-init.js` —— 本文件只 import + 调一次（规范 §5）。
+import { autoInitProjectDir } from '../project/auto-init.js'
 import { S, tool, resolveActor } from './kit.js'
 
 /**
@@ -247,6 +250,20 @@ export function buildIntakeTools(ctx) {
       if (res.ok !== true) return { ok: false, summary: res.error, task_id: '', state: '', role_token: '' }
 
       indexTask(res.task.id, res.task)
+      /**
+       * ★★ P1 接线（`WIRING.md` §W9）：**开单之后先建项目目录**（幂等、无副作用）。
+       *
+       * ★ 失败**不阻断开单**：这只是便利性 —— "在哪干活"还没定，不该让单子开不出来。
+       *   `autoInitProjectDir` 自己把原因返回，不抛异常（纪律见该文件头）。
+       * ★ `dshHome` 取自 `deps`（由 `index.js` 装配：`config.dshHome` > 宿主导出的 `DSH_HOME`）。
+       *   两处都没有时它会如实返回 `NO_DSH_HOME`，**不会崩**。
+       */
+      const proj = await autoInitProjectDir({
+        task: res.task,
+        store,
+        dshHome: deps.dshHome ?? config.dshHome,
+        actorRole: ROLE.MAIN,
+      })
       const t = tokens.mint({ taskId: res.task.id, role: ROLE.MAIN, agentId, note: 'task_open' })
       return {
         ok: true,
@@ -256,6 +273,12 @@ export function buildIntakeTools(ctx) {
         summary:
           `已开单 ${res.task.id}（状态：${STATE_LABEL[res.task.state]}）。\n` +
           `主对话令牌：${t.token}（本会话已自动绑定为该任务的主对话）。\n\n` +
+          // ★★ W9：自动建目录的结果**必须让人看见** —— 静默不做与静默做错一样糟。
+          (proj.ok === true
+            ? `项目目录：${proj.project_dir}（${proj.mode}${proj.created ? '，本次新建' : '，已存在直接复用'}；project_id=${proj.project_id}）\n` +
+              '  · ★ 这一步是**自动**做的（W9），走的快照版本方案 —— git 化要你**显式确认**（裁定 11）。\n\n'
+            : `项目目录：**本次没建**（${proj.code}）—— ${proj.reason.split('\n')[0]}\n` +
+              '  · 要建的话：`pipeline_project_init { task_id, scope_paths? }`（是否开仓库由你显式给 `git`）。\n\n') +
           '下一步：调用 pipeline_orchestrate 做**需求分析** —— 出任务卡 / 验收标准 / 边界条件 / 测试要点，并列出**需求不清楚处**。\n' +
           '★ 分析结论要先交**用户人工确认**，确认后才由计划 AI（pipeline_plan）决定这次要几个 AI、调用谁、按什么顺序。\n' +
           '★ 主对话既不自行判断需要几个 AI，也不替用户拍板需求。',

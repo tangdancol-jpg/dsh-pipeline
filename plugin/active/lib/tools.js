@@ -51,6 +51,13 @@ import { buildRecordTools } from './tools/records.js'
 import { buildSecurityTools } from './tools/security.js'
 import { buildHumanTools } from './tools/human.js'
 import { buildPurgeTools } from './tools/purge.js'
+// ★★ P1/P4 接线（`WIRING.md` §W5）：两个新工具面。
+//    `defineTool` 只在 `buildTools` 里被调用 —— 没被调用 = **不注册** = 模型看不到这两个工具。
+//    ★ P2 的 AGENTS.md 落盘步骤（`ensureAgentsMd`）在这里**注入**给 `project.js`
+//      （那个文件刻意自己不 import 它，见其文件头）。
+import { buildProjectTools } from './tools/project.js'
+import { buildDemoTools } from './tools/demo.js'
+import { ensureAgentsMd } from './project/agents-md.js'
 
 export {
   FULL_TEST_STAGE_ZH,
@@ -254,6 +261,17 @@ export function buildTools(deps) {
   // 收尾清理（pipeline_task_purge） —— 见 `lib/tools/purge.js`
   const { taskPurge } = buildPurgeTools({ deps, store, load })
 
+  // ★★ P1 接线：项目目录与仓库（pipeline_project_init） —— 见 `lib/tools/project.js`
+  //    `ensureAgentsMd` 是 P2 的落盘步骤，从此处注入；`dshHome` 在 config 上不一定有，
+  //    没有就是 `undefined` ⇒ `resolveProjectDir` 返回可读的 `NO_DSH_HOME`，**不会崩**。
+  const { projectInit } = buildProjectTools({
+    ...deps,
+    dshHome: deps.dshHome ?? config.dshHome,
+    ensureAgentsMd,
+  })
+  // ★★ P4 接线：DEMO 阶段（pipeline_demo） —— 见 `lib/tools/demo.js`
+  const { demo } = buildDemoTools({ deps, store, load })
+
   // 安全确认（pipeline_security_check） —— 见 `lib/tools/security.js`
   const { securityCheck } = buildSecurityTools({ deps, config, store, indexTask, load, paginate })
 
@@ -358,6 +376,10 @@ export function buildTools(deps) {
     contacts,
     // ★ 缺陷 ⑦：终态单的**收尾清理**（归档 / 删除）—— 唯一的具名入口，主对话专用。
     taskPurge,
+    // ★★ P1 接线：项目目录与仓库（幂等建目录 / git 化闸门 / 快照版本目录）
+    projectInit,
+    // ★★ P4 接线：DEMO 阶段（档位策略 / 交轮次 / 用户确认）
+    demo,
   }
   /**
    * ★ E 路 ③：工具名**从真实注册对象派生**（不另抄一份会漂移的名单）——

@@ -166,8 +166,20 @@ export function createFakeCtx(opts = {}) {
  * 不靠放宽既有工具的名单** —— 所以工具总数这条断言必然跟着 +1。
  *
  * ★ 方向仍然一个字没放宽：精确相等。少一个（能力消失）或多一个（悄悄多一条能力）都红。
+ *
+ * ---------------------------------------------------------------------------
+ * ★ 2026-10-16 由 32 改为 **34**（P1–P5 接线，`WIRING.md` §W5）
+ * ---------------------------------------------------------------------------
+ * 本批次（P1–P5）新写了两个工具面，但当时带"既有文件一个都不许改"的约束，
+ * **一行都没注册**（`defineTool` 只在 `buildTools` 里被调用 —— 没被调用就等于不存在）。
+ * 解除约束这一次把两个都接上，所以工具总数 **+2**：
+ *   · `pipeline_project_init`（P1：项目目录与仓库，`lib/tools/project.js`）
+ *   · `pipeline_demo`        （P4：DEMO 阶段，`lib/tools/demo.js`）
+ * 仍然是"能力只能靠多一条具名通道加"那个形状 —— 没有放宽任何既有工具的名单。
+ *
+ * ★ 方向仍然一个字没放宽：精确相等。
  */
-export const EXPECTED_TOOL_COUNT = 32
+export const EXPECTED_TOOL_COUNT = 34
 
 export async function runLoadSmoke() {
   const items = []
