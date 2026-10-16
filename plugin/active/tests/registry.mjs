@@ -144,4 +144,58 @@ export const EXTRA_SUITES = [
   //    p15 —— 模板随插件发布：marker/begin/end 与运行时常量**逐字同源**，且模板不在
   //    运行时会写的那个路径上（否则 `publishRulings` 永远判 FOREIGN_SKILL_EXISTS）。
   { file: './p15-user-rulings-template-check.mjs', exportName: 'runP15UserRulingsTemplateCheck', zh: '★ 跨项目裁定库模板随插件发布（形状可复制、内容不越界、不在产物路径上）' },
+  // ★★ 根治 `MALFORMED_RESPONSE`（用户截图为证：席位调 pipeline_plan 时入参全是长中文
+  //    段落 ⇒ 模型侧写坏参数 JSON ⇒ 宿主判 `tool input is invalid JSON` ⇒ **整轮作废**）。
+  //    改法：`pipeline_plan` / `pipeline_orchestrate` 加 `spec_path`、
+  //    `pipeline_handoff` 加 `payload_path` —— 大段内容不经过工具参数。
+  //    p16 —— 六条逐条钉：① 走文件成功 ② 同名**内联优先** ③ ★ 越界被拒（与 `read`
+  //    **同一套判据** `codeReadRefusal`；有写权限的角色也进不了实现源码树）
+  //    ④ 坏文件各有明确文案（不存在/语法错/超大给上限/YAML/拼错字段）
+  //    ⑤ 不传字段 ⇒ 逐字节向后兼容 ⑥ 走文件 vs 走内联 ⇒ 入参逐字节相同。
+  { file: './p16-args-file-check.mjs', exportName: 'runArgsFileCheck', zh: '★ 长入参走文件（spec_path/payload_path：守门复用 + 合并语义 + 坏文件文案 + 等价性）' },
+  // ★★ 唤醒投递失败（2026-10-16 用户报的真缺陷 · `/修缺陷 · 唤醒投递失败`）。
+  //    现场（真单 `T-20261016-ff9ba7`）：`task.json` 顶层**连 `contacts` 键都没有**
+  //    ⇒ 唤醒的两道来源全空 ⇒ **22 行 `wake:skipped / no-main-session`**（跨两天、
+  //    跨多次重启），人工请求静默积压。而它**自愈不了**：`rememberMainCaller` 只认
+  //    内存里的 `main` 令牌（重启即空），重启后自动认回身份的那条路又要求
+  //    `contacts.main` **已经存在** —— 缺记录 ⇒ 认不回身份 ⇒ 写不了记录。
+  //    ★ 2026-10-16 **拆文件**：原先一条 `wake-no-main-check.mjs` 是 **403 行**，
+  //    超出 `CONVENTIONS.md`「单个测试文件 ≤ 400 行 ⇒ 拆成两个测试文件」——
+  //    按语义拆成下面两条，**各测一件事**，断言总数**一条不丢**（6 + 24 = 30）。
+  //    两者共用的夹具在 `tests/wake-no-main-fixtures.mjs`
+  //    （**不是测试**，刻意不登记 —— 它没有断言；同一形状的先例见 `switch-fixtures.mjs`）。
+  //    p17a —— ② ★ **不许静默**：audit 待领标记 + 账本 unresolved
+  //    （`pipeline_status.pending_wakes` 的数据面）+ **带出** + warn 出声，三样缺一不可。
+  { file: './wake-pending-check.mjs', exportName: 'runWakePendingCheck', zh: '★ 唤醒找不到主对话会话 ⇒ 不许静默（audit 待领标记 / 账本 unresolved / `pending_wakes` 带出 / warn 出声）' },
+  //    p17b —— ① 兜底解析的判据（席位行/机制行/空 agent 一律不选）
+  //    ③ 找得到时正常投递（三条来源优先级不许被兜底抢答）+ 兜底**只读不冒名**
+  //    ④ 幂等（同一事件只落一条；不同事件不合并）+ ★ **先红后绿**（补登记）。
+  { file: './wake-last-resort-check.mjs', exportName: 'runWakeLastResortCheck', zh: '★ 唤醒兜底解析与幂等（席位行/机制行不选 / 三条来源优先级 / 只读不冒名 / 幂等 / 先红后绿补登记）' },
+  // ★★ 2026-10-16 真缺陷（L5 死锁）：**唤醒点只推状态、不 spawn 席位** ——
+  //    主管发起 / 同意需求 / 二次确认之后，状态到了而席位不存在，
+  //    且 `pipeline_dispatch` 的引导步白名单**只放开需求分析** ⇒ 架构位派不出来、
+  //    计划位又只能由计划位自己产出清单 ⇒ 环 = 死锁。
+  //    这一套钉：三个唤醒点**真的派人** + 幂等 + 「状态到了人没到」自愈补派与留痕。
+  { file: './hub-seat-spawn-check.mjs', exportName: 'runHubSeatSpawnCheck', zh: '★ 主管枢纽唤醒点派人（initiate/agree_need/reconfirm_diagram 各建一席 + 幂等 + 缺位自愈补派留痕）' },
+  // ★★ 2026-10-16 真机 `T-20261016-fullai` 两条缺陷：
+  //    A · **自愈 / 唤醒点补派必须有【自己的身份】** —— 改前它把**调用方的 exec**
+  //        递进派活通道，于是判据变成"谁在查状态"；重启后主对话自己也没身份
+  //        （`tokens` 是进程内存态）⇒ 补派**必然**失败。修法：机制自己铸一枚身份
+  //        （`tokens.mint({ mechanism })`），授权来源仍是 `task.hub` 账本。
+  //        ★ "先红"是**常驻判据**：同一套里按改前装配（不交 `tokens`）当场复现那两行 `✗`。
+  //    A · 重启后**主对话身份也丢** ⇒ `pipeline_status` 必须明确说出"未绑定 + 下一步那条命令"。
+  //    A · 唤醒投递失败（`pending_wakes`）的**下一步**要有唯一出处且真被铺开。
+  //    B · **权限档按角色写入需求推导**：会落盘的角色至少 `workspace-write`，
+  //        纯只读角色仍是 `read-only`（不放宽成"所有角色都给写权限"），
+  //        留痕里 `origin` 记 `role-need`（推导值 ≠ 声明值 ≠ 请求值 ≠ 默认值）。
+  { file: './heal-perm-check.mjs', exportName: 'runHealPermCheck', zh: '★ 自愈身份 + 权限档推导（机制自己铸身份 / 无身份也能补派 / 重启后主对话身份提示 / 会落盘的角色至少 workspace-write）' },
+  // ★★ 2026-10-16 真机 `T-20261016-fullai` 第 3 条缺陷（**L5 关单死锁**）：
+  //    「主管枢纽路线把【画图】整体安排在【写文件之前】」而「关单要求架构图对应
+  //    **写完之后的最终版本**」—— 两条都对，合起来结构上不可能同时成立 ⇒
+  //    任何走这条路线、且写完产生新版本（v1→v2）的单**都**关不掉（通用，不是个例）。
+  //    修法：枢纽分支**只做前移、不做删除** —— 交付站（编写完成之后）仍可重交图，
+  //    但必须**绑当前有效制品版本**（判据，不是声明）+ 幂等；关单闸一个字没放宽。
+  //    这一套钉：交付站重交（红→绿）/ 真·过期的图仍被拒（闸门没被改废）/ 幂等 /
+  //    前置站两条既有判据原样 / 非枢纽任务不受影响。
+  { file: './f13-hub-diagram-close-check.mjs', exportName: 'runF13HubDiagramCloseCheck', zh: '★ 枢纽路线下的架构图与关单（先画后写 ⇒ 关不掉单：交付站重交绑当前版本 + 真过期仍拒 + 幂等）' },
 ]
