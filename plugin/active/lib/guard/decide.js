@@ -20,6 +20,7 @@ import {
   checkOwnPath,
   DEFAULT_SEARCH_TOOLS,
   NO_CODE_READ_ROLES,
+  codeReadRefusal,
   roleZh,
   collectCommandStrings,
   isShellToolName,
@@ -512,7 +513,9 @@ function decide(exec, deps) {
         const p = t.path
         if (p.length === 0) continue
         if (!isInside(task.projectRoot, p)) continue
-        if (isInside(task.pipelineDir, p)) continue // 任务卡 / 需求档 / 交接物是它们该看的
+        // ★★ 判据本体已抽到 `rules.js` 的 `codeReadRefusal` —— 长入参通道
+        //    （`spec_path` / `payload_path`）用的是**同一个函数**，边界只有一处。
+        if (codeReadRefusal(binding.role, task, p) === undefined) continue // 任务卡 / 需求档 / 交接物是它们该看的
         if (capGate.take(CAPABILITY.READ_SOURCE, readTargets)) continue // 用户第 1 件：已批准 ⇒ 放行一次
         return (
           `${TAG} 拒绝：${roleZh(binding.role)}不得读取代码正文。\n` +

@@ -44,6 +44,7 @@ import { buildIntakeTools } from './tools/intake.js'
 import { buildPlanTools } from './tools/plan.js'
 import { buildAuditTools } from './tools/audit.js'
 import { buildDispatchTools } from './tools/dispatch.js'
+import { createHubSeatRespawner } from './tools/hub-seats.js'
 import { buildFlowTools } from './tools/flow.js'
 import { buildStatusTools } from './tools/status.js'
 import { buildAdminTools } from './tools/admin.js'
@@ -174,13 +175,20 @@ export function buildTools(deps) {
   })
 
   // 交接、迁移、主管枢纽、打回、关单 —— 见 `lib/tools/flow.js`
+  // ★★ 主管枢纽的**席位补派**（唤醒点要真的派人 + 缺位自愈）—— 判据与实现在
+  //    `lib/tools/hub-seats.js`（它复用 `pipeline_dispatch` 这个**工具入口**，不另造一套派活）；
+  //    这里只把它造出来，交给 flow 与 status 各用一次。
+  // ★★ A 件（2026-10-16 真机 `T-20261016-fullai`）：**必须把 `tokens` 交进去** ——
+  //    自愈要**自己铸一枚机制身份**（`mint({ mechanism })`），否则它只能借调用方的
+  //    exec，而重启后的主对话自己也没身份 ⇒ 补派必然失败（现场那两行 `✗`）。
+  const hubSeats = createHubSeatRespawner({ store, dispatch, load, tokens })
   const {
     handoff,
     transition,
     supervise,
     rework,
     close,
-  } = buildFlowTools({ deps, store, tokens, indexTask, nudgeSeat, load })
+  } = buildFlowTools({ deps, store, tokens, indexTask, nudgeSeat, load, hubSeats })
 
   // =========================================================================
   // 9. pipeline_status —— 查询（可追溯）
@@ -235,7 +243,7 @@ export function buildTools(deps) {
   }
 
   // 状态查询与速查（pipeline_status） —— 见 `lib/tools/status.js`
-  const { status } = buildStatusTools({ deps, store, indexTask, load, paginate })
+  const { status } = buildStatusTools({ deps, store, indexTask, load, paginate, hubSeats })
 
   // 角色变更、制品、自检、开关 —— 见 `lib/tools/admin.js`
   const {

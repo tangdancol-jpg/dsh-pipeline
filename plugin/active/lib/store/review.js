@@ -9,7 +9,7 @@
 
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { ST, STATE_LABEL } from '../states.js'
+import { ST, STATE_LABEL, DIAGRAM_DELIVERY_STATES } from '../states.js'
 import { ROLE, roleLabel } from '../roles.js'
 import { fullHash, nowIso } from '../util.js'
 // ★ E3：关单是"语义上完整的时刻" —— 记忆域在这里把该任务的记忆综合进项目活文档（设计 04 §3.1）。
@@ -48,7 +48,7 @@ export function reviewMethods(ctx) {
      *
      * @returns {object|null} `null` = 本 kind 不受枢纽分支管，交给原表；否则是判定结果
      */
-    checkHubHandoffAgainstState(task, kind) {
+    checkHubHandoffAgainstState(task, kind, payload = null) {
       const s = task.state
       /**
        * ★ **架构图前置**（用户原话：需求确认后先出架构图 → 主管确认 → 才交计划）。
@@ -56,6 +56,16 @@ export function reviewMethods(ctx) {
        * 枢纽任务里，架构图的合法状态面**整体前移**到计划之前；
        * 而**编写完成之后**那几个状态（ready_test 及以后）在本拓扑里**不再**是它该出现的地方
        * —— 这正是"同一张图不再被当成两种东西"的判据。
+       *
+       * ★★ 2026-10-16 修（真机 `T-20261016-fullai` 的 **L5 关单死锁**）：
+       *   "前移"**不等于"删除"**。上面那条把交付站关掉之后，与关单闸
+       *   （`precondition.js` 的 `diagram_delivered`：图必须对应写完之后的最终版本）
+       *   **结构上不可能同时成立** —— 先画后写的单，图只可能声明"画图那一刻的版本"，
+       *   写完产生新版本（v1→v2）之后就再也没有合法位置重交一张对应最终版本的图 ⇒
+       *   **任何**走这条路线、且写完产生新版本的单都关不掉（不是个例）。
+       *   所以这里把**交付站**（`DIAGRAM_DELIVERY_STATES`，与基础表同源）还给架构图，
+       *   并在那里加两条硬判据：① **必须绑当前有效制品版本**；② **幂等**。
+       *   关单闸一个字没放宽：它要的仍是"最新那张图 = 当前版本"。
        */
       if (kind === 'architecture_diagram') {
         if (
@@ -78,11 +88,52 @@ export function reviewMethods(ctx) {
           }
           return { ok: true }
         }
-        const need = [ST.ARCH_DRAWING, ST.ARCH_CONFIRM, ST.ARCH_NEED_CONFIRM, ST.ARCH_RECONFIRM]
+        /**
+         * ★★ **交付站**（编写完成之后）：枢纽把设计态那一站前移了，但**没有把交付站删掉**。
+         *
+         * 两条判据（都必须是可判定的，不许"声明什么算什么"）：
+         *   ① **绑当前有效制品版本** —— 关单闸要的就是这个；绑旧版本等于没对齐。
+         *   ② **幂等** —— 最新那张图已经绑当前版本时，再交一份不产生第二条有效记录
+         *      （否则"当前是哪张图"要靠条数猜，关单判据也会随交图次数漂移）。
+         */
+        if (DIAGRAM_DELIVERY_STATES.includes(s)) {
+          const cur = currentArtifactVersion(task)
+          if (cur === null) {
+            return deny(
+              'HUB_DIAGRAM_NO_ARTIFACT',
+              `拒绝：任务 ${task.id} 现在处于「${STATE_LABEL[s]}(${s})」，但**还没有任何有效制品** —— ` +
+                '交付站的架构图是"写成了什么样"的记录，没有可对应的制品就没有可绑的版本。',
+            )
+          }
+          const last = lastHandoff(task, 'architecture_diagram')
+          if (last !== null && last.payload?.based_on_artifact_version === cur) {
+            return deny(
+              'HUB_DIAGRAM_ALREADY_CURRENT',
+              `拒绝：任务 ${task.id} 最新那份架构图（${last.handoff_id}）**已经绑的就是当前有效制品 ${cur}** —— ` +
+                '重交同一版本是空动作，不产生第二条有效记录（这条判据是**幂等**的）。\n' +
+                '★ 交付站重交的用途只有一个：把关单要的那张图对齐到**写完之后的版本**。\n' +
+                '  已经对齐了就不需要再交；要换一张**内容不同**的图，请连同它对应的制品版本一起说清楚。',
+            )
+          }
+          if (String(payload?.based_on_artifact_version ?? '') !== cur) {
+            return deny(
+              'HUB_DIAGRAM_VERSION_REQUIRED',
+              `拒绝：交付站重交的架构图**必须绑当前有效制品版本**（${cur}），` +
+                `而这份声明的是「${payload?.based_on_artifact_version ?? '(缺失)'}」。\n` +
+                '★ 为什么交付站要查这个：关单闸要求"最新那张图 = 当前有效制品"（本插件不打算放宽它）。\n' +
+                '  在交付站把一张旧版本的图原样标成当前版本，等于让那条闸变成一句空话；\n' +
+                '  所以这里要求的是**真的对齐**：图对应写完之后的那个版本。\n' +
+                '下一步：把 based_on_artifact_version 填成当前有效制品（pipeline_status 里有），重新交一次。',
+            )
+          }
+          return { ok: true }
+        }
+        const need = [ST.ARCH_DRAWING, ST.ARCH_CONFIRM, ST.ARCH_NEED_CONFIRM, ST.ARCH_RECONFIRM, ...DIAGRAM_DELIVERY_STATES]
         return deny(
           'HUB_DIAGRAM_STEP_SKIPPED',
           `跳步（架构图前置）：枢纽任务的架构图只能在 ${need.map((x) => `${STATE_LABEL[x]}(${x})`).join(' / ')} 提交 —— ` +
-            `那是「主管同意需求结论」之后、「主管确认架构图」之前的**前置站**。\n` +
+            '前四个是「主管同意需求结论」之后、「主管确认架构图」之前的**前置站**；' +
+            '后五个是**交付站**（编写完成之后，重交的图必须绑当前有效制品版本）。\n' +
             `任务 ${task.id} 当前是「${STATE_LABEL[s]}(${s})」。\n` +
             '★ 用户原话：「需求ai分析将结果提交主管→同意后交给架构ai**先画架构图**→架构图完成后给主管确认是否满足要求→主管确认后**才**交给计划ai」。\n' +
             '  「先画架构图」在表上的形状就是：`analyzing` **没有**直达 `planning` 的边，' +
@@ -161,12 +212,12 @@ export function reviewMethods(ctx) {
     },
 
     /** 交接物与当前状态是否匹配（"跳步"的第二道闸）。 */
-    checkHandoffAgainstState(task, kind) {
+    checkHandoffAgainstState(task, kind, payload = null) {
       const s = task.state
       // ★★ 主管枢纽（T-20261011-56a37e）：架构图**前置**之后，各站的合法状态面变了。
       //   ★ 只在**已启用枢纽**的任务上生效 —— 未启用的任务走下面那张原表（一个字节没动）。
       if (hubEnabled(task)) {
-        const hub = this.checkHubHandoffAgainstState(task, kind)
+        const hub = this.checkHubHandoffAgainstState(task, kind, payload)
         if (hub !== null) return hub
       }
       const need = {
@@ -184,8 +235,11 @@ export function reviewMethods(ctx) {
          *
          * 状态下限是「待测试」—— 也就是说"编写还没交（还在开发中）就交图"会被这里拦下。
          * 上面还有一个更硬的判据（必须有 dev_to_test 交接物），两道一起挡"还没写完就交图"。
+         *
+         * ★ 2026-10-16：这一份清单**搬到 `states.js` 的 `DIAGRAM_DELIVERY_STATES`**
+         *   （内容逐字未变）—— 枢纽分支要用**同一个**出处，各写一份迟早漂移。
          */
-        architecture_diagram: [ST.READY_TEST, ST.TESTING, ST.READY_REVIEW, ST.REVIEWING, ST.PASSED],
+        architecture_diagram: [...DIAGRAM_DELIVERY_STATES],
         // ★ 第一级提问：除终态外任何状态都能问（被卡住的地方哪都有可能）
         clarification_request: Object.values(ST).filter((x) => x !== ST.CLOSED && x !== ST.CANCELLED),
         // ★ 需求分析的裁定：只在「等待需求分析答复」时提交

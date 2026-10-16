@@ -6,16 +6,26 @@
  ⚠️ 本文件必须存为 **UTF-8 with BOM**（原因同 install.ps1：本机只有
     PowerShell 5.1，无 BOM 的 .ps1 里有中文会按 ANSI 解码失败）。
 
- 做三件事，顺序固定：
+ 做两件事，顺序固定：
 
-   1. 从备份还原 profile 的 `cordis.patch.yml` 与 `package.json`
-      （用 -Stamp 指定 install 时打印的那一串；不指定就自动找最新的一对）
-   2. 从 package.json 的 `dsh.profile.bundles` 里摘掉 "dsh-pipeline"
-      （备份不存在时的兜底路径：不还原整份文件，只做最小外科手术）
-   3. 从 cordis.patch.yml 里删掉本插件那一个 insert 块
-      （备份不存在时的兜底路径）
+   1. 从 package.json 的 `dsh.profile.bundles` 里**只摘掉 "dsh-pipeline" 那一条**
+      （按名字精确匹配；**其它 bundles 条目原样保留**）
+   2. 从 cordis.patch.yml 里**只删掉 install.ps1 自己追加的那一个块**
+      （按 install 写入时的可识别标记 `# --- dsh-pipeline（…）---` 与 id 精确匹配；
+       **其它内容原样保留**）
 
  ⚠️ 与 install.ps1 一样，**只动本插件相关的东西**。
+
+ ★★ 为什么"回退"**不还原整份文件**（2026-10-16 修，复发性缺陷）：
+    旧版会用 install 时的备份把 profile 的 package.json / cordis.patch.yml
+    **整份 `Copy-Item -Force` 盖回**。但 install 之后用户还会往这两个文件里加
+    **与本插件无关**的东西（例如 `dsh.profile.bundles` 里的 `dsh-askcard-row`、
+    或别的插件的 cordis.patch.yml 条目）—— 整份覆盖会让它们**静默消失**。
+    真机症状：主窗口提问面板 fallback 成 raw JSON（bundles 里的 `dsh-askcard-row`
+    被抹掉 ⇒ 它的 bundle patch 不再被读到 ⇒ 客户端半边没加载），
+    而且"修好一阵子又复发"—— 每回滚一次就再抹一次。
+    ⇒ 回退语义收窄为：**只撤销 install.ps1 自己加的那两样东西**，别的一律不动。
+       改动前只**记录将被改动的片段**（落一份小 JSON 备查），不整份备份、不整份还原。
 
  用法：
 
@@ -36,7 +46,8 @@ param(
   [switch]$KeepSkill,
   # Skill 目录（默认跟 -DshHome 走）
   [string]$SkillsDir = '',
-  # install.ps1 打印的时间戳。留空 = 自动挑最新的一对备份。
+  # install.ps1 打印的时间戳。只用来**给改动记录命名 / 标注 install 备份**；
+  # 回退本身不再依赖备份（语义已收窄为"只撤销 install 加的那两样东西"）。
   [string]$Stamp = '',
   # 连 <profile>\node_modules\dsh-pipeline 一起删掉
   [switch]$PurgePluginDir,
@@ -93,83 +104,176 @@ $PkgBackup = Find-Backup $PkgPath $Stamp
 $PatchBackup = Find-Backup $PatchPath $Stamp
 
 if ($Stamp -ne '' -and ($PkgBackup -eq $null -or $PatchBackup -eq $null)) {
-  Die "用时间戳 $Stamp 找不到成对的备份（package.json / cordis.patch.yml 至少缺一个）。检查一下备份文件名。"
+  # 只是提示：回退**不依赖**备份（见文件头「为什么回退不还原整份文件」）。
+  Warn "用时间戳 $Stamp 没找到成对的备份（package.json / cordis.patch.yml 至少缺一个）。"
+  Warn "  不影响回退 —— 回退只做最小外科手术，不还原整份文件。"
 }
 
-Info "package.json 备份：$(if ($PkgBackup) { $PkgBackup } else { '（没有）' })"
-Info "cordis.patch.yml 备份：$(if ($PatchBackup) { $PatchBackup } else { '（没有）' })"
+Info "install 时的备份（仅供参考，回退不用它还原）："
+Info "  package.json     ：$(if ($PkgBackup) { $PkgBackup } else { '（没有）' })"
+Info "  cordis.patch.yml ：$(if ($PatchBackup) { $PatchBackup } else { '（没有）' })"
 
 # ---------------------------------------------------------------------------
-# 1) 还原文件（有备份走这条路）
+# 1) 改动前：记录原始值（只记录**将被改动的片段**，不整份备份/还原）
 # ---------------------------------------------------------------------------
-$restoredPatch = $false
-$restoredPkg = $false
-
-if ($PatchBackup -ne $null) {
-  if (-not $DryRun) {
-    Copy-Item -LiteralPath $PatchBackup -Destination $PatchPath -Force
-    Info "已还原 cordis.patch.yml ← $PatchBackup"
-  } else { Info "[DryRun] 会还原 cordis.patch.yml ← $PatchBackup" }
-  $restoredPatch = $true
-}
-if ($PkgBackup -ne $null) {
-  if (-not $DryRun) {
-    Copy-Item -LiteralPath $PkgBackup -Destination $PkgPath -Force
-    Info "已还原 package.json ← $PkgBackup"
-  } else { Info "[DryRun] 会还原 package.json ← $PkgBackup" }
-  $restoredPkg = $true
-}
+$RunStamp = if ($Stamp -ne '') { $Stamp } else { Get-Date -Format 'yyyyMMdd-HHmmss' }
+$RecordPath = Join-Path $ProfileDir ".dsh-pipeline-rollback-$RunStamp.json"
+$prePkgHash = if (Test-Path -LiteralPath $PkgPath) { (Get-FileHash -LiteralPath $PkgPath -Algorithm SHA256).Hash } else { $null }
+$prePatchHash = if (Test-Path -LiteralPath $PatchPath) { (Get-FileHash -LiteralPath $PatchPath -Algorithm SHA256).Hash } else { $null }
+$removedBundleEntry = $null
+$removedPatchLines = @()
 
 # ---------------------------------------------------------------------------
-# 2) 没有备份时的兜底：最小外科手术，只摘掉本插件
+# 2) 只撤销 install.ps1 加的第 ① 样：dsh.profile.bundles 里的 "dsh-pipeline"
 # ---------------------------------------------------------------------------
-if (-not $restoredPkg -and (Test-Path -LiteralPath $PkgPath)) {
-  Warn "没有 package.json 备份，改用最小手术：只把 `"$PluginName`" 从 dsh.profile.bundles 里摘掉。"
+# ★ 只在 bundles 数组**内部**按名字精确匹配 —— 绝不动 dependencies 里的同名键。
+#   （旧版正则扫全文，靠 `(?=[,\]])` 的前瞻侥幸没误伤 dependencies；这里从结构上排除。）
+if (Test-Path -LiteralPath $PkgPath) {
   $pkgText = Read-Text $PkgPath
-  $pattern = ',\s*"' + [regex]::Escape($PluginName) + '"(?=\s*[,\]])|"' + [regex]::Escape($PluginName) + '"\s*,\s*'
-  $newPkg = [regex]::Replace($pkgText, $pattern, '', 1)
-  if ($newPkg -eq $pkgText) {
-    Warn "在 package.json 里没找到 `"$PluginName`"，可能本来就没装。"
+  $arrPat = '(?s)("bundles"\s*:\s*\[)(.*?)(\s*\])'
+  $am = [regex]::Match($pkgText, $arrPat)
+  if (-not $am.Success) {
+    Warn "在 package.json 里找不到 dsh.profile.bundles 数组 —— 跳过（不动文件）。"
   } else {
-    # 兜底也要先验一遍 JSON，绝不写坏 profile
-    try { $null = $newPkg | ConvertFrom-Json } catch { Die "最小手术后 JSON 不合法，已放弃（原文件未改）：$($_.Exception.Message)" }
-    if (-not $DryRun) { Write-TextNoBom $PkgPath $newPkg; Info "已从 bundles 里摘掉 $PluginName。" }
-    else { Info "[DryRun] 会从 bundles 里摘掉 $PluginName。" }
+    $inner = $am.Groups[2].Value
+    # 只在**数组内部**匹配 —— 这样 `dependencies` 里那个同名的 `"dsh-pipeline"`
+    # 依赖键**结构上不可能**被误碰。（旧版扫全文，靠 `(?=[,\]])` 前瞻侥幸避开了它
+    # ——依赖键后面跟的是 `:`——但那是巧合，不是保障。）
+    # 形状两种、共四条正则，依次试、命中即停：
+    #   ① 条目独占一行（pretty-print 的常规形状；带行尾换行或就是最后一行都认）
+    #   ② 条目不独占一行（有人把 package.json 压成单行时）——
+    #      再分「前面带逗号 / 后面带逗号 / 前面带逗号且在数组末尾」三种位置。
+    # 判据见 tests/rollback-config-check.ps1 的场景 A/B/C 与「作用域」三条。
+    $esc = [regex]::Escape($PluginName)
+    # ⚠️ 每一项都要**自己带括号**：PowerShell 里逗号比 `+` 结合得更紧，
+    #    写成 `'a' + $x + 'b', 'c' + $x + 'd'` 会被解析成**一个**字符串而不是两个元素。
+    $pats = @(
+      ('(?m)^[ \t]*"' + $esc + '"[ \t]*,?[ \t]*(?:\r?\n|\z)'),
+      (',\s*"' + $esc + '"(?=\s*[,\]])'),
+      ('"' + $esc + '"\s*,\s*'),
+      (',\s*"' + $esc + '"\s*\z')
+    )
+    $newInner = $inner
+    foreach ($p in $pats) {
+      $try = [regex]::Replace($newInner, $p, '', 1)
+      if ($try -ne $newInner) { $newInner = $try; break }
+    }
+    if ($newInner -eq $inner) {
+      Warn "dsh.profile.bundles 里没有 `"$PluginName`"，无需摘除。"
+    } else {
+      # 摘掉末项时前一项会留下一个尾随逗号 —— 去掉紧贴数组末尾的那一个。
+      $newInner = [regex]::Replace($newInner, ',[ \t]*(\s*)\z', '$1')
+      $newPkg = $pkgText.Substring(0, $am.Groups[2].Index) + $newInner +
+                $pkgText.Substring($am.Groups[2].Index + $am.Groups[2].Length)
+      # 绝不写坏 profile：先验一遍 JSON
+      try { $null = $newPkg | ConvertFrom-Json }
+      catch { Die "最小手术后 JSON 不合法，已放弃（原文件未改）：$($_.Exception.Message)" }
+      $removedBundleEntry = $PluginName
+      if (-not $DryRun) {
+        Write-TextNoBom $PkgPath $newPkg
+        Info "已从 dsh.profile.bundles 摘掉 `"$PluginName`"（其它条目原样保留）。"
+      } else { Info "[DryRun] 会从 dsh.profile.bundles 摘掉 `"$PluginName`"。" }
+    }
   }
 }
 
-if (-not $restoredPatch -and (Test-Path -LiteralPath $PatchPath)) {
-  Warn "没有 cordis.patch.yml 备份，改用最小手术：删掉本插件那一个 insert 块。"
+# ---------------------------------------------------------------------------
+# 3) 只撤销 install.ps1 加的第 ② 样：cordis.patch.yml 里本插件那一个块
+# ---------------------------------------------------------------------------
+# 两种形状都认（install.ps1 写的是 `- insert:` 套一层；后来手工改成按 id 覆盖就没有它）：
+#     # --- dsh-pipeline（…）---        ← install 写入时的可识别标记
+#     - insert:
+#         - id: dsh-pipeline
+#           name: 'dsh-pipeline'
+#           config: …
+#   或
+#     - id: dsh-pipeline
+#       name: 'dsh-pipeline'
+#       …
+if (Test-Path -LiteralPath $PatchPath) {
   $lines = [System.IO.File]::ReadAllLines($PatchPath, [System.Text.Encoding]::UTF8)
+  # 文件头注释的行数 —— 任何时候都不许吃掉它（越界兜底）。
+  $headerCount = 0
+  while ($headerCount -lt $lines.Count -and $lines[$headerCount] -match '^#') { $headerCount++ }
+
   $out = New-Object System.Collections.Generic.List[string]
+  $outIdx = New-Object System.Collections.Generic.List[int]
+  $removedIdx = New-Object System.Collections.Generic.List[int]
   $i = 0
-  $removed = 0
   while ($i -lt $lines.Count) {
     $line = $lines[$i]
-    # 命中：`- id: dsh-pipeline` 的那一行，往上吃掉紧邻的注释与空行，
-    # 往下吃掉这个 insert 条目（到下一个以 `- ` 顶格开头的行为止）。
     if ($line -match "^\s*-\s*id:\s*$([regex]::Escape($PluginName))\s*$") {
-      # 往上回退：`- insert:` 那一行
-      while ($out.Count -gt 0 -and $out[$out.Count - 1] -match '^\s*-\s*insert:\s*$') { $out.RemoveAt($out.Count - 1) }
-      # 再往上：紧邻的注释块与空行
-      while ($out.Count -gt 0 -and ($out[$out.Count - 1] -match '^\s*#' -or $out[$out.Count - 1].Trim() -eq '')) { $out.RemoveAt($out.Count - 1) }
+      # ★ 命中的这一行自己也要记进"被删清单" —— 漏了它，改动记录里就少了
+      #   `- id: dsh-pipeline` 那一行（文件是对的，记录是残的），
+      #   而这份记录正是人工还原时唯一能照抄的东西。
+      $removedIdx.Add($i)
+      # 往上：`- insert:` 那一行（install.ps1 写的外壳）
+      while ($out.Count -gt 0 -and $out[$out.Count - 1] -match '^\s*-\s*insert:\s*$') {
+        $removedIdx.Add($outIdx[$outIdx.Count - 1])
+        $out.RemoveAt($out.Count - 1); $outIdx.RemoveAt($outIdx.Count - 1)
+      }
+      # 再往上：紧邻的注释块与空行 —— **只吃 install 自己写的那一段**。
+      # 判据：这段连续注释里必须有 install 的标记行 `# --- dsh-pipeline`。
+      # 没有标记就不动它们 —— 宁可留一行多余注释，也不越权删别的插件的注释。
+      $j = $out.Count
+      while ($j -gt 0 -and ($out[$j - 1] -match '^\s*#' -or $out[$j - 1].Trim() -eq '')) { $j-- }
+      $ours = $false
+      for ($k = $j; $k -lt $out.Count; $k++) {
+        if ($out[$k] -match ('^#\s*---\s*' + [regex]::Escape($PluginName))) { $ours = $true; break }
+      }
+      if ($ours -and $j -ge $headerCount -and $out.Count -gt $j) {
+        for ($k = $out.Count - 1; $k -ge $j; $k--) { $removedIdx.Add($outIdx[$k]) }
+        $out.RemoveRange($j, $out.Count - $j); $outIdx.RemoveRange($j, $outIdx.Count - $j)
+      }
       # 往下：吃掉属于这个条目的续行（缩进比 `- id:` 更深的行）
       $i++
-      while ($i -lt $lines.Count -and $lines[$i] -match '^\s+\S') { $i++ }
-      $removed++
+      while ($i -lt $lines.Count -and $lines[$i] -match '^\s+\S') { $removedIdx.Add($i); $i++ }
       continue
     }
-    $out.Add($line)
+    $out.Add($line); $outIdx.Add($i)
     $i++
   }
-  if ($removed -eq 0) { Warn "在 cordis.patch.yml 里没找到 $PluginName 的条目。" }
-  else {
+
+  if ($removedIdx.Count -eq 0) {
+    Warn "在 cordis.patch.yml 里没找到 $PluginName 的条目，无需删除。"
+  } elseif ($out.Count -eq 0 -or $out[0] -notmatch '^#') {
+    # 越界兜底：手术后连文件头都没了 ⇒ 说明匹配错了，宁可不改。
+    Die "手术后 cordis.patch.yml 会丢掉文件头（匹配可疑），已放弃（原文件未改）。"
+  } else {
+    # 记录被删片段（按原文件顺序），供人工还原时照抄。
+    $removedPatchLines = @($removedIdx | Sort-Object | ForEach-Object { $lines[$_] })
+    $newPatchText = ($out -join "`r`n") + "`r`n"
     if (-not $DryRun) {
-      Write-TextNoBom $PatchPath (($out -join "`r`n") + "`r`n")
-      Info "已从 cordis.patch.yml 删掉 $PluginName 的条目（$removed 处）。"
-    } else { Info "[DryRun] 会从 cordis.patch.yml 删掉 $PluginName 的条目（$removed 处）。" }
+      Write-TextNoBom $PatchPath $newPatchText
+      Info "已从 cordis.patch.yml 删掉 $PluginName 的条目（$($removedIdx.Count) 行；其它内容原样保留）。"
+    } else { Info "[DryRun] 会从 cordis.patch.yml 删掉 $PluginName 的条目（$($removedIdx.Count) 行）。" }
   }
 }
+
+# ---------------------------------------------------------------------------
+# 4) 落一份改动记录：只记**将被改动的片段**，不整份备份
+# ---------------------------------------------------------------------------
+$record = [ordered]@{
+  tool              = 'dsh-pipeline/rollback.ps1'
+  at                = (Get-Date).ToString('o')
+  profile           = $Profile
+  plugin            = $PluginName
+  stamp             = $RunStamp
+  dry_run           = [bool]$DryRun
+  install_backup    = [ordered]@{ package_json = $PkgBackup; cordis_patch_yml = $PatchBackup }
+  pre_sha256        = [ordered]@{ package_json = $prePkgHash; cordis_patch_yml = $prePatchHash }
+  removed           = [ordered]@{
+    bundles_entry     = $removedBundleEntry
+    patch_block_lines = @($removedPatchLines)
+  }
+  note              = '本文件只记录"回退将被改动的那两个片段"。回退不整份覆盖 profile 配置 —— 整份覆盖会抹掉备份之后新增的无关条目。'
+}
+if (-not $DryRun) {
+  try {
+    Write-TextNoBom $RecordPath (($record | ConvertTo-Json -Depth 6) + "`r`n")
+    Info "改动记录（含被删片段原文，人工还原时用）：$RecordPath"
+  } catch { Warn "改动记录写入失败（不影响回退结果）：$($_.Exception.Message)" }
+} else { Info "[DryRun] 会写改动记录：$RecordPath" }
 
 # ---------------------------------------------------------------------------
 # 3) 可选：删掉插件目录

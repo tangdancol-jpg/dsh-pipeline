@@ -91,6 +91,10 @@ function declaredOrigin(entry, slot) {
  * @param {string} input.role
  * @param {string|null} [input.seat]
  * @param {object} [input.requested] - 本次派活显式给的四槽（`{permission?, mode?, model?, reasoning?}`）
+ * @param {Record<string,string>} [input.origins] - ★ **推导出来的**槽的来源标注
+ *   （`{'permission': 'role-need'}`）—— 只用于把留痕里的 `origin` 写**实话**：
+ *   派生值不是"调用方显式给的"，标成 `request` 会让读审计的人得出相反结论。
+ *   不传 ⇒ 与改前**逐字节相同**（全部按既有判据标）。
  * @returns {{
  *   slots: Record<string,string|undefined>,
  *   provenance: Record<string,{value:any, origin:string}>,
@@ -98,8 +102,9 @@ function declaredOrigin(entry, slot) {
  *   blocked: {slot:string, declared:any, requested:any, reason:string}|null
  * }}
  */
-export function resolveEffectiveSlots({ roster, role, seat = null, requested = {} } = {}) {
+export function resolveEffectiveSlots({ roster, role, seat = null, requested = {}, origins = {} } = {}) {
   const entry = rosterSlotEntry(roster, role, seat)
+  const derived = origins !== null && typeof origins === 'object' ? origins : {}
   const slots = {}
   const provenance = {}
   const divergences = []
@@ -134,7 +139,18 @@ export function resolveEffectiveSlots({ roster, role, seat = null, requested = {
 
     if (hasAsked) {
       slots[slot] = asked
-      provenance[slot] = { value: asked, origin: isDeclared(entry, slot) ? SLOT_ORIGIN.DECLARED : SLOT_ORIGIN.REQUEST }
+      /**
+       * ★ 来源标注（顺序即优先级，全是**实话**）：
+       *   ① 名单显式声明过 ⇒ `declared`；
+       *   ② 调用方给了 `origins` 说这一槽是**推导**出来的（`role-need`）⇒ 用它 ——
+       *      标成 `request` 会让"这一档是谁定的"从审计里读反；
+       *   ③ 其余 ⇒ `request`（本次请求显式给）。
+       */
+      const told = typeof derived[slot] === 'string' && derived[slot].length > 0 ? derived[slot] : ''
+      provenance[slot] = {
+        value: asked,
+        origin: isDeclared(entry, slot) ? SLOT_ORIGIN.DECLARED : told.length > 0 ? told : SLOT_ORIGIN.REQUEST,
+      }
       /**
        * ★ **覆盖了名单里的"占位默认值"** —— 这就是缺陷 ② 现场那种形状：
        *   名单没声明（`origin: default`，值是最小档），主对话显式给了更高的档。

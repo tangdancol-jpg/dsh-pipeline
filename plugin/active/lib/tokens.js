@@ -130,7 +130,7 @@ export function createTokenStore(opts = {}) {
   return {
     /**
      * 铸一枚令牌。
-     * @param {{taskId:string, role:string, seat?:string|null, agentId?:string|null, note?:string}} spec
+     * @param {{taskId:string, role:string, seat?:string|null, agentId?:string|null, note?:string, mechanism?:string|null}} spec
      * @returns {object} 令牌记录（含 token 字符串）
      */
     mint(spec) {
@@ -161,6 +161,26 @@ export function createTokenStore(opts = {}) {
         expiresAt: t + ttlMs,
         used: 0,
         note: typeof spec.note === 'string' ? spec.note : '',
+        /**
+         * ★★ **机制身份**（A 件，2026-10-16 真机 `T-20261016-fullai`）。
+         *
+         * 非 `null` 表示：**这枚令牌是机制自己铸的，不是任何一个会话的**。
+         * 它存在的唯一理由 —— 自愈 / 唤醒点补派这类"**机制自己发起**"的派活
+         * 原来把**调用方的 exec** 递进派活通道，于是"谁在查状态"决定了补派成不成：
+         * 主对话重启后没身份（`tokens` 是进程内存态）⇒ 自愈**必然**失败
+         * （现场原文：「无法确定调用方角色：既没有绑定会话，也没有携带 role_token。」）。
+         *
+         * 三条纪律写在这里，不写在善意里：
+         *   · **授权来源不变**：铸它的前提是"枢纽账本已经点名这个角色该到"
+         *     （`task.hub`，见 `lib/tools/hub-seats.js` 的 `hubAuthorizedRoles`）——
+         *     本字段**不是**第二个授权来源，只是把那次授权变成一枚**可校验的凭证**；
+         *   · **不许被当成席位**：`mechanism` 令牌的 `agentId` **恒为 null**
+         *     （它不对应任何会话），所以它既不能被 `bindAgent` 绑到某个会话上，
+         *     也不会出现在"席位 ↔ 会话"的任何映射里；
+         *   · **不许冒充角色**：`resolve()` 原样把 `mechanism` 交回调用方，
+         *     审计里记的是机制名（`hub-seat-respawn`）而不是 `main`。
+         */
+        mechanism: typeof spec.mechanism === 'string' && spec.mechanism.length > 0 ? spec.mechanism : null,
       }
       tokens.set(rec.token, rec)
       return { ...rec }
@@ -200,6 +220,16 @@ export function createTokenStore(opts = {}) {
         }
       }
       if (expect.requireAgentBinding === true && rec.agentId === null) {
+        /**
+         * ★ 机制令牌**豁免**这条（A 件）：它按定义就**没有**会话（`agentId` 恒 null），
+         *   而 `requireAgentBinding` 管的是"席位令牌不许无主" —— 两者不是一回事。
+         *   不豁免的后果是：打开这个配置就**顺手把自愈通道关死**，而现场看不出来
+         *   （补派失败只会表现为"没派出去"）。
+         */
+        if (rec.mechanism !== null && rec.mechanism !== undefined) {
+          rec.used += 1
+          return { ok: true, rec }
+        }
         return {
           ok: false,
           error: '本插件配置要求令牌与会话绑定（requireAgentBinding=true），但这枚令牌没有绑定任何会话；请改用真实子代理通道派活。',
@@ -224,6 +254,19 @@ export function createTokenStore(opts = {}) {
       sweep()
       const rec = tokens.get(token)
       if (rec === undefined) return missingTokenError(token)
+      /**
+       * ★ **机制令牌不许被绑到会话上**（A 件）：它不是任何一个会话的身份，
+       *   绑上去就等于"某个会话凭空拿到了一次机制授权"，而那正是本件要消灭的形状。
+       */
+      if (rec.mechanism !== null && rec.mechanism !== undefined) {
+        return {
+          ok: false,
+          error:
+            `这枚令牌是**机制身份**（${rec.mechanism}），不对应任何会话 —— 不能绑定。\n` +
+            '★ 机制令牌只用于"机制自己发起"的动作（自愈 / 唤醒点补派），用完即撤；' +
+            '席位身份请用派活单里那枚令牌。',
+        }
+      }
       if (typeof agentId !== 'string' || agentId.length === 0) {
         return { ok: false, error: '无法绑定：当前会话没有可用的身份（exec.agent 为空）。' }
       }
@@ -314,6 +357,8 @@ export function createTokenStore(opts = {}) {
         used: 0,
         note: 'A27：进程重启后按派活台账恢复的席位身份（恢复自 task.dispatched）。',
         restored: true,
+        /** ★ 恢复出来的一定是**席位/主对话**身份，永远不是机制身份（A 件）。 */
+        mechanism: null,
       }
       tokens.set(rec.token, rec)
       return { ok: true, restored: true, reason: `已按派活台账认出席位「${role}${rec.seat === null ? '' : `#${rec.seat}`}」（会话 ${agentId}）。` }

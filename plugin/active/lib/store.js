@@ -42,6 +42,7 @@ import { DISPATCH_OPEN_ACTION, dispatchOpenRecord } from './tiers.js'
 import { isInside, nowIso, pathKey } from './util.js'
 import { createStoreBase } from './store/base.js'
 import { createStoreHub } from './store/hub.js'
+import { lastKnownMainAgentOf } from './wakeup/last-resort.js'
 import { lifecycleMethods } from './store/lifecycle.js'
 import { livenessMethods } from './store/liveness.js'
 import { preconditionMethods } from './store/precondition.js'
@@ -391,6 +392,36 @@ export function createTaskStore(opts) {
       if (task === null) return ''
       const id = task.contacts?.main?.agent_id
       return typeof id === 'string' ? id : ''
+    },
+
+    /**
+     * ★★ **兜底解析**：主对话上一次在哪个会话里（读这张单**自己**的 `task.history`）。
+     *
+     * ---------------------------------------------------------------------
+     * 为什么必须有它（2026-10-16 · 真单 `T-20261016-ff9ba7`）
+     * ---------------------------------------------------------------------
+     * 唤醒的地址原来只有两份：内存登记表 + `task.contacts.main`。这张单**两份都空**
+     * （`task.json` 顶层连 `contacts` 键都没有），于是**整张单 22 次唤醒全部
+     * `no-main-session`**，跨两天、跨多次重启 —— 人工请求静默积压。
+     *
+     * 而它**自愈不了**：`rememberMainCaller` 只认内存里的 `main` 令牌（重启即清空），
+     * 而重启后自动认回身份的那条路（`lib/config.js` 的 `mainReattachEnabled` →
+     * `judgeMainClaim`）**要求 `contacts.main` 已经存在**。缺记录 ⇒ 认不回身份 ⇒
+     * 写不了记录。本方法给的是这条死锁的**只读**出口。
+     *
+     * ★ 判据本体在 `lib/wakeup/last-resort.js` 的 {@link lastKnownMainAgentOf}
+     *   （**纯函数**：只用 `actor === 'main'` 且带 `agent` 且不是机制记账行的那一行）。
+     *   本方法只负责"读盘 + 交给它"，**一个字都不判**。
+     * ★ 本方法是**只读**的：它**不写** `task.contacts.main` —— 兜底解析是提示，
+     *   不是权威登记（把近似物写进去，"谁是主对话"就再没人说得清了）。
+     *
+     * @param {string} taskId
+     * @returns {Promise<{agentId:string, at:string, action:string}|null>} 取不到就是 `null`
+     */
+    async lastKnownMainAgent(taskId) {
+      const task = await loadTask(taskId)
+      if (task === null) return null
+      return lastKnownMainAgentOf(task)
     },
 
     /**

@@ -208,6 +208,37 @@ export const NO_CODE_READ_ROLES = ['main', 'orchestrator', 'planner',
    */
   'supervisor']
 
+/**
+ * ★★ **判据本体**：某个角色**能不能从某个绝对路径读代码正文**。
+ *
+ * ---------------------------------------------------------------------------
+ * 为什么必须抽成一个函数（而不是让每个入口各写一份）
+ * ---------------------------------------------------------------------------
+ * 同一条边界现在有**两个入口**：
+ *   ① 文件 / 检索工具 —— `decide.js` 的 §3（`read` 类）与 §3b（检索类）；
+ *   ② **长入参通道** —— `lib/tools/args-file.js` 的 `spec_path` / `payload_path`。
+ *
+ * ②是后加的（修 `MALFORMED_RESPONSE`：长中文入参内联进工具参数必然周期性写坏 JSON）。
+ * 它要是自己写一份"允许读哪"，这条边界就变成了**两份**，而漂移的方向一定是**放宽**
+ * —— 后加的那份忘了收紧，`spec_path` 就成了"不读代码"的后门。
+ * 所以两个入口**共用这一个函数**：边界只有一处，改也只改一处。
+ *
+ * 语义（与 §3 逐字对齐）：只有 {@link NO_CODE_READ_ROLES} 里的控制角色受约束，
+ * 它们**只许读 `.pipeline/**`**（需求档 / 交接物 / 记录 / 自己写的规格文件）；
+ * 其余角色走 `undefined`（它们本来就有读源码的能力，这一层不是给它们画的）。
+ *
+ * @param {string} role - 调用方角色
+ * @param {{pipelineDir?:string}} task - 同步索引条目 / 任务对象（要 `.pipeline/` 目录）
+ * @param {string} absPath - 已归一化的**绝对**路径（`pathKey` 形式）
+ * @returns {string|undefined} `undefined` = 允许；字符串 = 拒绝理由（**判据名 + 一句话**）
+ */
+export function codeReadRefusal(role, task, absPath) {
+  if (!NO_CODE_READ_ROLES.includes(String(role ?? ''))) return undefined
+  const dir = String(task?.pipelineDir ?? '')
+  if (dir.length > 0 && isInside(dir, absPath)) return undefined
+  return `判据 NO_CODE_READ_ROLES：控制角色（${NO_CODE_READ_ROLES.join(' / ')}）只许读 ${dir.length > 0 ? dir : '.pipeline'}/ 下的东西`
+}
+
 /** 角色中文名（拒绝文案里用；零依赖所以自己带一份小表）。 */
 const ROLE_ZH = {
   main: '主对话',

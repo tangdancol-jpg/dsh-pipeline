@@ -20,14 +20,29 @@ import {
   HUB_HANDOFF_CONFIRM_ORDER,
   HUB_HANDOFF_CONFIRM_STATIONS,
 } from '../states.js'
+// ★★ 长入参通道（`payload_path`）：字段说明的唯一出处在这儿，别在 schema 里另抄一份。
+import { ARGS_FILE_DOC } from './args-file.js'
+// ★★ 主管枢纽的**席位补派**（唤醒点要真的派人 + 缺位自愈）：判据与实现都在它里面。
+import { HUB_SEAT_RESPAWN_HEAD } from './hub-seats.js'
 import { S, tool, resolveActor } from './kit.js'
+
+/**
+ * ★ 哪几个主管动作**要顺带派人**（与"唤醒点"同源：到点了就得有人）。
+ *
+ *   `initiate`          ⇒ 需求位（发起它的就是这个枢纽）
+ *   `agree_need`        ⇒ 唤醒点 A：架构位（architect / diagrammer）
+ *   `reconfirm_diagram` ⇒ 唤醒点 B：计划位
+ * ★ `confirm_diagram` **不在**其中：它只是"转交需求位"，不叫醒任何席位
+ *   （见 `store/hub.js` 的 `applyHubSideEffects`）—— 需求位本来就在册。
+ */
+const HUB_SPAWN_ACTIONS = new Set(['initiate', 'agree_need', 'reconfirm_diagram'])
 
 /**
  * 交接、迁移、主管枢纽、打回、关单
  * @param {object} ctx - `buildTools` 闭包里本组用到的名字（由 `lib/tools.js` 原位传入）
  */
 export function buildFlowTools(ctx) {
-  const { deps, store, tokens, indexTask, nudgeSeat, load } = ctx
+  const { deps, store, tokens, indexTask, nudgeSeat, load, hubSeats } = ctx
 
   // =========================================================================
   // 5. pipeline_handoff —— 提交结构化交接物
@@ -35,6 +50,11 @@ export function buildFlowTools(ctx) {
   const handoff = tool(deps, {
     name: 'pipeline_handoff',
     mutating: true,
+    /**
+     * ★★ 长入参通道：`payload_path` 指一份 JSON，工具读它当交接物内容。
+     *   `wrap: 'payload'` = 文件既可以写成 payload 的字段本身，也可以写成 `{payload:{…}}`。
+     */
+    argsFile: { field: 'payload_path', wrap: 'payload' },
     description:
       '提交一份**结构化交接物**，这是流水线上唯一的"交付"入口。每种类型有固定字段，缺字段会被拒。' +
       '方向由类型决定，不能自选：' +
@@ -42,10 +62,14 @@ export function buildFlowTools(ctx) {
       'test_to_review（测试→审核：测试用例/执行结果/失败日志/通过证据/风险说明）；' +
       'review_verdict（审核→主对话：结论 OK 或 NG/风险说明/是否放行/最终交付说明）；' +
       '以及 orchestration / design / security_review / release_plan / docs_note / perf_report / arbitration / human_note。' +
-      '★ 编写不能直接提交审核 —— kind=review_verdict 只允许审核角色产出，状态机也不接受 开发中→待审核。',
+      '★ 编写不能直接提交审核 —— kind=review_verdict 只允许审核角色产出，状态机也不接受 开发中→待审核。' +
+      '★★ **长中文正文一律走 `payload_path`（写进文件再传路径），不要内联** —— ' +
+      '长段落（测试用例 / 失败日志 / 风险说明 / 验收证据…）内联时模型侧写坏参数 JSON 会让宿主判 ' +
+      '`MALFORMED_RESPONSE` 并**作废整轮上下文**；写进文件则大段正文不经过工具参数（`kind` 仍内联）。',
     parameters: {
       task_id: S('string', '任务 ID'),
       kind: S('string', '交接物类型', { enum: Object.keys(HANDOFF_SCHEMAS) }),
+      payload_path: S('string', ARGS_FILE_DOC.payload_path),
       payload: S('object', '交接物内容（字段随 kind 而定，见工具描述）', { additionalProperties: true }),
       role_token: S('string', '角色令牌'),
     },
@@ -315,28 +339,58 @@ export function buildFlowTools(ctx) {
         if (res.ok !== true) return { ok: false, summary: res.error, state: '', handoff_id: '' }
         indexTask(res.task.id, res.task)
 
+        // ★★ **唤醒点要「真的派人」**（2026-10-16，真缺陷：状态到了人没到 ⇒ L5 死锁）。
+        //
+        //   现场（真机 `T-20261016-fullai`）：`initiate` / `agree_need` 只写枢纽账本，
+        //   状态推进了、**席位一个都没建**；而引导步的白名单当时只放开需求分析
+        //   ⇒ `pipeline_dispatch{role:'architect'}` 被拒 ⇒ 架构位永远不存在
+        //   ⇒ 架构图产不出 ⇒ 唤醒点 B 到不了 ⇒ 计划位起不来 ⇒ 角色清单产不出 ⇒ **死锁**。
+        //
+        //   ★ 授权来源不是调用方身份，而是**主管自己写下的账本**（`task.hub`：
+        //     已发起 + 到点唤醒）。判据见 `lib/tools/hub-seats.js`。
+        //   ★ 派活**复用既有通道**（`pipeline_dispatch` 的 execute 入口）：
+        //     真会话 + 四槽 + 令牌 + 台账 + 它里面每一道既有闸门；不另造一套。
+        //   ★ 幂等：同一个角色**不重复派**（判据 = 派活台账里有没有这一条）；
+        //     每一次补派都写 `hub:seat-respawn` 进审计与 `task.history`。
+        let seatLines = []
+        let liveTask = res.task
+        if (HUB_SPAWN_ACTIONS.has(action)) {
+          const ensured = await hubSeats.ensureHubSeats(res.task, exec, {
+            by: actor.role,
+            via: `pipeline_supervise:${action}`,
+            reason: `唤醒点派人（${action}）`,
+          })
+          if (ensured.lines.length > 0) seatLines = [HUB_SEAT_RESPAWN_HEAD, ...ensured.lines]
+          if (ensured.task !== null && ensured.task !== undefined) {
+            liveTask = ensured.task
+            indexTask(liveTask.id, liveTask)
+          }
+        }
+
         // ★★ **唤醒必须真的投到会话**（不是只改一个字段）。
         //   安全预审的准入判据形态写死：「唤醒动作（主管侧：谁叫、能不能叫）与产物的
         //   产出（席位侧：叫了也不能提前产出）必须**各有一道**判据」。
         //   上面那道是"能不能叫"（guard + by 名单）；这一处是"叫了要真的到"。
         //   ★ 通道不可达时**不静默降级**（越界清单第 13 条）：失败原文照原样拼进 summary，
         //     并给出等价可达路径，让主对话当场看见。
+        //   ★ 用 `liveTask`（补派之后的**最新**台账）：刚建出来的席位必须能被叫醒 ——
+        //     拿补派之前的旧任务去投，就会"人刚派到、消息却投不出去"。
         let wakeLines = []
         const WP = action === 'agree_need'
           ? HUB_WAKE_POINTS.NEED_AGREE
           : action === 'reconfirm_diagram' ? HUB_WAKE_POINTS.DIAGRAM_CONFIRM : null
         if (WP !== null) {
-          const targets = (Array.isArray(res.task.hub?.standby) ? res.task.hub.standby : [])
+          const targets = (Array.isArray(liveTask.hub?.standby) ? liveTask.hub.standby : [])
             .filter((s) => s?.wake_point === WP && s?.status === 'woken')
           for (const s of targets) {
             const body =
               `【流水线 · 唤醒】你是「${roleLabel(s.role)}」（${s.group}），现在**到点了**。\n` +
-              `任务：${res.task.id}　唤醒点：**${WP === HUB_WAKE_POINTS.NEED_AGREE ? '主管同意需求结论' : '主管确认架构图满足要求'}**\n` +
+              `任务：${liveTask.id}　唤醒点：**${WP === HUB_WAKE_POINTS.NEED_AGREE ? '主管同意需求结论' : '主管确认架构图满足要求'}**\n` +
               `任务当前状态：${STATE_LABEL[res.to] ?? res.to}（\`${res.to}\`）\n` +
               '★ 这条是**运行时上下文**，不是用户说的话。\n' +
               '★ 在此之前你处于「已登记待机」—— 那时交产物、写自己目录的报告、跑测试都会被守门/状态机拒。\n' +
               '下一步：pipeline_status 读回你的边界与当前位置，然后做你那一份活。'
-            const r = await nudgeSeat(res.task, s.role, null, body, { kind: 'hub-wake', requestId: `${res.task.id}|hub-wake|${WP}|${s.role}` })
+            const r = await nudgeSeat(liveTask, s.role, null, body, { kind: 'hub-wake', requestId: `${liveTask.id}|hub-wake|${WP}|${s.role}` })
             wakeLines.push(r.ok === true ? `  ✓ 已唤醒 ${roleLabel(s.role)}（会话 ${r.sessionId}）` : `  ✗ 唤醒 ${roleLabel(s.role)} **没投出去**：${r.note}`)
           }
           if (wakeLines.some((l) => l.includes('✗'))) {
@@ -346,7 +400,7 @@ export function buildFlowTools(ctx) {
           }
         }
 
-        const hub = res.task?.hub ?? null
+        const hub = liveTask?.hub ?? res.task?.hub ?? null
         return {
           ok: true,
           state: res.to,
@@ -376,6 +430,7 @@ export function buildFlowTools(ctx) {
                       ((hub?.diagram_redraws ?? 0) >= HUB_DIAGRAM_REDRAW_BUDGET
                         ? '\n⚠ 预算已用尽：再判"不满足"只能走 action=escalate_user（升给用户）。'
                         : '')) +
+            (seatLines.length > 0 ? `\n${seatLines.join('\n')}` : '') +
             (wakeLines.length > 0 ? `\n★ 唤醒投递：\n${wakeLines.join('\n')}` : ''),
         }
       }

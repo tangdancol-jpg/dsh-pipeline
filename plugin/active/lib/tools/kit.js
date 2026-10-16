@@ -14,6 +14,8 @@ import { agentIdOf } from '../guard.js'
 import { isEnabled } from '../switch/gate.js'
 import { mutatingOffRefusal } from '../switch/text.js'
 import { toStringArray } from '../util.js'
+// ★★ 长入参通道（`spec_path` / `payload_path`）—— 修 MALFORMED_RESPONSE，见该文件头。
+import { resolveArgsFile } from './args-file.js'
 
 /** 审批链站名 → 人话（pipeline_full_test 用）。 */
 export const FULL_TEST_STAGE_ZH = {
@@ -281,7 +283,36 @@ export function tool(deps, spec) {
         if (spec.mutating === true && !isEnabled(sw)) {
           return shape({ ok: false, summary: mutatingOffRefusal(spec.name) })
         }
-        const out = shape(await spec.run(args ?? {}, exec))
+        // -----------------------------------------------------------------
+        // ★★ **长入参走文件**（`spec_path` / `payload_path`）—— 修 MALFORMED_RESPONSE。
+        //
+        //   为什么挂在 `tool()` 这个**唯一入口**上、而不是散在三个工具里：
+        //   这条通道要复用的判据（守门 + 上限 + JSON 校验 + 合并语义）只有一份，
+        //   散着写就一定会漂移，而漂移的方向是**放宽**。
+        //   哪个工具启用由它自己声明（`argsFile: { field: 'spec_path' }`）——
+        //   **没声明的工具一个字节都不变**（连一次 stat 都不会发生）。
+        //
+        //   ★ 顺序：**先过开关**（关掉时连文件都不读），再解析文件，最后才 `run()`。
+        // -----------------------------------------------------------------
+        let effective = args ?? {}
+        if (spec.argsFile !== undefined) {
+          const actor = resolveActor(effective, exec, deps)
+          const loaded = await resolveArgsFile({
+            field: spec.argsFile.field,
+            args: effective,
+            exec,
+            deps,
+            // ★ 判不出角色 ⇒ 传 null，由 args-file 按**最严**的那一档处理。
+            role: actor.ok === true ? actor.role : null,
+            allowedKeys: Object.keys(spec.parameters ?? {}),
+            // ★ 可选：整份文件包进这个键（`pipeline_handoff` 用 `'payload'`）——
+            //   由工具**自己声明**，`args-file.js` 不猜。
+            wrap: spec.argsFile.wrap,
+          })
+          if (loaded.ok !== true) return shape({ ok: false, summary: loaded.summary })
+          effective = loaded.args
+        }
+        const out = shape(await spec.run(effective, exec))
         // -----------------------------------------------------------------
         // ★★ 交付即唤醒 · **第四步的输入**：记下主对话在哪个会话里。
         //
@@ -339,7 +370,13 @@ export function tool(deps, spec) {
  * 会话绑定优先是有意的 —— 令牌可以被转手，绑定不能。一个已经绑定了角色的
  * 会话，拿别人的令牌来调也只会按自己的角色算。
  *
- * @returns {{ok:true, role:string, agentId:string|null, via:string} | {ok:false, error:string}}
+ * ★★ **A 件（2026-10-16）**：返回值里多一个 `mechanism`
+ *   （`null` = 普通的会话 / 席位身份；非 `null` = **机制自己铸的身份**）。
+ *   它来自 `tokens.mint({ mechanism })` —— 自愈 / 唤醒点补派这类"机制自己发起"
+ *   的派活**必须有它**，否则就只能借调用方的 exec，而调用方（重启后的主对话）
+ *   恰恰没有身份 ⇒ 自愈必然失败。判据与边界写在 `lib/tokens.js` 的 `mint` 上。
+ *
+ * @returns {{ok:true, role:string, seat:string|null, agentId:string|null, via:string, mechanism:string|null} | {ok:false, error:string}}
  */
 export function resolveActor(args, exec, deps) {
   const agentId = agentIdOf(exec)
@@ -353,7 +390,14 @@ export function resolveActor(args, exec, deps) {
       requireAgentBinding: deps.config?.requireAgentBinding === true,
     })
     if (r.ok !== true) return { ok: false, error: r.error }
-    if (bound !== null && bound.role !== r.rec.role) {
+    const mech = typeof r.rec.mechanism === 'string' && r.rec.mechanism.length > 0 ? r.rec.mechanism : null
+    /**
+     * ★ 机制令牌**不走"会话绑定 vs 令牌"那条冲突判据**：它本来就不属于任何会话
+     *   （`agentId` 恒 null），拿它去和一个已绑定会话比"是不是同一个角色"没有意义。
+     *   它唯一的去处是"机制自己发起"的通道（自愈 / 补派），而那条通道的授权
+     *   另有出处（`task.hub` 账本）—— 不在这里放宽任何席位判据。
+     */
+    if (mech === null && bound !== null && bound.role !== r.rec.role) {
       return {
         ok: false,
         error:
@@ -361,10 +405,12 @@ export function resolveActor(args, exec, deps) {
           `但这次带的 role_token 属于「${roleLabel(r.rec.role)}」。一个会话在同一任务里只能担任一个角色。`,
       }
     }
-    return { ok: true, role: r.rec.role, seat: r.rec.seat ?? null, agentId, via: 'token' }
+    return { ok: true, role: r.rec.role, seat: r.rec.seat ?? null, agentId, via: 'token', mechanism: mech }
   }
 
-  if (bound !== null) return { ok: true, role: bound.role, seat: bound.seat ?? null, agentId, via: 'session-binding' }
+  if (bound !== null) {
+    return { ok: true, role: bound.role, seat: bound.seat ?? null, agentId, via: 'session-binding', mechanism: null }
+  }
 
   return {
     ok: false,

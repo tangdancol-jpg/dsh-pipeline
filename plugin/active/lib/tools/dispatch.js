@@ -17,7 +17,8 @@ import { isUnknownTier } from '../tiers/tier-order.js'
 import { describeSlotDivergence, resolveEffectiveSlots } from '../roster/slot-truth.js'
 import { DISPATCH_SLOT_KEYS, isSpawnableRole } from '../transport/index.js'
 import { toStringArray } from '../util.js'
-import { dispatchSlots } from './dispatch-slots.js'
+import { dispatchSlotPlan, dispatchSlots } from './dispatch-slots.js'
+import { hubAuthorizedRoles } from './hub-seats.js'
 import { describeScopePaths } from '../scope/root-marker.js'
 import { S, tool, resolveActor, dispatchEventFor } from './kit.js'
 
@@ -52,10 +53,13 @@ export function buildDispatchTools(ctx) {
        * 任一槽落不下去 ⇒ **拒绝派活 + 留痕**，不静默降级、不拿近似物冒名。
        *
        * 不给 = 取名单里为该席位（`partitions[].seat`）或该角色（`sequence[].role`）声明的同名字段；
-       * 名单里也没有 = 交给通道取兜底并留痕（权限落最小档 read-only、模式落配置默认、
-       * 模型 / 推理等级落环境枚举默认档）。名单是四槽的唯一权威，这里只做消费。
+       * 名单里也没有 = 交给通道取兜底并留痕。★ **B 件（2026-10-16）**：`permission` / `mode`
+       * **不再落全局那一个兜底**，而是**按角色取** —— 权限档按角色写入需求推导
+       * （会产生落盘产物的角色至少 `workspace-write`，纯只读角色保持 `read-only`；
+       * 判据见 `lib/roster/permission-need.js`），模式按角色取 `pl-<role>`；
+       * 模型 / 推理等级仍落环境枚举默认档。名单是四槽的唯一权威，这里只做消费。
        */
-      permission: S('string', '★四槽①权限档（四槽分开传，不许打包）：read-only / workspace-write / danger-full-access。「完全」档默认禁用，须三段齐（需求分析→主对话→用户判定）否则拒绝'),
+      permission: S('string', '★四槽①权限档（四槽分开传，不许打包）：read-only / workspace-write / danger-full-access。「完全」档默认禁用，须三段齐（需求分析→主对话→用户判定）否则拒绝。不给 = 名单声明值 → **按角色需求推导**（会落盘的角色至少 workspace-write）'),
       mode: S('string', '★四槽②内置模式 = 会话头 agentPreset（例如 standard）。不给则取名单声明值，再退配置默认'),
       model: S('string', '★四槽③模型（"provider/model" 或 "model"）。不给则取名单声明值，再退环境枚举默认档'),
       reasoning: S('string', '★四槽④推理等级（与模型分开传，不许并进模型里）。不给则取名单声明值，再退环境枚举默认档'),
@@ -209,7 +213,13 @@ export function buildDispatchTools(ctx) {
       if (role === ROLE.ORCHESTRATOR) {
         const hubOk = await store.hubCanDispatchOrchestrator(task.id, {
           requirementConfirmed: !isUnknownTier(task.hub_requirement?.tier),
-          by: actor.role,
+          /**
+           * ★★ A 件（2026-10-16）：`by` 记**机制名**而不是 `main` —— 自愈补派是
+           *   `tokens.mint({ mechanism: 'hub-seat-respawn' })` 铸的身份（授权来源
+           *   是 `task.hub` 账本），把它写成 `main` 就等于"机制冒充了主对话"，
+           *   事后没人分得清"这一步是人推的还是机制自己补的"。
+           */
+          by: actor.mechanism ?? actor.role,
         })
         // ★ 不返回 `code`：本工具 output 是 `additionalProperties:false`，多一个键过不了
         //   宿主输出校验（output-check 跑的就是这条）。
@@ -265,16 +275,49 @@ export function buildDispatchTools(ctx) {
          * ★ **没有顺带放宽别的角色**：这条分支**只**把 `supervisor` 加进白名单，
          *   而且是在**替换**（不是追加）需求分析那一席的前提下 —— 递单之后
          *   主对话**不能**再自己派需求位（那正是"递单"这个动作的意义）。
-         *   编写 / 测试 / 审核 / 架构 / 计划等其余角色**一个都没进来**。
+         *   编写 / 测试 / 审核 / 架构 / 计划等其余角色**一个都没进来**
+         *   （★ 唯一的另一条口子见紧下面那段：**枢纽账本已授权**的席位 —— 那是 2026-10-16
+         *     修 L5 死锁时补的，判据是 `task.hub`，不是调用方身份）。
          */
         const handedOver = task.state === ST.PENDING && task.hub?.entry !== null && task.hub?.entry !== undefined
-        const allowedBootstrap = planningStage ? [ROLE.PLANNER] : handedOver ? [ROLE.SUPERVISOR] : [ROLE.ORCHESTRATOR]
+        /**
+         * ★★ **主管枢纽的席位**（2026-10-16，真缺陷：L5 死锁）。
+         *
+         * 病灶（真机 `T-20261016-fullai`，实测原文）：主管 `agree_need` 之后状态到了
+         *   「架构位出图中」，而**架构位不存在**；这一刻 `pipeline_dispatch{role:'architect'}`
+         *   被本行的白名单拒掉（"这个时候唯一能被派出去的角色是：需求分析"）。
+         *   偏偏角色清单只能由**计划位**产出、计划位要唤醒点 B、唤醒点 B 要架构图、
+         *   架构图要**架构位** ⇒ **环 = 死锁**（主对话只能干等 4 分 13 秒）。
+         *
+         * 修法：引导步的白名单**多出枢纽账本已经授权的那些席位** ——
+         *   授权来源是 `task.hub`（`lib/tools/hub-seats.js` 的 `hubAuthorizedRoles`），
+         *   不是调用方身份：
+         *     · `hub.enabled` ⇒ 需求位（发起它的就是这个枢纽）；
+         *     · `hub.standby[].status === 'woken'` ⇒ 那个席位（**到点了**才该有人）。
+         *
+         * ★ **为什么这不是"放宽成谁都能派"**（三条同时成立）：
+         *   ① 账本**只有主管能写**（`by: ['supervisor']` + 具名事件 + `store.checkPrecondition`）
+         *      ⇒ 主对话在这里不是"自己决定加人减人"，只是**执行主管已经登记的名单**；
+         *   ② 仍然只在 `roster === null`（引导态）时生效；清单一旦产出，一律走下面
+         *      "清单里没有就拒"那条通用门；
+         *   ③ **调用方白名单一个字没动**（仍只有 main）—— 安全预审阻断项 B2 明令禁止
+         *      把 `pipeline_dispatch` 的名单扩到 supervisor（见 `lib/guard/rules.js`）。
+         *      所以这一处**没有**给主管任何新的调用面，它只是把"主管已经写到账本上的名单"
+         *      变成"真的能被派出去"。
+         */
+        const hubAuthorized = hubAuthorizedRoles(task)
+        const bootstrapBase = planningStage ? [ROLE.PLANNER] : handedOver ? [ROLE.SUPERVISOR] : [ROLE.ORCHESTRATOR]
+        const allowedBootstrap = [...new Set([...bootstrapBase, ...hubAuthorized])]
         if (!allowedBootstrap.includes(role)) {
           return {
             ok: false,
             summary:
               `任务 ${task.id} 还没有角色清单（当前状态：${STATE_LABEL[task.state] ?? task.state}）。\n` +
               `这个时候唯一能被派出去的角色是：${allowedBootstrap.map(roleLabel).join(' / ')}。\n` +
+              (hubAuthorized.length > 0
+                ? `★ 其中有 ${hubAuthorized.map(roleLabel).join(' / ')} 是**主管枢纽账本**授权的（\`task.hub\`：已发起 + 到点唤醒）——` +
+                  '主线上的席位由主管的具名动作直接拉起（`pipeline_supervise`），这里只是同一条授权面下的补派入口。\n'
+                : '') +
               (planningStage
                 ? '★ 需求已经过用户确认 —— 现在该出计划并分配 AI 了（planner 出清单）。'
                 : handedOver
@@ -319,7 +362,31 @@ export function buildDispatchTools(ctx) {
       //     ★ 主管是**控制位**（不写实现、不跑测试、不判通过，只做发起/确认/否掉），
       //       "开工"这个词对它本来就是另一个意思。豁免**只是**把这条死锁打开，
       //       没有给主管任何新的写入面或判定面（边界仍由 `roles.js` 的 writes 管）。
-      if (role !== ROLE.PLANNER && role !== ROLE.ORCHESTRATOR && role !== ROLE.ARCHIVIST && role !== ROLE.SUPERVISOR) {
+      //   ★★ 2026-10-16 第五条豁免：**枢纽唤醒点上的席位**（真缺陷：L5 死锁的**第二段**）。
+      //
+      //     现场（同一条死锁链的下一环，实测）：补齐引导步白名单之后，架构位的派活
+      //     又被本闸拒掉 —— `拒绝分发任务：约定目录下没有需求档`。
+      //     而 L1+ 的 `requirement.md` **只有留档 AI 能写**，留档 AI 又在**计划位产出的角色清单**里，
+      //     计划位要唤醒点 B，唤醒点 B 要架构图，架构图要架构位
+      //     ⇒ **同一个环，只是卡在了另一道闸上**。不补这一条，"唤醒点派人"在生产上照样走不通。
+      //
+      //     ★ 凭什么豁免（**不是**"枢纽的单就放行"，而是它拿出了比需求档更强的东西）：
+      //       条件 = ① 这个角色在**枢纽账本授权**的名单里（`hubAuthorizedRoles`），
+      //              **且** ② 第①道闸 `hub_station_need_agree` **当下就过**
+      //              —— 它同时要求：**用户人工确认已答复**（`requirement_confirm_gate`
+      //              读的是 `human_requests` 里那条 answered 的原话）**＋** 主管交过一份
+      //              **绑定当前 `requirement_analysis` 交接物**的 `station_confirm{decision:'ok'}`。
+      //       也就是说：这里放行的不是"还没确认的需求"，而是"已经过了用户与主管两道确认、
+      //       并且有一份可追溯的需求结论交接物在盘上"的席位。
+      //       `requirement.md` 要解决的问题（"什么都忘了之后还能还原要做什么"）在这一刻
+      //       由 `handoffs/requirement_analysis` + `task.handoffs` 承担，且**更强**：
+      //       它绑定了确认记录、用户答复与内容哈希。
+      //     ★ 三条边界：**只**在引导态（`roster === null` 才走到这一段）生效；
+      //       **只**对账本点名的角色生效；**没有**动 "tester/writer 等没有档就不许开工"。
+      const hubWakeSeat =
+        hubAuthorizedRoles(task).includes(role) &&
+        (await store.checkPrecondition(task, 'hub_station_need_agree', {})).ok === true
+      if (!hubWakeSeat && role !== ROLE.PLANNER && role !== ROLE.ORCHESTRATOR && role !== ROLE.ARCHIVIST && role !== ROLE.SUPERVISOR) {
         const chk = await store.checkRequirementDoc(task)
         if (chk.ok !== true) {
           return { ok: false, agent_id: '', role, seat: '', token: '', summary: chk.error }
@@ -364,12 +431,25 @@ export function buildDispatchTools(ctx) {
        *   · 名单里只是**占位默认值**（`origin: default`）⇒ 请求可以覆盖，但**记下来**
        *     （现场就是这种形状：名单说 read-only、实际生效 workspace-write，
        *      改前没有任何地方记这件事 ⇒ 读名单的人会得出相反的结论）。
+       *
+       * ★★ B 件（2026-10-16）：取值改走 {@link dispatchSlotPlan} —— 交给下面对
+       *   `resolveEffectiveSlots` 的 `requested` 与它**逐字节相同**，只是多带一份
+       *   "哪几槽是**按角色推导**出来的"，好让留痕里的 `origin` 说实话。
        */
+      const slotPlan = dispatchSlotPlan(task, role, seat, args)
       const truth = resolveEffectiveSlots({
         roster: task.roster ?? null,
         role,
         seat,
-        requested: dispatchSlots(task, role, seat, args),
+        requested: slotPlan.slots,
+        /**
+         * ★★ B 件（2026-10-16 真机 `T-20261016-fullai`）：把**推导出来的**槽的来源
+         *   一并交下去 —— `permission` 的兜底值是按**角色写入需求**算的
+         *   （`lib/roster/permission-need.js`），不是"调用方显式给的"。
+         *   不交它，下面 `recordDispatchSlots` 落盘的 `provenance.permission.origin`
+         *   会是 `request` ⇒ 读审计的人会把"机制按角色给的档"读成"谁手工指定的档"。
+         */
+        origins: slotPlan.origins,
       })
       if (truth.blocked !== null) {
         return {

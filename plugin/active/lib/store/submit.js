@@ -227,7 +227,11 @@ export function submitMethods(ctx) {
       }
 
       // --- ③ 状态是否允许 --------------------------------------------------
-      const stateCheck = this.checkHandoffAgainstState(task, kind)
+      // ★ 2026-10-16：把**交接物本身**一并交给状态判据（第三个参数，可选、只增不改）。
+      //   为什么必须带上：枢纽任务的**交付站**上，"重交的架构图必须绑当前有效制品版本"
+      //   是**状态面判据**（真机 T-20261016-fullai 的 L5 关单死锁），而那条判据要读 payload。
+      //   不传的话它只能在"没有 payload"的前提下弃权 —— 那等于把闸门改成一句空话。
+      const stateCheck = this.checkHandoffAgainstState(task, kind, v.normalized)
       if (stateCheck.ok !== true) return stateCheck
 
       /**
@@ -532,7 +536,7 @@ export function submitMethods(ctx) {
       // 再写交接物，最后真正迁移。预检失败就一个字节都不写 ——
       // 不会留下"有交接物但状态没动"的半截现场。
       const advance = hubEnabled(task)
-        ? (planAdvance(kind, v.normalized) ?? hubAdvanceFor(kind, v.normalized))
+        ? (planAdvance(kind, v.normalized) ?? hubAdvanceFor(kind, v.normalized, task.state))
         : planAdvance(kind, v.normalized)
       if (advance !== null) {
         const tr = applyTransition(task.state, advance.event, input.actorRole, task.previous_state ?? undefined)

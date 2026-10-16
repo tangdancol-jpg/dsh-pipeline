@@ -9,9 +9,18 @@
 
 import { ROLE, ROLES, roleLabel } from '../roles.js'
 import { NO_CODE_READ_ROLES } from '../guard.js'
+// ★ 会话身份（`exec.agent.id`）—— A 件的主对话身份自查要拿它与盘上记录逐字比。
+import { agentIdOf } from '../guard/seats.js'
 import { DEFAULT_SEAT_SILENCE_MS, describeSilentSeats, nextActionsFor, seatLiveness } from '../liveness.js'
 import { DISPATCH_SLOT_KEYS } from '../transport/index.js'
 import { clamp } from '../util.js'
+import { pendingWakesNextSteps, pendingWakesOf } from '../wakeup/pending.js'
+// ★★ A 件（2026-10-16 真机 `T-20261016-fullai`）：主对话身份自查 + **下一步**。
+import { judgeMainBinding } from '../wakeup/main-identity.js'
+// ★ 总开关的**唯一判据**（不许自己写 `sw.isOn()` —— 见 lib/switch/gate.js）。
+import { isEnabled } from '../switch/gate.js'
+// ★★ 主管枢纽的**席位补派**（缺位自愈）：判据与实现都在它里面，这里只触发。
+import { HUB_SEAT_RESPAWN_HEAD } from './hub-seats.js'
 import { S, SNullable, tool, resolveActor } from './kit.js'
 
 /**
@@ -19,7 +28,28 @@ import { S, SNullable, tool, resolveActor } from './kit.js'
  * @param {object} ctx - `buildTools` 闭包里本组用到的名字（由 `lib/tools.js` 原位传入）
  */
 export function buildStatusTools(ctx) {
-  const { deps, store, indexTask, load, paginate } = ctx
+  const { deps, store, indexTask, load, paginate, hubSeats } = ctx
+
+  /**
+   * ★★ **"没人领的事件"清单**（2026-10-16 补 · 唤醒投递失败的兜底出口）。
+   *
+   * 判据**不在本文件**：整份在 `lib/wakeup/pending.js` 的 `pendingWakesOf`
+   * （三条：取 unresolved / 剔掉后来已投递的 / 按待领键去重）。这里只做一件事 ——
+   * 把 `deps.wakeup` 手上那份账本**同一个实例**递进去（账本只有一份，见
+   * `index.js` 的装配：`createWaker({ ledger: wakeLedger })`）。
+   *
+   * 为什么要有它（现场 · 真单 `T-20261016-ff9ba7`）：那张单顶层连 `contacts` 键
+   * 都没有 ⇒ 唤醒找不到该投给谁 ⇒ **整张单 22 次唤醒全部 `no-main-session`**
+   * （跨两天）。改前这种失败**只落在 append-only 的 `audit.jsonl` 里**，
+   * 主对话**没有任何确定的路子去捞它** —— 请求静默积压，全靠人自己发现。
+   *
+   * ★ 只读、不抛：账本没装配（`deps.wakeup` 缺失 / 自测替身）⇒ 空数组。
+   *
+   * @param {string} taskId
+   */
+  function pendingWakes(taskId) {
+    return pendingWakesOf(deps?.wakeup?.ledger ?? null, taskId)
+  }
 
   /** 计数分布渲染：`dev_to_test 3 / test_to_review 1`。 */
   function distribution(list, keyOf) {
@@ -426,6 +456,53 @@ export function buildStatusTools(ctx) {
       }
       indexTask(taskId, await load(taskId))
 
+      /**
+       * ★★ **待领事件**（唤醒投递失败的兜底出口，2026-10-16 补）：
+       * 算一次，下面正文与返回字段**共用**（判据只有一份）。
+       */
+      const unclaimedWakes = pendingWakes(taskId)
+
+      /**
+       * ★★ **A 件 ②（2026-10-16 真机 `T-20261016-fullai`）：主对话身份自查 + 「下一步该做什么」。**
+       *
+       * 现场：DSH 重启后 `tokens`（进程内存态）全空 ⇒ 主对话调 `pipeline_dispatch` /
+       *   `pipeline_task_purge` 一律被拒，原文「本会话既没有绑定任何角色，也没有携带
+       *   role_token」。**没有人告诉它这件事** —— 它是撞上那堵墙才知道的，还得自己想起
+       *   `pipeline_task_open { reattach: true }` 这条命令。
+       *
+       * 判据**不在本文件**：整份在 `lib/wakeup/main-identity.js` 的 `judgeMainBinding`
+       *   （纯函数：不碰令牌表、不放宽任何校验、不绑任何身份）。这里只做两件事：
+       *     ① 把盘上的证据取来（`contacts.main` + `task.history` 的**只读**兜底解析）；
+       *     ② 把结论印在正文里（只给结构化字段 = 藏在返回值里）。
+       *
+       * ★ **自动恢复优先**：`deps.mainReattach`（若装配给了）先试一次 ——
+       *   它就是 `lib/reattach.js` 那条既有的重启自动认领（判据 = 盘上
+       *   `contacts.main.agent_id` 与本会话 id 逐字相等）。它成功 ⇒ 这次查询之后
+       *   身份就回来了；它没成功 ⇒ 下面那句提示照旧给出来（**两条路各管一段**）。
+       *   ★ 它失败/抛错**不许把那一次查询带崩**，也不许静默。
+       */
+      let mainIdentityLines = []
+      let mainIdentityField = null
+      try {
+        const sid = agentIdOf(exec)
+        if (actor.ok !== true && typeof deps.mainReattach === 'function' && typeof sid === 'string' && sid.length > 0) {
+          try {
+            await deps.mainReattach(sid)
+          } catch (err) {
+            mainIdentityLines.push(`⚠ 主对话侧自动认领异常（查状态本身不受影响）：${String(err?.message ?? err)}`)
+          }
+        }
+        const lastKnownMain = typeof store.lastKnownMainAgent === 'function' ? await store.lastKnownMainAgent(taskId) : null
+        // ⚠ 用 `await load(taskId)`（store 有缓存，不是第二次读盘）：`liveTask` 在下面才定义。
+        mainIdentityField = judgeMainBinding({ task: await load(taskId), taskId, sessionId: sid ?? '', actor, lastKnownMain })
+        if (mainIdentityField.bound !== true && mainIdentityField.hint.length > 0) {
+          mainIdentityLines = [`${mainIdentityField.hint}`, ...mainIdentityLines]
+        }
+      } catch (err) {
+        // ★ 判不出来就说"判不出来"—— **不写成"不用绑"**（那是静默）。
+        mainIdentityLines = [`⚠ 主对话身份自查**没能完成**（查状态本身不受影响）：${String(err?.message ?? err)}`]
+      }
+
       // ★ **席位失联视图**（读时暴露，**只报告不处置** —— 这个工具是只读的）。
       //
       //   处置（自动推到「已阻塞」）在 `tools/pre-execute` 那条缝上做，见 lib/intercept.js。
@@ -481,6 +558,44 @@ export function buildStatusTools(ctx) {
             ]
 
       /**
+       * ★★ **③ 自愈：状态到了、人没到**（2026-10-16，真缺陷：L5 死锁）。
+       *
+       * 现场：主管 `initiate` / `agree_need` 之后状态推进了，**席位却不存在**
+       *   （真机 `T-20261016-fullai` 静默 4 分 13 秒等一个不会到的席位）；
+       *   而那时主对话连"补派"都做不到（引导步白名单只放开需求分析）⇒ 死锁。
+       *
+       * 为什么触发点选在**查状态**这一刻：这与上面那条"失联处置：查状态时也动手"
+       *   **逐字同源** —— 出事时**没有任何角色会再调工具**，而主对话查
+       *   `pipeline_status` 恰恰是它唯一一定会做的动作。
+       *
+       * 四条边界（缺一条就不做）：
+       *   ① **总开关为开** —— 关掉功能时，只读工具**一个字节都不许写项目目录**；
+       *   ② **枢纽已发起**（`hub.enabled`）—— 没发起就没有"该到的人"这回事；
+       *   ③ 只补**账本授权的角色**（需求位 + **已到点唤醒**的待机席位）——
+       *      已登记待机（`standby`）**不补**：那时该做的是"登记可见"，不是叫人开工；
+       *   ④ **幂等** —— 判据是派活台账里**有没有这一条**，有就不动；补派走
+       *      `pipeline_dispatch` 的既有入口（真会话 + 四槽 + 令牌 + 台账 + 全部既有闸门），
+       *      每次补派写 `hub:seat-respawn` 进审计（谁、什么时候、补的谁、成没成）。
+       */
+      let hubSeatLines = []
+      if (hubSeats !== undefined && hubSeats !== null && isEnabled(deps.sw)) {
+        try {
+          const hubTask = liveTask ?? (await load(taskId))
+          if (hubTask !== null && hubTask?.hub?.enabled === true) {
+            const ensured = await hubSeats.ensureHubSeats(hubTask, exec, {
+              by: actor.ok === true ? actor.role : 'mechanism',
+              via: 'pipeline_status:self-heal',
+              reason: '状态到了人没到（枢纽已发起 / 已到点唤醒，而席位不存在）',
+            })
+            if (ensured.lines.length > 0) hubSeatLines = [HUB_SEAT_RESPAWN_HEAD, ...ensured.lines]
+          }
+        } catch (err) {
+          // ★ 自愈失败**不许把查状态带崩**（与失联处置同一条纪律），但也**不许静默**。
+          hubSeatLines = [`⚠ 枢纽席位自愈补派失败（查状态本身不受影响）：${String(err?.message ?? err)}`]
+        }
+      }
+
+      /**
        * ★★ **E 路 ②：紧凑档（`detail: "summary" | "count"`）**。
        *
        * ★ 只换**正文**，不换任何结构化字段、不换判据、不换脱敏口径 ——
@@ -492,7 +607,7 @@ export function buildStatusTools(ctx) {
       /** ★ 显式给了 `page` 才分页（不传 ⇒ 与改前逐字节一致；紧凑档自己给计数，不分页）。 */
       const handoffPage = !isBrief && args.page !== undefined && args.page !== null ? paginate(res.handoffs, args.page) : null
       const lines = isBrief
-        ? [renderStatusBrief(res, live, { mode: briefMode })]
+        ? [renderStatusBrief(res, live, { mode: briefMode }), ...hubSeatLines, ...mainIdentityLines]
         : [
         `任务 ${res.task_id}：${res.state_zh}(${res.state})`,
         `原始需求：${clamp(res.requirement, 300)}`,
@@ -567,7 +682,30 @@ export function buildStatusTools(ctx) {
               ),
             ]
           : []),
+        /**
+         * ★★ **没人领的事件**（正文里也要看得见 —— 只给结构化字段等于"藏在返回值里"）。
+         *   主对话查状态时第一眼就该看到"有 N 条事件没送到我这儿"。
+         */
+        ...(unclaimedWakes.length > 0
+          ? [
+              '',
+              `★★ 没人领的事件（${unclaimedWakes.length} 条）—— 它们**没有被投出去**，不是没发生：`,
+              ...unclaimedWakes.map(
+                (p) => `  [${p.reason}] ${p.kind}／${p.actor || '?'}  ${p.at}\n      待领键：${p.key}\n      ${p.what}`,
+              ),
+              /**
+               * ★★ **A 件 ③（2026-10-16）**：光有"没投出去"不够 —— **下一步该做什么**要写死。
+               *   判据与文案**唯一出处**是 `lib/wakeup/pending.js` 的 `pendingWakesNextSteps`
+               *   （这里只铺开它，不另抄一份 —— 抄一份就会漂移）。
+               */
+              ...pendingWakesNextSteps(taskId),
+            ]
+          : []),
         ...liveLines,
+        // ★★ 缺位自愈的结论（补了谁 / 没补成 / 为什么）—— 只给结构化字段等于"藏在返回值里"。
+        ...hubSeatLines,
+        // ★★ A 件②：主对话身份自查的结论与**下一步**（同上：必须印在正文里）。
+        ...mainIdentityLines,
       ]
 
       /**
@@ -621,6 +759,19 @@ export function buildStatusTools(ctx) {
                 /** ★ 主对话下一步可以**直接调**的动作（重派 / 换班 / 人工 / 取消）。 */
                 next_actions: nextActionsFor(live.silent, { taskId }),
               },
+        /**
+         * ★★ **"没人领的事件"清单**（2026-10-16 补 · 唤醒投递失败的兜底出口）。
+         *
+         * 这是"找不到主对话会话"时那条**确定的捞法**：唤醒投不出去的事件进账本的
+         * unresolved 列表（`wakeup/waker.js` 的 `noteUnclaimed()`，**幂等**），
+         * 而每一次 `pipeline_status` 都会把它带回给主对话。
+         *
+         * ★ 三种 `reason` 原样透出，因为出路不一样：
+         *   `no-main-session` ⇒ 认回主对话身份；`no-stable-identity` ⇒ 等台账落地后巡检再叫；
+         *   `deliver-failed` ⇒ 目标会话不可达，下次同类事件会重投。
+         * ★ 判据在 `lib/wakeup/pending.js`（只读）；账本没装配 ⇒ 空数组。
+         */
+        pending_wakes: unclaimedWakes,
       }
     },
   })

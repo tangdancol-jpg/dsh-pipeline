@@ -19,6 +19,8 @@ import { describeL0Baseline, ensureL0Baseline } from '../store/l0-baseline.js'
 // ★★ P1 接线（`WIRING.md` §W9）：开单后**自动**建项目目录的那一步。
 //    逻辑本体在新模块 `lib/project/auto-init.js` —— 本文件只 import + 调一次（规范 §5）。
 import { autoInitProjectDir } from '../project/auto-init.js'
+// ★★ 长入参通道（`spec_path`）：字段说明的唯一出处在这儿，别在 schema 里另抄一份。
+import { ARGS_FILE_DOC } from './args-file.js'
 import { S, tool, resolveActor } from './kit.js'
 
 /**
@@ -298,6 +300,8 @@ export function buildIntakeTools(ctx) {
   const orchestrate = tool(deps, {
     name: 'pipeline_orchestrate',
     mutating: true,
+    /** ★★ 长入参通道：`spec_path` 指一份 JSON，工具读它当整份入参（内联优先）。 */
+    argsFile: { field: 'spec_path' },
     description:
       '【需求分析专用】把模糊需求变成任务卡 + 验收标准 + 边界条件 + 测试要点，' +
       '并**产出「需求不清楚处」清单**（unclear_points）。' +
@@ -305,9 +309,13 @@ export function buildIntakeTools(ctx) {
       '调用形态：(a) 独立需求分析对话调用（L1+）：交分析结论，然后**必须**用 pipeline_human_request 把不清楚处提交主对话转告用户确认；' +
       '(b) L0 极简脚本：主对话可以调它让**确定性规则引擎**自批角色清单 —— ' +
       '引擎要输出 L0，需求必须先通过一组保守的平凡性判据，任何一条不满足就强制升档（复杂需求不漏配）。' +
-      '传 dry_run=true 只拿建议档位，不落盘。',
+      '传 dry_run=true 只拿建议档位，不落盘。' +
+      '★★ **长中文入参一律走 `spec_path`（写进文件再传路径），不要内联** —— ' +
+      '本工具的 `acceptance` / `test_points` / `boundaries` / `unclear_points` / `analysis_reason` / `role_scope` 都是长段落，' +
+      '内联时模型侧写坏参数 JSON 会让宿主判 `MALFORMED_RESPONSE` 并**作废整轮上下文**；写进文件则大段内容不经过工具参数。',
     parameters: {
       task_id: S('string', '任务 ID'),
+      spec_path: S('string', ARGS_FILE_DOC.spec_path),
       requirement: S('string', '原始需求（与开单时一致）'),
       acceptance: S('array', '验收标准（可执行的、可判定的）', { items: { type: 'string' } }),
       test_points: S('array', '测试要点', { items: { type: 'string' } }),

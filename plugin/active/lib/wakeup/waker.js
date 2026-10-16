@@ -23,7 +23,15 @@ import {
   actorKeyOf,
 } from './keys.js'
 import { eventIdentityFor } from './identity.js'
+import { LAST_RESORT_VIA } from './last-resort.js'
 import { sleep, wakeMessage, probeTargetSession, deliverWake } from './deliver.js'
+
+/**
+ * ★ 「待领」去重时一次扫多少条账本 unresolved。
+ * 2000 是账本自己的上限（`wakeledger.js` 的 `unresolved.length > 2000` 就裁到 500）
+ * —— 取同一个数量级，保证"扫得到"与"账本留得住"是同一段历史。
+ */
+const UNCLAIMED_SCAN_LIMIT = 2000
 
 // ---------------------------------------------------------------------------
 // 唤醒器
@@ -65,6 +73,17 @@ export function createWaker(deps) {
   const mainContactOf = typeof deps?.mainContactOf === 'function' ? deps.mainContactOf : null
 
   /**
+   * ★★ **兜底解析主对话会话**（第三道来源，2026-10-16 补）。
+   *
+   * 前两道（内存登记表 / `task.contacts.main`）**同时空**时才会被调用 ——
+   * 判据在 `wakeup/last-resort.js`（纯函数），这里只接线。
+   * 没给（自测替身 / 装配不全）⇒ 退回改前的行为：仍然跳过，但**不静默**（见下面那条）。
+   *
+   * @type {((taskId:string)=>Promise<{agentId:string, at:string, action:string}|null>)|null}
+   */
+  const lastResortMainOf = typeof deps?.lastResortMainOf === 'function' ? deps.lastResortMainOf : null
+
+  /**
    * ★ 已投递表：交付键 ⇒ 投递结果。
    * 这是幂等的**第一道**（同进程内重放同一个交付键 ⇒ 直接返回上一次的结论）。
    * 第二道是 {@@link alreadyDelivered}（查目标会话自己的队列）。
@@ -72,6 +91,15 @@ export function createWaker(deps) {
   const delivered = new Map()
   /** 上限兜底：只增不减会泄漏。丢一条唤醒无所谓，内存泄漏不会自己好。 */
   const DELIVERED_LIMIT = 2048
+
+  /**
+   * ★★ **本进程内已经落盘过 `contacts.main` 的任务**（2026-10-16 补登记用）。
+   *
+   * 它挡的是"每次工具调用都写一次任务文件"，同时**不许**把"这一张单还没写过"
+   * 也一起挡掉 —— 见下面 `rememberMain` 那一段（`changed` 只真一次，靠它不够）。
+   * ★ 只在**写成功之后**才加进来：失败要下次再试。
+   */
+  const persistedOk = new Set()
 
   const stats = { attempts: 0, injected: 0, deduped: 0, skipped: 0, failed: 0, fallback: 0 }
 
@@ -82,6 +110,46 @@ export function createWaker(deps) {
       await audit(taskId, action, detail)
     } catch (err) {
       warn(`[pipeline] 唤醒留痕失败（不影响本次调用）：${String(err?.message ?? err)}`)
+    }
+  }
+
+  /**
+   * ★★ **"这一条事件没人领"记进账本** —— 幂等（同一个键只记一次）。
+   *
+   * 为什么幂等要自己判：`ledger.noteUnresolved` 是**只追加**的（`wakeledger.js`），
+   * 它不认重。而"找不到主对话会话"这件事会**每一次交付都发生一次**（现场 22 次），
+   * 直接记就是 22 条一模一样的待领记录 ⇒ 主对话捞的时候淹没在重复里。
+   * 所以这里先读账本里已有的 unresolved，认键；认到了就一个字节都不写。
+   *
+   * ★ 判据只有一条：`detail.key`（= `pendingKey`，与 `wakeKeyOf` 同源）。
+   * ★ 绝不影响那次调用：账本坏了 / 没给账本 ⇒ 只是没有第二条落点，
+   *   audit 行里的待领标记（`pending/unclaimed`）照旧在。
+   */
+  async function noteUnclaimed(taskId, spec) {
+    const key = String(spec?.key ?? '')
+    if (ledger === null || typeof ledger?.noteUnresolved !== 'function' || key.length === 0) return false
+    try {
+      const already = typeof ledger.unresolvedEntries === 'function'
+        ? ledger.unresolvedEntries({ taskId, limit: UNCLAIMED_SCAN_LIMIT }).some((e) => String(e?.detail?.key ?? '') === key)
+        : false
+      if (already) return false
+      ledger.noteUnresolved({
+        task_id: taskId,
+        kind: String(spec?.kind ?? ''),
+        actor: String(spec?.actor ?? ''),
+        reason: 'no-main-session',
+        /**
+         * ★ 账本那份 `detail` **必须带 `key`** —— 它是这条待领记录的**唯一身份**：
+         *   上面的去重按它认，`lib/wakeup/pending.js` 的 `pendingWakesOf` 也按它
+         *   取值与去重。audit 行里那个字段叫 `unclaimed`（给人读的名字），
+         *   这里统一落成 `key`（机器读的那个）—— 两个名字指同一把键。
+         */
+        detail: { ...(spec?.detail ?? {}), key },
+      })
+      return true
+    } catch (err) {
+      warn(`[pipeline] 记"待领事件"到账本失败（不影响本次调用）：${String(err?.message ?? err)}`)
+      return false
     }
   }
 
@@ -124,6 +192,36 @@ export function createWaker(deps) {
 
     if (taskId.length === 0) return skip('no-task-id', { spec: { kind: s.kind ?? null } })
 
+    /**
+     * ★★ **身份输入提到"找目标"之前**（2026-10-16 · 唤醒投递失败修复）。
+     *
+     * 为什么必须提前：**找不到主对话会话时也要能给这条事件一个稳定的名字** ——
+     * 否则"待领"落点只能按"第几次尝试"命名，同一件事每试一次就多落一份
+     * （现场 `T-20261016-ff9ba7` 的 22 行 `wake:skipped` 就是这么堆起来的）。
+     * 这四个值**只读 `s`**，提上来一个字节的语义都没改（下面原来那几行已删除）。
+     */
+    const actorRole = String(s.actorRole ?? 'unknown')
+    const actorSeat = s.actorSeat === null || s.actorSeat === undefined ? null : String(s.actorSeat)
+    const kind = String(s.kind ?? 'event')
+    const callerDisc = s.disc === null || s.disc === undefined ? '' : String(s.disc)
+    const trigOf = WAKE_TRIGGER_TOOLS[String(s.toolName ?? '')]
+    const resultDisc = callerDisc.length > 0 || trigOf === undefined || trigOf.advancesState === true
+      ? null
+      : discriminatorOf(s.result ?? null, trigOf.disc)
+    const actor = actorKeyOf(actorRole, actorSeat)
+
+    /**
+     * ★★ **"这一件事"的稳定名字**（不管这一次投不投得出去）。
+     *
+     * 三个来源，与下面 `identityOf()` 的**前两级逐字同源**（工具返回值 → 调用方显式给），
+     * 只是**不做**第三级"去台账里等一等"（那要读盘、要 sleep，不该在"没有地址"这条
+     * 早退路径上付）。三级都取不到时退成 `no-identity` —— 粒度**故意粗**：
+     * 同一张单上同类同作者的、连身份都读不出来的事件会被并成一条待领记录。
+     * 宁可合并，也不许"每试一次多一条"（那正是现场 22 条的成因）。
+     */
+    const pendingDisc = callerDisc.length > 0 ? callerDisc : resultDisc !== null ? resultDisc : 'no-identity'
+    const pendingKey = wakeKeyOf({ taskId, kind, actorRole, actorSeat, disc: pendingDisc })
+
     // ★ 判据 ②：目标会话**只**从登记表取 —— 结构上就不可能投到别的会话。
     //
     //   两道来源，**同一份判据**（都是"主对话所在会话"）：
@@ -149,11 +247,73 @@ export function createWaker(deps) {
       }
     }
     if (target === null || target.length === 0) {
-      // 反例④：没有登记主对话会话 ⇒ **静默跳过 + audit 一行**，绝不抛错把调用方带崩。
-      return skip('no-main-session', {
-        hint: '主对话还没调用过任何 pipeline 工具，且 task.contacts.main 里也没有登记 ⇒ 不知道唤醒该投到哪。',
-        kind: s.kind ?? null,
-      })
+      /**
+       * ★★ **第三道来源：从这张单自己的台账里翻**（2026-10-16 补；判据在
+       * `wakeup/last-resort.js`，**纯函数、只读、不冒名**）。
+       *
+       * 前两道（内存登记表 / `task.contacts.main`）**同时空**不是"主对话还没来过"，
+       * 而是**一条死锁**：`rememberMainCaller` 只认内存里的 `main` 令牌，而重启后
+       * 自动认回身份的那条路要求 `contacts.main` 已经存在 —— 缺记录就永远写不了记录。
+       * 真单 `T-20261016-ff9ba7` 因此**整张单 22 次唤醒全部静默跳过**（跨两天）。
+       *
+       * ★ 它**只在前两道都空时**才跑（正常路径一次都不会读盘）。
+       * ★ 它**不写** `contacts.main` —— 兜底是提示，不是权威登记。
+       * ★ 它**必须出声**：来源如实标成 `last-known-agent` 并 `warn` 一次，
+       *   免得"台账里翻出来的旧会话"被当成登记表给的地址。
+       */
+      if (typeof lastResortMainOf === 'function') {
+        try {
+          const found = await lastResortMainOf(taskId)
+          const agentId = typeof found?.agentId === 'string' ? found.agentId : ''
+          if (agentId.length > 0) {
+            target = agentId
+            targetVia = LAST_RESORT_VIA
+            warn(
+              `[pipeline] 唤醒的地址**两条正路都空**（内存登记表 + task.contacts.main），` +
+                `改从这张单自己的台账兜底解析到会话 ${agentId}（依据：${String(found.action ?? '?')} @ ${String(found.at ?? '?')}）。` +
+                `task=${taskId} kind=${kind} —— 兜底路径命中，说明登记缺失，请留意。`,
+            )
+          }
+        } catch (err) {
+          warn(`[pipeline] 兜底解析主对话会话失败（按未登记处理）：${String(err?.message ?? err)}`)
+        }
+      }
+    }
+    if (target === null || target.length === 0) {
+      /**
+       * ★★ **不许静默跳过**（2026-10-16 修复的核心）。
+       *
+       * 改前这里只有 `audit 一行 wake:skipped` —— 于是"人工请求投不出去"这件事
+       * **只存在于一个 append-only 的日志文件里**，主对话没有任何确定的路子去捞它
+       * （现场：请求静默积压，全靠人自己发现）。现在补齐两条可见落点：
+       *
+       *   a. **待领标记**：`skip()` 会把 `detail` 整份写进 audit 行 ⇒ 那一行从此带
+       *      `pending: true` / `unclaimed: <稳定键>` / `claim_via: 'pipeline_status'`，
+       *      是**明确的待领标记**，不再是"一次普通的跳过"；
+       *   b. **进已播报账本的 unresolved 列表** ⇒ `pipeline_status` 的 `pending_wakes`
+       *      会把它带回给主对话（下一次**任何**流水线工具调用都能看到）。
+       *
+       * ★ 幂等：同一个 `pendingKey` 只进账本一次（下面先查后写）。
+       *   改前那种"每试一次多一条"的堆法会让待领清单淹没在重复里。
+       */
+      const detail = {
+        hint: '主对话还没调用过任何 pipeline 工具，且 task.contacts.main 里也没有登记，台账里也翻不到 ⇒ 不知道唤醒该投到哪。',
+        kind,
+        actor,
+        // ---- 可见的待领标记（a）----
+        pending: true,
+        unclaimed: pendingKey,
+        claim_via: 'pipeline_status',
+        note:
+          '★ 这条事件**没有被投出去**，但它**不是静默消失**：本行的 `pending/unclaimed` 是待领标记，' +
+          '并且主对话下一次调用 `pipeline_status` 时它会在 `pending_wakes` 里被带回。',
+      }
+      await noteUnclaimed(taskId, { kind, actor, key: pendingKey, detail })
+      warn(
+        `[pipeline] 唤醒投不出去：主对话会话未知（任务 ${taskId}，类别 ${kind}）—— ` +
+          `待领键 ${pendingKey}，已记进账本，\`pipeline_status\` 会带回。`,
+      )
+      return skip('no-main-session', detail)
     }
 
     /**
@@ -170,12 +330,11 @@ export function createWaker(deps) {
       warn(`[pipeline] 唤醒目标会话 ${target} 在当前进程里查不到（可能已被删除或尚未加载）—— 仍然投递，但这条很可能收不到。task=${taskId} kind=${String(s.kind ?? '')}`)
     }
 
-    const actorRole = String(s.actorRole ?? 'unknown')
-    const actorSeat = s.actorSeat === null || s.actorSeat === undefined ? null : String(s.actorSeat)
-    const kind = String(s.kind ?? 'event')
-
     // ★ 取任务（渲染"当前状态 + 下一步合法事件"、并作为**台账身份**的来源）。
     //   取不到也照样唤醒 —— 状态那一行会如实说读不到。
+    //   ★ 上面那三个（`actorRole` / `actorSeat` / `kind`）**已经提到"找目标"之前**：
+    //     "找不到主对话会话"那条早退路径也要给事件一个稳定的名字（待领键），
+    //     见本函数开头那一段。
     let task = s.task !== null && typeof s.task === 'object' ? s.task : null
     if (task === null && getTask !== null) {
       try {
@@ -220,13 +379,11 @@ export function createWaker(deps) {
      *
      * ★★ **绞不退回 `h<historyLen>` 递增计数器**（v1 去掉它的原因，不许改回去）：
      * 计数器保证"每次都不同" ⇒ 去重永不命中 ⇒ 同一条交付反复重放（实测 `h228 → h233 → h237`）。
+     *
+     * ★ 本段原来的四行（`callerDisc` / `trigOf` / `resultDisc` / `actor`）**已提到
+     *   "找目标"之前** —— 找不到主对话会话那条早退路径要用同一个判别子生成待领键。
+     *   口径**一个字没改**，只是算得早了一点。
      */
-    const callerDisc = s.disc === null || s.disc === undefined ? '' : String(s.disc)
-    const trigOf = WAKE_TRIGGER_TOOLS[String(s.toolName ?? '')]
-    const resultDisc = callerDisc.length > 0 || trigOf === undefined || trigOf.advancesState === true
-      ? null
-      : discriminatorOf(s.result ?? null, trigOf.disc)
-    const actor = actorKeyOf(actorRole, actorSeat)
     const identityOf = () => eventIdentityFor({
       kind,
       toolName: s.toolName ?? '',
@@ -697,17 +854,45 @@ export function createWaker(deps) {
      */
     rememberMain(taskId, sessionId, via = 'tool-call') {
       const changed = registry.remember(taskId, sessionId, via)
-      if (changed && typeof deps.rememberContact === 'function') {
+      /**
+       * ★★ **补登记：本进程内对同一张单至少要真的写一次盘**（2026-10-16 补）。
+       *
+       * 改前这里写的是 `if (changed && …)` —— 于是落盘**只在"内存值发生变化"的
+       * 那一次**发生。这一条纪律的代价是**不可逆**的：
+       *   · `registry.remember` 之后**永远返回 false**（值没变）；
+       *   · 所以那唯一一次异步落盘要么成功，要么**这张单的 `contacts.main`
+       *     这辈子都不会再被写第二次**（除非进程重启 + 内存表被清）。
+       *
+       * 而它偏偏是**异步、fire-and-forget** 的（下一行的 `Promise.resolve().then`），
+       * 又与工具链上的 `persist(task)` 抢同一份文件（读-改-写）—— 丢一次就永久缺。
+       * 真单 `T-20261016-ff9ba7` 就是这么来的：`task.json` 顶层**连 `contacts` 键
+       * 都没有**（`generation` 在 3.6 MB 里一次都没出现过），而唤醒的跨重启兜底
+       * 恰好只认那一份 ⇒ **整张单 22 次唤醒全部 `no-main-session`**（跨两天）。
+       * 更狠的是它**自愈不了**：重启后主对话身份的唯一自动恢复路径
+       * （`mainReattachEnabled` → `judgeMainClaim`）要求 `contacts.main` 已经存在。
+       *
+       * 修法：`persistedOk` —— **本进程内每张单补一次**。落盘**成功之后**才记账，
+       * 失败就下次工具调用再试（失败不静默：下面 `.catch` 照旧 `warn`）。
+       * 代价：主对话重启后**第一次**调工具会多一次读-改-写（"值没变"时
+       * `store.rememberMainContact` 自己会短路，见 `lib/store.js` 那一句）。
+       * 而它买回来的正是"重启后自动恢复"这件事 —— 这一半原来只写在注释里。
+       */
+      const needPersist = changed || !persistedOk.has(taskId)
+      if (needPersist && typeof deps.rememberContact === 'function') {
         // 落盘失败不影响内存登记（唤醒照旧能投）；但要留痕，别静默。
         Promise.resolve()
           .then(() => deps.rememberContact(taskId, sessionId))
-          .catch((err) => warn(`[pipeline] 主对话会话落盘失败（内存登记仍在）：${String(err?.message ?? err)}`))
+          .then(() => {
+            persistedOk.add(taskId)
+          })
+          .catch((err) => warn(`[pipeline] 主对话会话落盘失败（内存登记仍在，下次工具调用会再试）：${String(err?.message ?? err)}`))
       }
       return changed || registry.sessionOf(taskId) === sessionId
     },
     /** 测试用：清空"已投递"表（registry 不动）。 */
     reset() {
       delivered.clear()
+      persistedOk.clear()
       stats.attempts = 0
       stats.injected = 0
       stats.deduped = 0

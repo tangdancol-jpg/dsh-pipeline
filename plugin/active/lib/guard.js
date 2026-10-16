@@ -84,6 +84,7 @@ export {
   collectPaths,
   DEFAULT_SEARCH_TOOLS,
   NO_CODE_READ_ROLES,
+  codeReadRefusal,
   collectCommandStrings,
   isShellToolName,
 } from './guard/rules.js'

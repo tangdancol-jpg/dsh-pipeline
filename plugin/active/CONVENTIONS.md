@@ -181,3 +181,68 @@ plugin/active/
 - **拒绝要给"下一步"**：所有拒绝文案必须写清**为什么**与**怎么办** —— 只写"不行"的判词
   会让模型原地重试
 - **测试先红后绿**：每条新测试都要有"旧代码红 → 新代码绿"的运行记录，否则无法证明它测的是真东西
+
+## 8. ★★ 长入参**走文件**，不要内联（`spec_path` / `payload_path`）
+
+### 8.1 规则一句话
+
+**凡是"长中文段落"的入参，一律先写进一个 JSON 文件，再把路径传给工具。**
+
+| 工具 | 字段 | 说明 |
+| --- | --- | --- |
+| `pipeline_plan` | `spec_path` | 计划规格（`plan_steps` / `role_scope` / `role_boundaries` / `change_scope`…） |
+| `pipeline_orchestrate` | `spec_path` | 需求分析结论（`acceptance` / `test_points` / `boundaries` / `analysis_reason`…） |
+| `pipeline_handoff` | `payload_path` | 交接物正文（`kind` 仍内联） |
+
+语义：**从文件读整份入参 → 与内联字段合并 → 同名内联优先**。
+`task_id` 必须内联（判据要先知道任务才判得了路径）；只支持 **JSON**（不带 YAML 解析器）。
+于是"只给 `task_id` + 路径"与"全部内联"是**同一件事**，产物逐字节相同。
+
+### 8.2 为什么（这不是风格偏好，是一条缺陷）
+
+现场（用户截图为证）：席位调 `pipeline_plan` 时把 `reason` / `plan_steps` /
+`role_scope` / `role_boundaries` / `change_scope` **全部内联**，模型侧写坏了参数 JSON ⇒
+宿主判 `tool input is invalid JSON` ⇒ **`MALFORMED_RESPONSE` ⇒ 整轮作废（含此前全部上下文）**。
+
+- 参数**越长、中文越多，写坏的概率越高** —— 这不是"模型不听话"，是**通道选错了**；
+- 代价是**整轮上下文**，不是一次调用 ⇒ 重试的成本极高，值得为它单开一条通道；
+- 成熟做法是 `diagram_deliver` 的 `spec_path`：大规格先落文件、传路径、工具内部读，
+  大段内容**根本不经过工具参数**。
+
+### 8.3 ★ 安全：这条通道**不许成为"不读代码"的后门**
+
+读参数文件走的是**与 `read` 工具同一个函数**（`lib/guard/rules.js` 的 `codeReadRefusal`）——
+**不是抄一份**（抄一份就一定漂移，而漂移的方向是放宽）：
+
+- 控制角色（`main` / `orchestrator` / `planner` / `supervisor`）**只许读 `.pipeline/**`**，
+  与它们用 `read` 时**一模一样**；
+- **任何角色**都不许把参数文件放进**实现源码树**（`plugin/**` `lib/**` `src/**` `node_modules/**`）——
+  参数文件是**数据**，不是代码（判据 `ARGS_FILE_DENY_TOP`）；
+- 判不出角色时按**最严**那一档处理（fail-closed），不是放行；
+- 判据顺序是**先判路径、后读盘** ⇒ 所有拒绝理由都在打开文件之前给出。
+
+### 8.4 错误形状（**禁静默**）
+
+文件不存在 / 不是普通文件 / 超过上限（256 KiB，文案里给上限）/ YAML /
+JSON 语法错 / 顶层不是对象 / 字段拼错 —— **各有各的明确文案**，且都点名字段、
+判据与被拒路径。坏 JSON **只让这一次调用失败**，不会作废整轮上下文（这正是本条通道的意义）。
+
+### 8.5 怎么加到一个新工具上
+
+一条接线，落在 `lib/tools/kit.js` 的**唯一出口**上（不散在各工具里）：
+
+```js
+const myTool = tool(deps, {
+  name: 'pipeline_xxx',
+  mutating: true,
+  argsFile: { field: 'spec_path' },        // 可选 wrap: 'payload'（整份包进这个键）
+  parameters: {
+    task_id: S('string', '任务 ID'),
+    spec_path: S('string', ARGS_FILE_DOC.spec_path),   // ★ 说明从 args-file.js 取，别另抄
+    // …
+  },
+})
+```
+
+**没写 `argsFile` 的工具行为一个字节都不变**（连一次 `stat` 都不会发生）。
+回归锚点：`tests/p16-args-file-check.mjs`（六条逐条钉，含等价性与向后兼容）。

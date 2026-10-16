@@ -13,6 +13,8 @@ import { renderRequirementDoc } from '../context.js'
 import { NONFINITE_BOUNDARY_HINT, boundaryHintLine } from '../intake/boundary-hints.js'
 import { TIER_ORDER, buildRoster } from '../tiers.js'
 import { toStringArray } from '../util.js'
+// ★★ 长入参通道（`spec_path`）：字段说明的唯一出处在这儿，别在 schema 里另抄一份。
+import { ARGS_FILE_DOC } from './args-file.js'
 import { S, tool, resolveActor } from './kit.js'
 
 /**
@@ -38,13 +40,19 @@ export function buildPlanTools(ctx) {
   const planTool = tool(deps, {
     name: 'pipeline_plan',
     mutating: true,
+    /** ★★ 长入参通道：`spec_path` 指一份 JSON，工具读它当整份入参（内联优先）。 */
+    argsFile: { field: 'spec_path' },
     description:
       '【计划 AI 专用】出计划 → **自检计划有无缺失** → 无缺失则**分配 AI**（角色清单 / 用几个独立对话 / 派谁 / 什么顺序 / 编写席位与层分工）。' +
       '★ 这是"要调用几个 AI"的**唯一出口**（本轮从 pipeline_orchestrate 移交过来）。' +
       '自检 verdict=gaps 时**不会分配**：状态会退回需求分析（等待需求分析答复），等它给结论或升级给用户。' +
-      '席位数由层数决定（count === layers.length），默认层清单：接口层 / 数据层 / 处理层。',
+      '席位数由层数决定（count === layers.length），默认层清单：接口层 / 数据层 / 处理层。' +
+      '★★ **长中文入参一律走 `spec_path`（写进文件再传路径），不要内联** —— ' +
+      '本工具的 `reason` / `plan_steps` / `role_scope` / `role_boundaries` / `change_scope` 都是长段落，' +
+      '内联时模型侧写坏参数 JSON 会让宿主判 `MALFORMED_RESPONSE` 并**作废整轮上下文**；写进文件则大段内容不经过工具参数。',
     parameters: {
       task_id: S('string', '任务 ID'),
+      spec_path: S('string', ARGS_FILE_DOC.spec_path),
       plan_steps: S('array', '计划步骤（按顺序）', { items: { type: 'string' } }),
       layers: S('array', '★ 层清单 [{layer, scope_paths[], deliverables[]}] —— 一个层一个编写席位；不传 = 单层 all（范围整棵项目根）', { items: { type: 'object', additionalProperties: true } }),
       self_check_verdict: S('string', '★ 自检结论', { enum: ['ok', 'gaps'] }),

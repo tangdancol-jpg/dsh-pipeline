@@ -358,6 +358,16 @@ export function apply(ctx, rawConfig) {
     //   补的正是"DSH 重启后、主对话还没再调过任何工具"的那个窗口 ——
     //   没有它，重启后的第一次交付会被静默跳过（而那是最常见的场景）。
     mainContactOf: (taskId) => store.mainContact(taskId),
+    /**
+     * ★★ **第三道来源（兜底解析）**：上面两条都空时，从这张单**自己**的
+     * `task.history` 里翻"主对话上一次在哪个会话"（判据在
+     * `lib/wakeup/last-resort.js`，纯函数、只读、**不写** `contacts.main`）。
+     *
+     * 现场（真单 `T-20261016-ff9ba7`）：顶层连 `contacts` 键都没有 ⇒ 前两条全空
+     * ⇒ **整张单 22 次唤醒全部 `no-main-session`**，人工请求静默积压。
+     * 没给这一条（自测替身 / 旧装配）时行为不变：照样跳过，但**不静默**。
+     */
+    lastResortMainOf: (taskId) => store.lastKnownMainAgent(taskId),
     // 留痕走**既有**的 `.pipeline/<任务>/audit.jsonl`（只追加，不新开机制）
     audit: async (taskId, action, detail) => {
       if (typeof taskId !== 'string' || taskId.length === 0) return
@@ -480,6 +490,20 @@ export function apply(ctx, rawConfig) {
    * `config.mainReattachEnabled === false` ⇒ 显式关闭，交 `null`（并**喊出来**）。
    */
   const mainReattachForSeam = config.mainReattachEnabled === false ? null : mainReattach
+  /**
+   * ★★ **A 件②（2026-10-16）**：同一条认领入口**也交给工具层** ——
+   *   `pipeline_status` 的主对话身份自查会在"本会话还没绑上"时先试一次它，
+   *   再决定要不要把那条手动命令印出来（见 `lib/tools/status.js` 的那一段）。
+   *
+   * 为什么同一个函数交两处而不是各写一份：判据**只有一份**（`lib/reattach.js` 的
+   *   `judgeMainClaim`），两处只是**触发点**不同 —— 拦截缝（每一次工具调用）与
+   *   状态查询（主对话出事时唯一一定会做的动作）。幂等由 `autoReattachMain`
+   *   自己的快路径（"手上已经有 main 令牌 ⇒ 连盘都不扫"）保证。
+   *
+   * ⚠ 顺序：`deps` 在**上面**就建好了（普通对象，按引用），而 `buildTools(deps)`
+   *   在**后面**才调 —— 所以这里补一个键是安全的，不是"改了已经用过的对象"。
+   */
+  deps.mainReattach = mainReattachForSeam
   if (config.mainReattachEnabled === false) {
     ctx.logger?.warn?.(
       '[pipeline] 主对话侧自动认领**已关闭**（config.mainReattachEnabled=false）—— DSH 重启后主对话**必须手动**重新认领（`pipeline_task_open { reattach: true }`）。',
