@@ -1,9 +1,0 @@
-{
-  "x_ret_need": "flow.plumbing.states",
-  "x_ret_arch": "flow.plumbing.states",
-  "x_ret_review": "flow.plumbing.states",
-  "x_ret_test": "flow.plumbing.states",
-  "x_ret_dev": "flow.plumbing.states",
-  "x_clarify": "flow.plumbing.states",
-  "x_block": "flow.plumbing.states"
-}

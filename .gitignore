@@ -60,3 +60,11 @@ plugin/active/wake-ledger.jsonl
 plugin/active/tests/*-last-run.txt
 plugin/active/tests/last-run.txt
 plugin/active/**/demo-project/
+
+# ---- 2026-10-16 补（用户第 4 件：运行期日志不入库）----
+# 架构图流水线（archify 各层）跑一次就会**回流**这类 stdout/stderr 落盘文件：
+# 内容是命令行回显与校验输出，属于**运行期日志**、不是源码也不是交付物。
+# 交付文档没有引用过它们（引用检查为 0 命中），所以从索引移除并挡在这里；
+# 工作树里的文件保留不动，需要时仍可查阅。
+*.out
+*.err
