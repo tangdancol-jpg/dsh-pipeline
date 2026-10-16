@@ -71,14 +71,18 @@ node tests/<套件>.mjs             # 单跑一套
 
 ## 三、文档：`docs/`
 
-- **当前状态**：`需求清单与进度-20261014/`、`bug待修复单-20261014.md`、`变动日志.md`（面板读的就是这三份）。
-- **汇总**：`产出交付文档-v3-20261014/`（需求、进度、架构图、派单流程、复验清单）。
-- **机制说明**：`机制原理与运行手册/`、`提交与打回机制总表/`、`机制对比文档-文档说的vs现在实际的/`。
-- **各轮实现报告**：顶层的 `*-实现报告.md` 等，是写报告当时的记录。
-- **架构图**：`架构图-*/`。其中 `.receipts/`、`*.finalize.json`、`*.browser-check.json` 是各次出图的收据。
+面向开发者、一份文件讲一件事的文档在 [`docs/`](docs/README.md)：
 
-文档里的本机路径统一写作 `%USERPROFILE%\.dsh\…`，面板地址写作 `127.0.0.1:18240`；
-会话 id 等原值没有保留，写作 `session-…`。
+- [`docs/install.md`](docs/install.md) —— 安装、参数、脚本改了什么、回滚
+- [`docs/directory-settings.md`](docs/directory-settings.md) —— 安装目录 / 工作目录从哪来，怎么覆盖
+- [`docs/encoding-conventions.md`](docs/encoding-conventions.md) —— `.ps1` 要 UTF-8 BOM、其它不要、行尾 LF
+- [`docs/sandbox-temp-root.md`](docs/sandbox-temp-root.md) —— `%TEMP%` 落在 workspace 内导致受限 shell 全挂
+- [`docs/manifest.md`](docs/manifest.md) —— `MANIFEST.sha256` 的校验与生成口径
+
+此外还有交付期留下的产物：`产出交付文档-v3-20261014/`（含架构图 `架构图-main-path-v2.html`）。
+
+**文档里一律不写本机路径**：用 `%USERPROFILE%\.dsh\…`、`$HOME`、`<path\to\thing>` 或相对路径；
+面板地址写作 `127.0.0.1:18240`；会话 id 等原值不保留，写作 `session-…`。
 
 ---
 
@@ -90,7 +94,7 @@ node tests/<套件>.mjs             # 单跑一套
 sha256sum -c MANIFEST.sha256
 ```
 
-改动文件后要重新生成它。
+改动文件后要重新生成它（口径与 Windows 上的替代命令见 [`docs/manifest.md`](docs/manifest.md)）。
 
 ---
 

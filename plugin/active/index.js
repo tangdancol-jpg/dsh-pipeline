@@ -109,6 +109,9 @@ import { detectRunFailure, sessionsRootOf } from './lib/runfail.js'
 // ★★ E4：跨项目"用户裁定"库（装配期发布成 `<dsh-home>/skills/<名字>/SKILL.md`）。
 import { publishRulingsForProject } from './lib/memory/user-rulings.js'
 import { pathKey, PACKAGE_ROOT } from './lib/util.js'
+// ★★ **读目录设定**：安装目录 / 工作目录的**唯一出处**（配置 > 环境变量 > 文件 > 推导）。
+//    同一份判据也被 `install.ps1` 读，两边不会各推各的。见 lib/dirs.js。
+import { resolveDirs } from './lib/dirs.js'
 
 /** 插件名。 */
 export const name = 'dsh-pipeline'
@@ -132,11 +135,6 @@ export const TOOL_VERSION = '0.1.0'
 /** system prompt 段的排序键。取个不撞别人的数（实测宿主里 2800 是子代理、5000 是 ptc SDK）。 */
 const PROMPT_ORDER = 2650
 
-/** 默认项目根：session 工作目录。 */
-function defaultProjectRoot() {
-  return process.cwd()
-}
-
 /**
  * 插件主体。
  *
@@ -156,7 +154,22 @@ export function apply(ctx, rawConfig) {
   // -------------------------------------------------------------------------
   // 1) 依赖装配
   // -------------------------------------------------------------------------
-  const projectRoot = pathKey(config.projectRoot && config.projectRoot.length > 0 ? config.projectRoot : defaultProjectRoot())
+  /**
+   * ★★ **读目录设定**（`lib/dirs.js`）：一次解析、全程复用。
+   *
+   * 取值顺序：profile 配置（`config.dshHome` / `config.projectRoot`）> 环境变量
+   * （`DSH_PIPELINE_DSH_HOME` / `DSH_PIPELINE_PROJECT_ROOT`）> 配置文件
+   * （`<DSH 用户目录>/dsh-pipeline.dirs.json`）> 运行时推导
+   * （`DSH_HOME` / 用户主目录 / `process.cwd()`）。
+   *
+   * ★ 以前 `projectRoot` 直接写 `process.cwd()`、`dshHome` 只认 `DSH_HOME`：
+   *   换个用户名、换台机器就只能靠"恰好开在对的目录里"。现在默认值仍然等价，
+   *   但**多了一条能显式覆盖的路**，且安装脚本读的是同一份判据。
+   */
+  const dirs = resolveDirs({
+    explicit: { dshHome: config.dshHome, projectRoot: config.projectRoot },
+  })
+  const projectRoot = pathKey(dirs.projectRoot)
 
   const tokens = createTokenStore({ ttlMs: config.tokenTtlMs })
   /**
@@ -404,13 +417,17 @@ export function apply(ctx, rawConfig) {
      * ★★ P1 接线（`WIRING.md` §W9）：**DSH 用户目录** —— 全新项目的默认父根
      * （`<DSH 用户目录>/projects/<首单 task_id>`）从这里算。
      *
-     * 取值顺序：profile 配置里的 `config.dshHome` > 宿主自己导出的 `DSH_HOME` 环境变量。
-     * 两处都没有 ⇒ 空串：`resolveProjectDir` 会给出**可读的** `NO_DSH_HOME` 拒绝，
-     * **不会崩**，也不影响"既存根优先 / 授权面公共根"那两条更常见的解析路径。
+     * 取值走 `lib/dirs.js` 的**同一份判据**（与 `projectRoot` 同一个出处）：
+     *   ① profile 配置里的 `config.dshHome`
+     *   ② 环境变量 `DSH_PIPELINE_DSH_HOME`
+     *   ③ 配置文件 `<DSH 用户目录>/dsh-pipeline.dirs.json` 的 `dshHome`
+     *   ④ 宿主自己导出的 `DSH_HOME`，再退到 `<用户主目录>/.dsh`
+     *
+     * ★ 第 ④ 级的兜底是本轮新增的：以前两处都没有就是**空串**，
+     *   `resolveProjectDir` 会给出可读的 `NO_DSH_HOME` 拒绝（**不会崩**）——
+     *   那条路径仍在（主目录也取不到时），但"换个用户名"不再会掉进去。
      */
-    dshHome: typeof config.dshHome === 'string' && config.dshHome.trim().length > 0
-      ? config.dshHome
-      : String(process.env.DSH_HOME ?? ''),
+    dshHome: dirs.dshHome,
   }
 
   // -------------------------------------------------------------------------

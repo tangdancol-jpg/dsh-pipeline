@@ -1,4 +1,4 @@
-<#
+﻿<#
 ============================================================================
  dsh-pipeline · 安装脚本（Windows PowerShell 5.1 / 7 均可）
 ============================================================================
@@ -30,7 +30,16 @@
    powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -DryRun
    powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -WithDocs
    powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 `
-     -ProjectRoot "C:\path\to\your\repo" -GuardMainReadsCode:$false
+     -ProjectRoot "<path\to\your\repo>" -GuardMainReadsCode:$false
+
+ 安装目录 / 工作目录**不在本文件里写死**：它们走「读目录设定」（见下面 §0a，
+  与插件运行期的 `lib/dirs.js` 是同一份判据）—— 命令行参数 > 环境变量 >
+  配置文件 <DSH 用户目录>\dsh-pipeline.dirs.json > 运行时推导。
+  怎么覆盖见 `docs/directory-settings.md`。
+
+ 环境预检（§0b）：若「workspace 根包住了 %TEMP%」，受限 shell 会全部失败。
+  本脚本只**告警 + 给出修法**，不中止安装；显式修法是 -SetUserTempRoot <目录>
+  （默认关闭 —— 它会改掉所有用户进程的 temp 落点）。
 
  回滚见 rollback.ps1（它用同一批备份文件还原）。安装完脚本会**打印精确的
  回滚命令**，直接复制即可。
@@ -41,8 +50,13 @@
 [CmdletBinding()]
 param(
   [string]$Profile = 'desktop',
-  [string]$DshHome = (Join-Path $env:USERPROFILE '.dsh'),
-  # 流水线工作区根目录（.pipeline 就建在它下面）。留空 = 用 session 的工作目录。
+  # ★ DSH 用户目录（安装落点）。留空 = 按「读目录设定」解析（见下面 §0a）：
+  #   环境变量 DSH_PIPELINE_DSH_HOME → 配置文件 dsh-pipeline.dirs.json → 宿主导出的
+  #   DSH_HOME → $env:USERPROFILE\.dsh。**默认值一律运行时求值**，
+  #   脚本里没有个人路径字面量 —— 换个机器、换个用户名照样能用。
+  [string]$DshHome = '',
+  # 流水线工作区根目录（.pipeline 就建在它下面）。留空 = 按「读目录设定」解析
+  #   （DSH_PIPELINE_PROJECT_ROOT → 配置文件 → 当前目录）。
   [string]$ProjectRoot = '',
   # 角色驱动通道：auto | subagent | manual
   [string]$Transport = 'auto',
@@ -58,12 +72,113 @@ param(
   [switch]$WithDocs,
   # ★ 不装自带的 stop-ladder Skill（默认装：Skill 是"引导"，拦截是代码，两者都要有）
   [switch]$NoSkill,
-  # Skill 落到哪个 dsh-home 的 skills/ 下（默认跟 -DshHome 走）
+  # Skill 落到哪个 dsh-home 的 skills/ 下（默认跟「读目录设定」算出的 dsh-home 走）
   [string]$SkillsDir = '',
+  # ★ 显式把**用户级** TEMP/TMP 落成持久值（落盘位置 HKCU\Environment）。
+  #   默认空 = 不动。理由见下面「0b) 环境预检」那一段的说明。
+  [string]$SetUserTempRoot = '',
   [switch]$DryRun
 )
 
 $ErrorActionPreference = 'Stop'
+
+# ---------------------------------------------------------------------------
+# 0a) ★★ **读目录设定** —— 安装目录 / 工作目录的**唯一出处**
+# ---------------------------------------------------------------------------
+#
+# 需求原话：「**换个机器、换个用户名照样能用**」。所以本脚本里不许出现某个人的
+# 绝对路径：机器的差异只能从**运行时环境**推导，并且要留一个**能覆盖**的口子。
+#
+# 判据与插件运行期**同一份**（`plugin/active/lib/dirs.js`）—— 改一处要改两处，
+# 两边读的是同一个配置文件、同一组环境变量。
+#
+# ---------------------------------------------------------------------------
+# 取值顺序（四条，从高到低；**别改顺序**）
+# ---------------------------------------------------------------------------
+#   ① 命令行参数     -DshHome / -ProjectRoot / -SkillsDir
+#   ② 环境变量       DSH_PIPELINE_DSH_HOME / DSH_PIPELINE_PROJECT_ROOT /
+#                    DSH_PIPELINE_SKILLS_DIR
+#   ③ 配置文件       <DSH 用户目录>/dsh-pipeline.dirs.json
+#                    （落点本身可用 DSH_PIPELINE_DIRS_FILE 覆盖）
+#   ④ 运行时推导     DSH_HOME → $env:USERPROFILE\.dsh（非 Windows 退 $env:HOME/.dsh）；
+#                    工作目录 = 当前目录
+#
+# ★ 配置文件里认三个字段：{"dshHome": …, "projectRoot": …, "skillsDir": …}。
+#   相对路径按**配置文件自己所在的目录**解析 —— 那样整份文件连同它描述的
+#   相对布局可以一起搬到别的机器上。
+# ★ 文件读不到 / 读坏了 / 字段类型不对一律**不中止安装**，只退回下一级来源并告警。
+#
+# 找配置文件的这一步有个**先有鸡还是先有蛋**：dshHome 本身可以被配置文件覆盖，
+# 而配置文件又在 dshHome 下面。取舍是：**找文件只用环境变量与推导值**，
+# 文件里写的 dshHome 只影响"目录是谁"，**不回头改变文件的位置**，所以不会绕圈。
+
+$DirsFileName = 'dsh-pipeline.dirs.json'
+
+# ④ 运行时推导：宿主亲口说的 DSH_HOME > 用户主目录下的 .dsh。全是运行时求值。
+function Get-DerivedDshHome {
+  if ($env:DSH_HOME -and $env:DSH_HOME.Trim() -ne '') {
+    return [System.IO.Path]::GetFullPath($env:DSH_HOME)
+  }
+  $home = if ($env:USERPROFILE -and $env:USERPROFILE.Trim() -ne '') { $env:USERPROFILE }
+  elseif ($env:HOME -and $env:HOME.Trim() -ne '') { $env:HOME }
+  else { (Get-Location).Path }
+  return [System.IO.Path]::GetFullPath((Join-Path $home '.dsh'))
+}
+
+# 相对路径 → 绝对路径（基准：配置文件所在目录 / 当前目录）。
+function ConvertTo-DirPath($value, $base) {
+  $s = if ($null -eq $value) { '' } else { ([string]$value).Trim() }
+  if ($s -eq '') { return '' }
+  if ([System.IO.Path]::IsPathRooted($s)) { return [System.IO.Path]::GetFullPath($s) }
+  return [System.IO.Path]::GetFullPath((Join-Path $base $s))
+}
+
+$DirsFile = if ($env:DSH_PIPELINE_DIRS_FILE -and $env:DSH_PIPELINE_DIRS_FILE.Trim() -ne '') {
+  ConvertTo-DirPath $env:DSH_PIPELINE_DIRS_FILE (Get-Location).Path
+} else {
+  Join-Path (Get-DerivedDshHome) $DirsFileName
+}
+$DirsFileBase = Split-Path -Parent $DirsFile
+$DirsFromFile = @{}
+$DirsFileNote = ''
+if (Test-Path -LiteralPath $DirsFile -PathType Leaf) {
+  try {
+    $dirsJson = (Get-Content -LiteralPath $DirsFile -Raw -Encoding UTF8) | ConvertFrom-Json
+    foreach ($k in @('dshHome', 'projectRoot', 'skillsDir')) {
+      $v = $dirsJson.$k
+      if ($v -is [string] -and $v.Trim() -ne '') { $DirsFromFile[$k] = $v.Trim() }
+    }
+  } catch {
+    $DirsFileNote = "配置文件不是合法 JSON，已忽略：$($_.Exception.Message)"
+  }
+} else {
+  $DirsFileNote = '（还没有这份文件 —— 用默认推导值；想固定下来就按 docs/directory-settings.md 建一份）'
+}
+
+# ①→②→③→④ 逐个字段走一遍，并记下最终是谁说了算（排障时一眼看出）。
+# 返回 @{ Value=<绝对路径>; Source=<人读的出处>; Kind=<machine 可判的出处> }；
+# Kind ∈ explicit | env | file | derived —— 调用方按它决定"要不要写进 patch"。
+function Resolve-PipelineDir($explicit, $envName, $fileKey) {
+  if ($explicit -and $explicit.Trim() -ne '') { return @{ Value = (ConvertTo-DirPath $explicit (Get-Location).Path); Source = '命令行参数'; Kind = 'explicit' } }
+  $ev = [Environment]::GetEnvironmentVariable($envName)
+  if ($ev -and $ev.Trim() -ne '') { return @{ Value = (ConvertTo-DirPath $ev (Get-Location).Path); Source = "环境变量 $envName"; Kind = 'env' } }
+  if ($DirsFromFile.ContainsKey($fileKey)) { return @{ Value = (ConvertTo-DirPath $DirsFromFile[$fileKey] $DirsFileBase); Source = "配置文件 $DirsFileName"; Kind = 'file' } }
+  return $null
+}
+
+$DshHomeR = Resolve-PipelineDir $DshHome 'DSH_PIPELINE_DSH_HOME' 'dshHome'
+if (-not $DshHomeR) { $DshHomeR = @{ Value = (Get-DerivedDshHome); Source = '运行时推导（DSH_HOME / 用户主目录）'; Kind = 'derived' } }
+$DshHome = $DshHomeR.Value
+
+# ⚠️ skillsDir 的兜底基准是**已经定下来的 dshHome**，不是最初的推导值。
+$SkillsRootR = Resolve-PipelineDir $SkillsDir 'DSH_PIPELINE_SKILLS_DIR' 'skillsDir'
+if (-not $SkillsRootR) { $SkillsRootR = @{ Value = (Join-Path $DshHome 'skills'); Source = '推导（<dsh-home>/skills）'; Kind = 'derived' } }
+$SkillsRoot = $SkillsRootR.Value
+
+$ProjectRootR = Resolve-PipelineDir $ProjectRoot 'DSH_PIPELINE_PROJECT_ROOT' 'projectRoot'
+if (-not $ProjectRootR) { $ProjectRootR = @{ Value = (Get-Location).Path; Source = '运行时推导（当前目录）'; Kind = 'derived' } }
+$ProjectRoot = $ProjectRootR.Value
+
 $PluginSrc = $PSScriptRoot
 $PluginName = 'dsh-pipeline'
 $ProfileDir = Join-Path (Join-Path $DshHome 'profiles') $Profile
@@ -73,7 +188,6 @@ $TargetDir = Join-Path (Join-Path $ProfileDir 'node_modules') $PluginName
 $Stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 # ★ 插件自带的 Skill（Stop Ladder 四问）落点：<dsh-home>/skills/stop-ladder/
 $SkillSrc = Join-Path $PluginSrc 'skills'
-$SkillsRoot = if ($SkillsDir -ne '') { $SkillsDir } else { Join-Path $DshHome 'skills' }
 $SkillTarget = Join-Path $SkillsRoot 'stop-ladder'
 
 # --- 要复制什么 ------------------------------------------------------------
@@ -134,6 +248,11 @@ function Remove-ChildSafely($child) {
 # ---------------------------------------------------------------------------
 Info "插件源：$PluginSrc"
 Info "profile：$ProfileDir"
+Info "读目录设定：dsh-home = $DshHome（来自：$($DshHomeR.Source)）"
+Info "            工作目录 = $ProjectRoot（来自：$($ProjectRootR.Source)）"
+Info "            skills   = $SkillsRoot（来自：$($SkillsRootR.Source)）"
+Info "            配置文件 = $DirsFile"
+if ($DirsFileNote -ne '') { Warn "            $DirsFileNote" }
 
 if (-not (Test-Path -LiteralPath $PluginSrc -PathType Container)) { Die "找不到插件源目录：$PluginSrc" }
 foreach ($f in @('index.js', 'package.json', 'cordis.patch.yml')) {
@@ -145,6 +264,128 @@ if (-not (Test-Path -LiteralPath $PkgPath)) { Die "找不到 $PkgPath" }
 
 # 本脚本会**读**cordis.yml 确认它不是被手改过的那种，但绝不写它。
 $CordisYml = Join-Path $ProfileDir 'cordis.yml'
+
+# ---------------------------------------------------------------------------
+# 0b) ★ 环境预检：DSH 的 workspace 根不得包住 %TEMP%
+# ---------------------------------------------------------------------------
+#
+# 上游判据（读 DSH 实现得来，不是推测）：
+#
+#   @deepseek-ai/dsh-sandbox-windows-acl  lib/types-*.js
+#     function assertTempRootOutsideWorkspace(workspaceRoot, tempRoot) {
+#       if (containsDirectory(workspaceRoot, tempRoot)) throw new Error(
+#         `Windows ACL temp root must be outside the workspace: workspace=${workspaceRoot}; temp=${tempRoot}`);
+#     }
+#
+#   抛出的调用点：@deepseek-ai/dsh-sandbox-local  lib/index.js
+#     materializeAclGrant(sessionId, workspaceRoot) {
+#       assertTempRootOutsideWorkspace(workspaceRoot, tmpdir());   // ← 抛在这里
+#     }
+#
+#   其中 workspaceRoot = **会话的 cwd**（不是 process.cwd()）；
+#   tempRoot = **宿主进程的 os.tmpdir()**（Windows 上先取 %TMP% 再取 %TEMP%，
+#   TMPDIR 被忽略；同一个文件里用它 mkdtemp 出 dsh-XXXXXX 那个目录）。
+#
+# ⇒ 只要「会话 workspace 根」是 %TEMP% 的祖先，该会话里每一次受限的
+#   workspace-write shell 调用都会抛上面那句。最常见的触发形态：
+#   拿**用户主目录**当 workspace 开会话 —— %TEMP% 正好在它下面。
+#
+# ★ 为什么这里只告警、不中止安装：这是环境配置问题，装插件本身不受影响。
+# ★ 为什么插件层**修不了**它：被检查的是宿主进程的 os.tmpdir()，上游是写死的
+#   tmpdir() 调用，**没有任何配置键**能覆盖；插件跑在另一个进程里，改不了
+#   已经启动的宿主的进程环境。唯一能动的杠杆是宿主进程的 TEMP/TMP 环境变量
+#   —— 见下面的 -SetUserTempRoot。
+#
+# ★ 本段**不出现任何个人路径字面量**：temp 根与候选 workspace 根一律运行时求值
+#   （$env:TMP / $env:TEMP / GetTempPath / $env:USERPROFILE）。
+function Get-HostTempRoot {
+  # 取值顺序与 Win32 GetTempPathW 一致：先 TMP，再 TEMP。
+  foreach ($v in @($env:TMP, $env:TEMP)) {
+    if ($v -and $v.Trim() -ne '' -and (Test-Path -LiteralPath $v)) {
+      return [System.IO.Path]::GetFullPath($v)
+    }
+  }
+  return [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath())
+}
+function Test-PathInside($root, $candidate) {
+  # 与上游 containsDirectory 同口径：按**路径段**判包含关系（不做裸前缀比较，
+  # 否则 C:\a 会把 C:\ab 误判成它的子目录）。
+  try {
+    $r = [System.IO.Path]::GetFullPath($root).TrimEnd('\')
+    $c = [System.IO.Path]::GetFullPath($candidate).TrimEnd('\')
+  } catch { return $false }
+  if ($r -eq '') { return $false }
+  if ($r -eq $c) { return $true }
+  return $c.StartsWith($r + '\', [System.StringComparison]::OrdinalIgnoreCase)
+}
+
+$HostTemp = Get-HostTempRoot
+# 候选 workspace 根：DSH 会用**会话的 cwd**，而安装期拿不到未来的会话 cwd，
+# 所以检查三个最可能的形态（当前目录 / 「读目录设定」算出的工作目录 / 用户主目录）。
+$WsCandidates = @()
+$WsCandidates += [pscustomobject]@{ Label = '当前目录'; Path = (Get-Location).Path }
+if ($ProjectRoot -ne '' -and $ProjectRoot -ne (Get-Location).Path) {
+  $WsCandidates += [pscustomobject]@{ Label = '读目录设定的工作目录'; Path = $ProjectRoot }
+}
+if ($env:USERPROFILE -and $env:USERPROFILE.Trim() -ne '') {
+  $WsCandidates += [pscustomobject]@{ Label = '用户主目录'; Path = $env:USERPROFILE }
+}
+$TempInside = @($WsCandidates | Where-Object { Test-PathInside $_.Path $HostTemp })
+
+Info "环境预检：宿主 temp 根 = $HostTemp"
+if ($TempInside.Count -gt 0) {
+  Warn '----------------------------------------------------------------------'
+  Warn '环境预检：DSH 的 workspace 根**包住了** %TEMP%'
+  Warn '          => 以它当 workspace 的会话，受限 shell 会**全部**失败'
+  Warn '----------------------------------------------------------------------'
+  foreach ($t in $TempInside) { Warn "  命中：$($t.Label) = $($t.Path)" }
+  Warn ''
+  Warn '上游会这样报错（原文）：'
+  Warn "  Windows ACL temp root must be outside the workspace: workspace=$($TempInside[0].Path); temp=$HostTemp"
+  Warn ''
+  Warn '修法（任选一条，按推荐顺序）：'
+  Warn '  1) ★ 换一个**更窄**的目录当 workspace 开会话，别用用户主目录：'
+  Warn '     先 cd 到项目目录，再从那里开会话（本预检就会变绿）。'
+  Warn '  2) 启动 DSH **之前**，在同一个进程里把 temp 指到 workspace 之外：'
+  Warn '     $outside = Join-Path $env:SystemDrive ''dsh-tmp''   # 任何 workspace 之外的目录都行'
+  Warn '     $env:TEMP = $outside; $env:TMP = $outside'
+  Warn '     想落成持久值：本脚本的 -SetUserTempRoot <那个目录>（见下）。'
+  Warn '  3) 该会话改用 read-only / danger-full-access —— 只有 workspace-write 会走到这条检查。'
+  Warn '----------------------------------------------------------------------'
+} else {
+  Info '环境预检：没有「workspace 根包住 %TEMP%」的形态 —— 该检查不会触发。'
+}
+
+# -SetUserTempRoot：把**用户级** TEMP/TMP 落成持久值（显式开关，默认不动）。
+# ★ 为什么默认不动：这会改掉**所有**用户进程的 temp 落点（机器级副作用），
+#   一个插件安装器不该悄悄做这件事；而且它只对**新启动**的进程生效。
+if ($SetUserTempRoot -ne '') {
+  $NewTemp = [System.IO.Path]::GetFullPath($SetUserTempRoot)
+  if (-not (Test-Path -LiteralPath $NewTemp -PathType Container)) {
+    Die "-SetUserTempRoot 指向的目录不存在：$NewTemp"
+  }
+  foreach ($t in $WsCandidates) {
+    if (Test-PathInside $t.Path $NewTemp) {
+      Die "-SetUserTempRoot 给的新 temp 根仍落在 workspace（$($t.Label) = $($t.Path)）里，没有意义：$NewTemp"
+    }
+  }
+  $oldT = [Environment]::GetEnvironmentVariable('TEMP', 'User')
+  $oldP = [Environment]::GetEnvironmentVariable('TMP', 'User')
+  if ($DryRun) {
+    Info "[DryRun] 会把**用户级** TEMP/TMP 设为：$NewTemp"
+    Info "[DryRun]   当前用户级值：TEMP='$oldT'  TMP='$oldP'"
+    Info '[DryRun]   落盘位置：HKCU\Environment'
+  } else {
+    [Environment]::SetEnvironmentVariable('TEMP', $NewTemp, 'User')
+    [Environment]::SetEnvironmentVariable('TMP', $NewTemp, 'User')
+    Info "已把**用户级** TEMP/TMP 设为：$NewTemp（落盘位置：HKCU\Environment）"
+    Info '★ 只对**新启动**的进程生效 —— 必须重启 DSH，宿主才会读到新值。'
+    Info "  原值：TEMP='$oldT'  TMP='$oldP'"
+    Info '  撤销（恢复成原来的值，或直接删掉这两个用户级变量）：'
+    Info "    [Environment]::SetEnvironmentVariable('TEMP', '$oldT', 'User')"
+    Info "    [Environment]::SetEnvironmentVariable('TMP',  '$oldP', 'User')"
+  }
+}
 
 # ---------------------------------------------------------------------------
 # 1) 备份（改任何文件之前）
@@ -179,7 +420,11 @@ $alreadyInPatch = $patchText -match "(?m)^\s*-\s*id:\s*$([regex]::Escape($Plugin
 $spawnLine = if ($NoSpawnRoles) { '        spawnRoles: false' } else { '        spawnRoles: true' }
 $guardLine = if ($GuardMainReadsCode) { '        guardMainReadsCode: true' } else { '        guardMainReadsCode: false' }
 $l0Line = if ($L0OrchestratorSeparate) { '        l0OrchestratorSeparate: true' } else { '        l0OrchestratorSeparate: false' }
-$rootLine = if ($ProjectRoot -ne '') { "        projectRoot: '$($ProjectRoot -replace '\\','/')'" } else { '' }
+# ★ 只有**显式指定**工作目录（命令行 / 环境变量 / 配置文件）时才把它写进 patch。
+#   推导出来的"当前目录"**不写** —— 那等于把**这台机器的绝对路径**烙进 profile 的
+#   配置里，正是"换个机器换用户名照样能用"要消灭的东西。不写 = 插件按 session
+#   工作目录走，与改前行为逐字一致。
+$rootLine = if ($ProjectRootR.Kind -ne 'derived') { "        projectRoot: '$($ProjectRoot -replace '\\','/')'" } else { '' }
 
 $patchBlock = @()
 $patchBlock += ''
