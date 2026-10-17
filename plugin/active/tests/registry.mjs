@@ -223,4 +223,8 @@ export const EXTRA_SUITES = [
   //    而关单闸又非要这两票 ⇒ L3+ / L5 关不了单，只能靠主管"流程性打回"绕。
   //    这一套钉：passed 上两票都交得上且关单闸取得到 / 终态照旧不许交 / 全程无打回。
   { file: './f18-close-after-passed-check.mjs', exportName: 'runF18CloseAfterPassedCheck', zh: '★ passed 上补交关单必需的交接物（缺陷 ⑬：security_review / perf_report 认 passed，终态照旧拒）' },
+  // ★★ 缺陷 ⑯（2026-10-17）：前置站（arch_confirm / ②b / ②c）重交架构图仍去发 diagram_submitted，
+  //    状态表上这条边只从 arch_drawing 出发 ⇒ BAD_TRANSITION，与「②b/②c 可以再交一次」的注释不符。
+  //    这一套钉：只有首次出图推状态 / 前置站三处重交放行且不推 / 已有编写产物照旧拒 / 推导用的无状态调用不变。
+  { file: './f19-diagram-resubmit-check.mjs', exportName: 'runF19DiagramResubmitCheck', zh: '★ 前置站重交架构图（缺陷 ⑯：只有首次出图推状态，arch_confirm / ②b / ②c 上重交不再 BAD_TRANSITION）' },
 ]

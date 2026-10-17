@@ -10,7 +10,7 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { HUMAN_REASON_KINDS } from '../handoff.js'
-import { DIAGRAM_DELIVERY_STATES, HUB_HANDOFF_CONFIRM_EVENTS, HUB_HANDOFF_CONFIRM_STATIONS, ST, TRANSITIONS, WAITING_STATES } from '../states.js'
+import { HUB_HANDOFF_CONFIRM_EVENTS, HUB_HANDOFF_CONFIRM_STATIONS, ST, TRANSITIONS, WAITING_STATES } from '../states.js'
 import { clip, nowIso, shortHash } from '../util.js'
 import { SESSION_LOG_NAME, findSessionLog, sampleSessionLog, seatKey, sessionsRootCandidates } from '../liveness.js'
 
@@ -192,7 +192,7 @@ export function planAdvance(kind, payload) {
  *
  * @param {string} kind
  * @param {object} [payload]
- * @param {string|null} [state] - 提交时的状态（**只用于"交付站的图不推状态"这一条**；不传 = 既有行为）
+ * @param {string|null} [state] - 提交时的状态（**只用于"只有首次出图推状态"这一条**，缺陷 ⑯；不传 = 按首次出图答）
  * @returns {{event:string, leg:null} | null}
  */
 export function hubAdvanceFor(kind, payload = {}, state = null) {
@@ -207,11 +207,17 @@ export function hubAdvanceFor(kind, payload = {}, state = null) {
    *   不做这一条会出现"交接物交得上、状态却推不动"的**半截现场**：
    *   `submitHandoff` 的 ⑤ 会先 `applyTransition` 预检，`diagram_submitted` 在
    *   `passed` 上没有边 ⇒ 整个提交以 `BAD_TRANSITION` 被拒（图根本落不了盘）。
-   *   ⚠️ 显式排除交付站（**不是**"只要不是前置站就吞掉"）—— 前置站那四个状态的行为
-   *   一个字没改（含 `arch_confirm` 上重交时的既有判决）。
+   *
+   * ★★ 2026-10-17 改口径（缺陷 ⑯）：判据从"排除交付站"改成「**只有首次出图推状态**」——
+   *   状态表上 `diagram_submitted` 只有 `arch_drawing → arch_confirm` 一条边，前置站另外三个状态
+   *   （`arch_confirm` / ②b `arch_need_confirm` / ②c `arch_reconfirm`）上重交原先照样去发它 ⇒
+   *   `BAD_TRANSITION`，与 `review.js`"②b/②c 可以再交一次"的承诺不符（想改图只能靠主管限 1 次的重画）。
+   *   现在：`arch_drawing` 上交 = 出图，推到 `arch_confirm`；其余状态上交 = 更新"当前是哪张图"，不推状态
+   *   （交付站行为不变）。哪些状态**允许**交图仍由 `review.js` 的状态判据决定，这里只回答推不推。
+   *   不传 `state`（推导工具从 kind 表实算可达事件，见 e-route-check）⇒ 照旧报 `diagram_submitted`。
    */
   if (kind === 'architecture_diagram') {
-    return DIAGRAM_DELIVERY_STATES.includes(state) ? null : { event: 'diagram_submitted', leg: null }
+    return state === null || state === ST.ARCH_DRAWING ? { event: 'diagram_submitted', leg: null } : null
   }
   /**
    * ★★ P0-1：**需求位确认架构图 ⇒ 递交主管二次确认**（用户新口径第 8 跳前半）。
