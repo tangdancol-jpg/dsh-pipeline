@@ -219,4 +219,8 @@ export const EXTRA_SUITES = [
   //    这一套照 index.js 的真实装配钉（不用 harness：它会把锚点设成项目根、盖住缺陷）：
   //    相对路径锚到项目根 / 三连拒消失且审计同一锚点 / 插件安装树与别的目录照旧拒 / 显式锚点照旧优先。
   { file: './f17-scope-anchor-default-check.mjs', exportName: 'runF17ScopeAnchorDefaultCheck', zh: '★ 授权面锚点默认 = 项目根（缺陷 ①：现场三连拒消失，越界照旧拒，显式锚点照旧优先）' },
+  // ★★ 缺陷 ⑬（2026-10-17）：审核一过（passed）安全位 / 性能位再交 security_review / perf_report 被判跳步，
+  //    而关单闸又非要这两票 ⇒ L3+ / L5 关不了单，只能靠主管"流程性打回"绕。
+  //    这一套钉：passed 上两票都交得上且关单闸取得到 / 终态照旧不许交 / 全程无打回。
+  { file: './f18-close-after-passed-check.mjs', exportName: 'runF18CloseAfterPassedCheck', zh: '★ passed 上补交关单必需的交接物（缺陷 ⑬：security_review / perf_report 认 passed，终态照旧拒）' },
 ]

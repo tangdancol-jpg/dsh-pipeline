@@ -244,10 +244,14 @@ export function reviewMethods(ctx) {
         clarification_request: Object.values(ST).filter((x) => x !== ST.CLOSED && x !== ST.CANCELLED),
         // ★ 需求分析的裁定：只在「等待需求分析答复」时提交
         clarification_reply: [ST.AWAITING_CLARIFICATION],
-        security_review: [ST.READY_REVIEW, ST.REVIEWING, ST.DEVELOPING, ST.READY_TEST, ST.TESTING],
+        // ★ 缺陷 ⑬（2026-10-17）：关单闸要求的几票都必须能在 passed 上补交 —— 改前 security_review 与
+        //   perf_report 不认 passed，而关单闸（security_not_blocked / role_products_delivered）又非要它们不可
+        //   ⇒ L3+ / L5 审核一过就关不了单，只能靠主管"流程性打回"绕（污染打回计数）。
+        //   release_plan / docs_note 本来就认 passed，这里与它们对齐；终态（closed / cancelled）照旧不许交。
+        security_review: [ST.READY_REVIEW, ST.REVIEWING, ST.DEVELOPING, ST.READY_TEST, ST.TESTING, ST.PASSED],
         release_plan: [ST.READY_REVIEW, ST.REVIEWING, ST.PASSED],
         docs_note: [ST.DEVELOPING, ST.READY_TEST, ST.TESTING, ST.READY_REVIEW, ST.REVIEWING, ST.PASSED],
-        perf_report: [ST.TESTING, ST.READY_REVIEW, ST.REVIEWING],
+        perf_report: [ST.TESTING, ST.READY_REVIEW, ST.REVIEWING, ST.PASSED],
         arbitration: [ST.RETURNED_TO_DEV, ST.RETURNED_TO_TEST, ST.BLOCKED, ST.TESTING, ST.REVIEWING],
         human_note: Object.values(ST),
       }[kind]
