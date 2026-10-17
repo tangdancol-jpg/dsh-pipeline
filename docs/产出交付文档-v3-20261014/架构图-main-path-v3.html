@@ -248,7 +248,7 @@
     <p class="lead">
       三层：<strong>DSH 宿主</strong>（webServer 路由 / 插件 loader / chunk 服务）→
       <strong>插件宿主侧</strong>（工具、守门、状态机与面板数据面）→
-      <strong>浏览器客户端</strong>（入口 client.js → require.async → 15 个 chunk → 面板 UI / 预览）。
+      <strong>浏览器客户端</strong>（入口 client.js → require.async → 16 个 chunk → 面板 UI / 预览）。
       只画面板这条主路径；守门判定与状态机全部迁移不在此图。
     </p>
   </div>
@@ -261,7 +261,7 @@
     <desc id="dg-desc">
       上层是 DSH 宿主：webServer 路由注册、插件 loader、chunk 服务、sessions/agents。
       中层是插件宿主侧：lib/switch-routes.js、index.js 接线、lib/panel/ 数据面、lib/store/ 与 lib/states/。
-      下层是浏览器：lib/client.js 入口、require.async 取 15 个 chunk、面板 UI 与会话预览。
+      下层是浏览器：lib/client.js 入口、require.async 取 16 个 chunk、面板 UI 与会话预览。
       实线箭头表示调用或请求，虚线箭头表示读取会话事件。
     </desc>
 
@@ -377,7 +377,7 @@
 
     <!-- chunk 服务 → 浏览器 require.async -->
     <path class="arrow" d="M638 165 H620 V712" marker-end="url(#arrow)"></path>
-    <text class="label-strong" x="634" y="604">require.async 取 15 个 chunk</text>
+    <text class="label-strong" x="634" y="604">require.async 取 16 个 chunk</text>
 
     <!-- sessions → 浏览器预览（只读取会话事件） -->
     <path class="arrow-dash" d="M951 224 V712" marker-end="url(#arrow)"></path>

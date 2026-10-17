@@ -17,7 +17,10 @@
  * E9 收尾仍开着 / E10 点真外面仍然照旧关（防御是窄的）/
  * ★E11 rootRef 脱手（被替换的节点 / null）时，target 明确在 `[data-pipeline-panel]` 里 ⇒ 不关（真机根因）/
  * ★E12 target 在 `[data-pipeline-panel-root]` 里（触发器）⇒ 不关（DOM 属性那一路判据）/
- * ★E13 `document.body` 这种真外部元素 ⇒ 仍然关 / ★E14 诊断行里能看到「上次点击：BUTTON[...]」。
+ * ★E13 `document.body` 这种真外部元素 ⇒ 仍然关 / ★E14 诊断行里能看到「上次点击：BUTTON[...]」/
+ * ★E15 有 react-dom ⇒ 弹层走 `createPortal(children, document.body)`（真机根因的修法：弹层不再长在
+ * 宿主头部那份 DOM 里，点击不会再被宿主的命中区吃掉）/ ★E16 `panelBoxFor` 的 fixed 落点与收边 /
+ * ★E17 拿不到 createPortal（自测桩 / 老环境）⇒ 回退成原样渲染 / ★E18 诊断目标描述升级成祖先路径。
  *
  * ★ 只读仓库里的 `lib/client*.js`，不联网、不建会话、不碰任何活体数据。
  *
@@ -137,7 +140,7 @@ const has = (node, key) => node !== null && node !== undefined && node.props !==
 const textOf = (node) => (node === null || node === undefined || node === false ? '' : typeof node === 'string' || typeof node === 'number' ? String(node) : Array.isArray(node) ? node.map(textOf).join('') : typeof node === 'object' && node.props !== undefined ? textOf(node.props.children) : '')
 
 // ---------------------------------------------------------------------------
-// 环境：入口 + 15 个真 chunk（按宿主同款 require.async 取）+ 桩 document/fetch/定时器
+// 环境：入口 + 16 个真 chunk（按宿主同款 require.async 取）+ 桩 document/fetch/定时器
 // ---------------------------------------------------------------------------
 
 const TASKS = [{ id: 'T-1', state: 'running', state_label: '开发中', requirement_snippet: '把客户端拆成多个 chunk', seats: [], allowed_actions: ['cancel', 'archive'] }]
@@ -211,7 +214,7 @@ function makeEnvironment() {
     throw new Error(`client 不该 require("${name}")`)
   }
   requireStub.async = (spec) => (chunkExports[spec] === undefined ? Promise.reject(new Error('取不到 chunk ' + spec)) : Promise.resolve(chunkExports[spec]))
-  return { React, doc, timers, fetchCalls, entry, requireStub }
+  return { React, doc, window: windowStub, timers, fetchCalls, entry, requireStub, chunkExports }
 }
 
 /** 假客户端 ctx（只实现本插件用到的成员）；apply 后取回注册的「多AI协调团队」面板组件。 */
@@ -450,6 +453,78 @@ export async function runPanelUiCheck() {
       '★ E14 诊断行里出现「上次点击：BUTTON[data-pipeline-batch-toggle]」（超长截断到 ~80 字符），面板仍在',
       diagLine.includes('上次点击：BUTTON[data-pipeline-batch-toggle]') && desc.length <= 81 && panelOpen() !== null,
       `诊断行：${diagLine}　（描述 ${desc.length} 字符）`,
+    )
+
+    // --- 弹层 portal（真机根因的修法：弹层挂到 document.body，不再长在宿主头部那份 DOM 里）---
+    const portalChunk = env.chunkExports['./client.panel-portal.js']
+    const outsideChunk = env.chunkExports['./client.panel-outside.js']
+
+    // ★ E15 有 react-dom ⇒ 弹层走 createPortal(children, document.body)
+    const portalCalls = []
+    const fakeReactDom = {
+      createPortal(children, container) {
+        const node = { portal: true, children, container }
+        portalCalls.push({ children, container, node })
+        return node
+      },
+    }
+    const portalWithDom = portalChunk.create({ require: (name) => (name === 'react-dom' ? fakeReactDom : null) })
+    const cardNode = React.createElement('div', { 'data-pipeline-panel': 'open' }, React.createElement('span', null, '批量'))
+    const portaled = portalWithDom.renderPortal(null, cardNode)
+    add(
+      '★ E15 拿到 react-dom 时弹层经 createPortal(children, document.body) 渲染 —— 弹层不再长在宿主头部那份 DOM 里',
+      portalWithDom.usable() === true && portalCalls.length === 1 && portalCalls[0].children === cardNode && portalCalls[0].container === env.doc.body && portaled === portalCalls[0].node,
+      `usable=${portalWithDom.usable()}　createPortal 调用 ${portalCalls.length} 次　container=${portalCalls[0]?.container === env.doc.body ? 'document.body ✓' : String(portalCalls[0]?.container)}　返回值=${portaled === portalCalls[0]?.node ? '就是 createPortal 的返回值' : '(对不上)'}`,
+    )
+
+    // ★ E16 落点：right = 视口宽 - rect.right、top = rect.bottom + 6、width = min(440, 92vw)，越界收边
+    env.window.innerWidth = 1280
+    env.window.innerHeight = 800
+    const boxChunk = portalChunk.create({ require: () => null })
+    const box = boxChunk.panelBoxFor({ getBoundingClientRect: () => ({ right: 1180, bottom: 30 }) })
+    const boxEdge = boxChunk.panelBoxFor({ getBoundingClientRect: () => ({ right: 1276, bottom: 795 }) })
+    const boxNoRect = boxChunk.panelBoxFor(null)
+    add(
+      '★ E16 panelBoxFor 按触发按钮的 rect 算出 fixed 落点（right/top/width，含右边与屏幕底部收边）',
+      box.right === 100 && box.top === 36 && box.width === 440 && box.maxHeight === 560 && boxEdge.right === 8 && boxEdge.top === 792 && boxNoRect.right === 8 && boxNoRect.top === 8,
+      `rect{right:1180,bottom:30} ⇒ ${JSON.stringify(box)}　贴边{right:1276,bottom:795} ⇒ ${JSON.stringify(boxEdge)}　还没挂上(null) ⇒ ${JSON.stringify(boxNoRect)}`,
+    )
+
+    // ★ E17 没有 createPortal（自测桩 / 老环境）⇒ 回退成原样渲染：不抛、返回原节点
+    const noDom = portalChunk.create({ require: () => ({}) })
+    const bare = portalChunk.create({})
+    const plainNode = React.createElement('div', { 'data-pipeline-panel': 'open' })
+    let fallbackThrew = ''
+    let fallbackNode = null
+    try {
+      fallbackNode = noDom.renderPortal(null, plainNode)
+      bare.renderPortal(null, plainNode) // 连 require 都没有也不许抛
+    } catch (err) {
+      fallbackThrew = String((err && err.message) || err)
+    }
+    add(
+      '★ E17 拿不到 createPortal（自测桩 / 无 react-dom 环境）时回退成原样渲染：不抛、原节点直接返回',
+      fallbackThrew === '' && noDom.usable() === false && fallbackNode === plainNode && bare.usable() === false,
+      `usable=${noDom.usable()}　返回=${fallbackNode === plainNode ? '原节点 ✓' : '(不是原节点)'}　无 require 也 usable=${bare.usable()}${fallbackThrew === '' ? '' : '　抛：' + fallbackThrew}`,
+    )
+
+    // ★ E18 诊断行的目标描述升级为「祖先路径」（最多 3 层、总长 ≤80）
+    const outsideMod = outsideChunk.create({})
+    const deepTarget = {
+      tagName: 'SPAN',
+      attributes: [],
+      parentElement: {
+        tagName: 'BUTTON',
+        attributes: [{ name: 'data-pipeline-panel-trigger' }],
+        parentElement: { tagName: 'DIV', attributes: [{ name: 'data-pipeline-panel-root' }], parentElement: null },
+      },
+    }
+    const deepDesc = outsideMod.describeTarget(deepTarget)
+    const wantDesc = 'DIV[data-pipeline-panel-root] > BUTTON[data-pipeline-panel-trigger] > SPAN'
+    add(
+      '★ E18 诊断行里的目标描述带祖先路径（最多 3 层、总长 ≤80）：SPAN > BUTTON[data-pipeline-panel-trigger]',
+      deepDesc === wantDesc && deepDesc.length <= 80 && outsideMod.describeTarget({ tagName: 'SPAN', attributes: [], parentElement: null }) === 'SPAN',
+      `描述：${deepDesc}　（${deepDesc.length} 字符；单层目标 ⇒ ${outsideMod.describeTarget({ tagName: 'SPAN', attributes: [], parentElement: null })}）`,
     )
   } catch (err) {
     add('!! 执行异常（后面的断言不再可信）', false, err?.stack ?? err)

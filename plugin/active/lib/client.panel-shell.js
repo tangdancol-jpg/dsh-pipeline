@@ -2,6 +2,9 @@
 ;(function () {
   'use strict'
 
+  /** 本 chunk 的 require（由文件末尾的 factory 注入）：弹层要取 react-dom 的 createPortal，只能从这里转交给 portal chunk。 */
+  var CHUNK_REQUIRE = null
+
   /** @param {object} deps 依赖（入口按依赖序传进来；chunk 之间不能同步 require 彼此） */
   function create(deps) {
     /**
@@ -41,6 +44,9 @@
       })
       deps.data = m.data.create({ actions: deps.actions, preview: deps.preview })
       deps.cardActions = m['card-actions'].create({ actions: deps.actions })
+      // 弹层的出口：挂到 document.body 的 portal（宿主头部会把弹层上的点击吃掉 —— 真机根因）；
+      // 拿不到 react-dom（自测桩 / 老环境）时 portal chunk 自己回退成原样渲染。
+      deps.portal = m.portal.create({ require: CHUNK_REQUIRE })
 
       /** ★ 诊断用：这个组件包装器的首轮是否已经执行过（同一实例的后续渲染不再计挂载）。 */
       var instanceStarted = false
@@ -58,6 +64,7 @@
         deps.batch.setup(S)
         deps.batch.setupArchivedView(S)
         deps.previewControl.setup(S)
+        deps.portal.setup(S)
 
         // 把共享作用域里的东西取到同名局部变量上 —— 下面从原组件搬来的代码因此一行都不用改。
         var open = S.open, setOpen = S.setOpen, batch = S.batch, actionUi = S.actionUi
@@ -77,6 +84,8 @@
         var PANEL_PAD_X = deps.atoms.PANEL_PAD_X, PANEL_PAD_BOTTOM = deps.atoms.PANEL_PAD_BOTTOM
         var renderPanelHeader = deps.view.renderPanelHeader, renderTaskList = deps.view.renderTaskList
         var renderArchivedList = deps.view.renderArchivedList
+        // portal：弹层挂到 document.body 上（portalOn）+ 现算的落点；非 portal 模式两者都不用
+        var portalOn = S.portalOn, popoverBox = S.popoverBox, renderPortal = S.renderPortal
         // ★ 诊断行：原有「挂载 / 上次收起 / 上次动作」后面再挂一段「上次点击打在谁身上」（取证用，定位后移除）
         var diagText = S.diagText + ' · ' + deps.outside.lastPointerText()
         var renderBatchBar = deps.batchBar.renderBatchBar, batchActionsFor = deps.batchBar.batchActionsFor
@@ -96,9 +105,8 @@
         readArchivedOnce(undefined) // 头部「归档 N」上的数量靠它（顺带预热归档视图）
 
         if (typeof document === 'undefined') return undefined
-        // 「点外面关闭」的判定与处理器都在 outside chunk 里：ref 的 contains 在真机上会失真，
-        // 所以那边还要按 DOM 属性（[data-pipeline-panel-root] / [data-pipeline-panel]）复核；
-        // 判不出来就**不关** —— 宁可漏关一次，也不能误关正在用的面板。
+        // 「点外面关闭」的判定与处理器都在 outside chunk 里：ref 的 contains 在真机上会失真，所以那边
+        // 还要按 DOM 属性（[data-pipeline-panel-root] / [data-pipeline-panel]）复核；判不出来就**不关**
         var onPointerDown = deps.outside.makePointerDown({
           rootRef: rootRef,
           menuKeyRef: menuKeyRef,
@@ -300,56 +308,59 @@
       children.push(
         React.createElement('div', { key: 'diag', 'data-pipeline-diagnostic': 'true', style: { marginTop: '8px', fontSize: '10px', lineHeight: '1.4', color: '#8b949e', wordBreak: 'break-word' } }, diagText),
       )
-      var popover = open
+      var popoverCard = open
         ? React.createElement(
             'div',
             {
-              // 外层只负责补上「按钮 ↔ 面板」之间那 6px 的缝：指针经过缝时仍在这个元素里，
-              // 所以悬停横移不会被误判成"离开"（这是"没那么容易关"的另一半）。
-              'data-pipeline-panel-frame': 'true',
-              style: { position: 'absolute', top: '100%', right: 0, paddingTop: '6px', WebkitAppRegion: 'no-drag' },
-            },
-            React.createElement(
-              'div',
-              {
-                role: 'dialog',
-                'aria-label': '多AI协调团队',
-                'data-pipeline-panel': 'open',
-                'data-pipeline-panel-view': view === 'archived' ? 'archived' : 'tasks',
-                'data-pipeline-panel-batch': batch.on ? 'on' : 'off',
-                // 面板内部的指针事件一律截在这里（按钮自己的 onClick 先跑，再轮到这三个）：
-                // 宿主的会话头部也有自己的 pointerdown / click 语义，冒上去就会被它收走。
-                onPointerDown: stopHostEvent,
-                onClick: stopHostEvent,
-                onDoubleClick: stopHostEvent,
-                style: {
-                  zIndex: 2147483000,
-                  width: 'min(440px, 92vw)',
-                  maxHeight: 'min(70vh, 560px)',
-                  overflowY: 'auto',
-                  overscrollBehavior: 'contain',
-                  boxSizing: 'border-box',
-                  padding: '10px ' + PANEL_PAD_X + 'px ' + PANEL_PAD_BOTTOM + 'px',
-                  background: 'var(--dsw-specific-menu, #ffffff)',
-                  color: 'var(--dsw-alias-label-primary, #1f2328)',
-                  border: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.35))',
-                  borderRadius: '12px',
-                  boxShadow: 'var(--dsw-elevation-prominent, 0 12px 32px rgba(0,0,0,.28))',
-                  font: 'inherit',
-                  fontSize: '12px',
-                  lineHeight: '1.45',
-                  textAlign: 'left',
-                  // 面板整体也落在头部拖拽区里，同样要显式退出拖拽
-                  WebkitAppRegion: 'no-drag',
-                },
+              role: 'dialog',
+              'aria-label': '多AI协调团队',
+              'data-pipeline-panel': 'open',
+              'data-pipeline-panel-view': view === 'archived' ? 'archived' : 'tasks',
+              'data-pipeline-panel-batch': batch.on ? 'on' : 'off',
+              // 面板内部的指针事件一律截在这里（按钮自己的 onClick 先跑，再轮到这三个）：
+              // 宿主的会话头部也有自己的 pointerdown / click 语义，冒上去就会被它收走。
+              onPointerDown: stopHostEvent,
+              onClick: stopHostEvent,
+              onDoubleClick: stopHostEvent,
+              // portal 之后弹层不在根节点里：指针从按钮横移过来会先触发根的 mouseleave，
+              // 所以弹层自己接住「进来就取消关、移出才慢关」（非 portal 模式由外层那道缝负责）。
+              onMouseEnter: portalOn ? cancelHover : undefined,
+              onMouseLeave: portalOn ? scheduleClose : undefined,
+              style: {
+                // portal 模式：挂到 document.body 上用 fixed 定位（right/top/宽高由 portal chunk 现算）；
+                // 非 portal 模式：保持原来的 absolute 外层 + min(440px, 92vw)
+                position: portalOn ? 'fixed' : undefined,
+                right: portalOn ? popoverBox.right + 'px' : undefined,
+                top: portalOn ? popoverBox.top + 'px' : undefined,
+                zIndex: 2147483000,
+                width: portalOn ? popoverBox.width + 'px' : 'min(440px, 92vw)',
+                maxHeight: portalOn ? popoverBox.maxHeight + 'px' : 'min(70vh, 560px)',
+                overflowY: 'auto',
+                overscrollBehavior: 'contain',
+                boxSizing: 'border-box',
+                padding: '10px ' + PANEL_PAD_X + 'px ' + PANEL_PAD_BOTTOM + 'px',
+                background: 'var(--dsw-specific-menu, #ffffff)',
+                color: 'var(--dsw-alias-label-primary, #1f2328)',
+                border: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.35))',
+                borderRadius: '12px',
+                boxShadow: 'var(--dsw-elevation-prominent, 0 12px 32px rgba(0,0,0,.28))',
+                font: 'inherit',
+                fontSize: '12px',
+                lineHeight: '1.45',
+                textAlign: 'left',
+                WebkitAppRegion: 'no-drag', // 头部是 Electron 拖拽区：弹层里要能选中/滚动
               },
-              children,
-            ),
+            },
+            children,
           )
         : null
+      // 非 portal 模式保留原来那层「缝」：指针经过按钮与弹层之间的 6px 时仍算在弹层里
+      var frameProps = { 'data-pipeline-panel-frame': 'true', style: { position: 'absolute', top: '100%', right: 0, paddingTop: '6px', WebkitAppRegion: 'no-drag' } }
+      var popover = popoverCard === null ? null : portalOn ? renderPortal(rootRef.current, popoverCard) : React.createElement('div', frameProps, popoverCard)
 
-        // 席位会话预览浮层（贴在面板左侧的大聊天窗）：内容与状态机都在 preview-control / preview-bubble 里
-        var previewNode = S.renderPreview()
+      // 席位会话预览浮层（贴在面板左侧的大聊天窗）：内容与状态机都在 preview-control / preview-bubble 里；
+      // 它本来就是 position:fixed，portal 之后同样挂到 body（不再受根节点所在的层叠 / 裁剪影响）
+      var previewNode = renderPortal(rootRef.current, S.renderPreview())
       return React.createElement(
         'div',
         {
@@ -357,9 +368,8 @@
           'data-pipeline-panel-root': 'true',
           onMouseEnter: cancelHover,
           onMouseLeave: scheduleClose,
-          // 面板根节点是"边界"：里面的 pointerdown / click / dblclick 一律不再交给宿主。
-          // 宿主的会话头部是窗口拖拽区，也在监听这些事件；不截住的话，点面板顶部那一行
-          // 会冒到宿主（表现就是按钮不响应、面板反倒被关掉）。
+          // 面板根节点是"边界"：里面的 pointerdown / click / dblclick 一律不再交给宿主（会话头部是
+          // 窗口拖拽区，也在监听这些事件；不截住的话点面板顶部那一行会冒到宿主 ⇒ 按钮不响应、面板反被关）
           onPointerDown: stopHostEvent,
           onClick: stopHostEvent,
           onDoubleClick: stopHostEvent,
@@ -381,6 +391,7 @@
     id: 'dsh-pipeline',
     chunk: 'client.panel-shell.js',
     factory: function (require) {
+      CHUNK_REQUIRE = typeof require === 'function' ? require : null
       var module = { exports: {} }
       module.exports.create = create
       return module.exports

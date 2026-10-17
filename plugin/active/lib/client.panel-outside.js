@@ -6,12 +6,18 @@
   // 放 module 作用域：组件重挂载会重新初始化 useState，只有这里跨重挂载活下来。
   var LAST = { click: '' }
 
-  /** 说明「这个元素长在面板里」的 DOM 属性判据（祖先链上任一命中即算里面）。 */
-  var PANEL_SELECTORS = ['[data-pipeline-panel-root]', '[data-pipeline-panel]']
+  /**
+   * 说明「这个元素长在面板里」的 DOM 属性判据（祖先链上任一命中即算里面）。
+   * 预览浮层本来挂在面板根节点里（靠 ref.contains 就算"里面"），但它现在是 portal 到 `document.body`
+   * 的（`position:fixed` 的浮层不该再受根节点的层叠/裁剪影响）—— 所以它要自带一条属性判据。
+   */
+  var PANEL_SELECTORS = ['[data-pipeline-panel-root]', '[data-pipeline-panel]', '[data-pipeline-seat-preview]']
   /** 描述里优先显示面板自己打的标记（`data-pipeline-*`）。 */
   var ATTR_PREFIX = 'data-pipeline-'
   /** 描述最多这么长 —— 它要挤进诊断行那一行里（超长就截断）。 */
   var DESC_MAX = 80
+  /** 描述最多列几层（目标 + 至多两层祖先）：再多就看不清谁是谁了。 */
+  var DESC_MAX_DEPTH = 3
 
   function isObj(v) {
     return v !== null && v !== undefined && typeof v === 'object'
@@ -87,13 +93,38 @@
     return ''
   }
 
-  /** 把一次点击的目标压成一小段人话：`BUTTON[data-pipeline-batch-toggle]` / `BODY` / `(空)`。 */
+  /** 单个节点压成一小段人话：`BUTTON[data-pipeline-batch-toggle]` / `BODY` / `(元素)`。 */
+  function describeNode(el) {
+    var tag = typeof el.tagName === 'string' ? el.tagName : typeof el.tag === 'string' ? el.tag : ''
+    var attr = pipelineAttrOf(el)
+    if (tag === '') return attr === '' ? '(元素)' : attr
+    return attr === '' ? tag : tag + '[' + attr + ']'
+  }
+
+  /** 上一个祖先（真 DOM 走 parentElement，自测替身可能只有 parentNode）。 */
+  function parentOf(el) {
+    var p = el.parentElement
+    if (p === undefined) p = el.parentNode
+    return p
+  }
+
+  /**
+   * 把一次点击的目标压成一小段人话，**带祖先路径**（从外到内）：
+   * `SPAN > BUTTON[data-pipeline-panel-trigger]` / `DIV[data-pipeline-panel] > BUTTON`。
+   *
+   * 为什么要路径：真机上"点在自己按钮上"和"点被宿主头部那一层吃掉"在诊断行里长得一模一样，
+   * 只有从内往外那几层名字能把它们分开 —— 这一条就是为了让下一次排障不用再猜。
+   * 最多 3 层、总长 ≤ 80（超长截断，它只占诊断行的一小段）。
+   */
   function describeTarget(target) {
     if (target === null || target === undefined) return '(空)'
     if (!isObj(target)) return '(' + typeof target + ')'
-    var tag = typeof target.tagName === 'string' ? target.tagName : typeof target.tag === 'string' ? target.tag : ''
-    var attr = pipelineAttrOf(target)
-    var out = tag === '' ? (attr === '' ? '(元素)' : attr) : attr === '' ? tag : tag + '[' + attr + ']'
+    var parts = []
+    for (var i = 0, el = target; i < DESC_MAX_DEPTH && isObj(el); i += 1) {
+      parts.unshift(describeNode(el))
+      el = parentOf(el)
+    }
+    var out = parts.join(' > ')
     return out.length > DESC_MAX ? out.slice(0, DESC_MAX) + '…' : out
   }
 

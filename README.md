@@ -102,9 +102,9 @@ stop-ladder Skill 落到 `<DSH 用户目录>\skills\stop-ladder\`。
 `docs/` 里报告写的 `lib/store.js:2471` 这类行号指的是拆分前的单文件；现在的位置请按函数名
 到当前源码树的 `lib/` 下查。
 
-### 客户端：入口 + 15 个 chunk
+### 客户端：入口 + 16 个 chunk
 
-浏览器半边不是一个大文件：入口只有 400 行（正好顶格），面板实现拆成 15 个 chunk。
+浏览器半边不是一个大文件：入口只有 400 行（正好顶格），面板实现拆成 16 个 chunk。
 
 | 文件 | 行数 | 职责 |
 |---|---|---|
@@ -116,7 +116,7 @@ stop-ladder Skill 落到 `<DSH 用户目录>\skills\stop-ladder\`。
 1. **入口**：宿主按 `/plugins/dsh-pipeline/client.js?rev=<入口 rev>` 当**经典脚本**加载（无 `import` /
    `export` / 顶层 `await`），入口自己调 `window.__ModuleLoader__.load({ id, factory })` 注册。
 2. **按需取 chunk**：面板**第一次被渲染**时，入口用 `Promise.all(require.async('./client.panel-*.js'))`
-   并行取回 15 个 chunk，交给 `shell` 按依赖序 `create(deps)` 组装 —— 没打开过面板就不下载。
+   并行取回 16 个 chunk，交给 `shell` 按依赖序 `create(deps)` 组装 —— 没打开过面板就不下载。
 3. **宿主怎么发**：chunk 走 `/plugins/dsh-pipeline/<chunk>?rev=<入口 rev>`，宿主按需异步读文件并
    **immutable 缓存**（`rev` 变了才重取）；chunk 必须与入口**同目录**、也是经典脚本，用
    `window.__ModuleLoader__.load({ id, chunk, factory })` 注册。chunk 之间**不能**同步 `require`，
@@ -134,12 +134,12 @@ node tests\run-all.mjs            # 全套；结果写到 tests\last-run.txt
 node tests\<套件>.mjs             # 单跑一套
 ```
 
-- 全套当前 **3672/3672** 通过（**110 套**）。面板相关的是 `panel-snapshot-check.mjs`（快照契约）、
-  `panel-actions-check.mjs`（写动作 / 归档 / 置顶）与 `client-check.mjs`（入口与 15 个 chunk 的
+- 全套当前 **3676/3676** 通过（**110 套**）。面板相关的是 `panel-snapshot-check.mjs`（快照契约）、
+  `panel-actions-check.mjs`（写动作 / 归档 / 置顶）与 `client-check.mjs`（入口与 16 个 chunk 的
   装载契约、渲染与点击，30 项）。
 - 有少数套件依赖**宿主安装**：`DSH_APP_ASAR` 指向 `<DSH 安装>\resources\app.asar`，
   预置与宿主 schema 类判据要从里面读宿主包。拿不到判据时如实标注「跳过、不计入通过率」；
-  本机口径：设了 `DSH_APP_ASAR` 后 3672/3672，不设时 3 条预置校验会红（环境面，不是代码面）。
+  本机口径：设了 `DSH_APP_ASAR` 后 3676/3676，不设时 3 条预置校验会红（环境面，不是代码面）。
 - `tests/seat-liveness-wake-check.mjs` 没有注册进全套，内容已落后于现在的失联判据，单跑会失败。
 
 ---
