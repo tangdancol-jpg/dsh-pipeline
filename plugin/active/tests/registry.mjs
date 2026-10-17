@@ -278,4 +278,11 @@ export const EXTRA_SUITES = [
   //    → 重渲染后面板还在不在。用一套带 ref、useEffect 按依赖重跑的桩 React + 桩 document，
   //    按真实浏览器顺序先派 pointerdown 再 click；并钉住「rootRef 为 null 时不许关面板」。
   { file: './panel-ui-check.mjs', exportName: 'runPanelUiCheck', zh: '★ 自建面板 · 客户端交互（点「批量」/「归档 N」面板必须还在；pointerdown 判据缺失时不误关；头部按钮自己 stopPropagation）' },
+  // ★★ 弹层**被宿主头部吃掉点击**（真机根因）的修法回归：弹层 portal 到 `document.body` + fixed 落点。
+  //    与上面那条的分工：那条验「面板内部点击 / 关闭判据」，本条验「弹层挂在哪、挂上去落在哪、
+  //    拿不到 react-dom 时怎么回退、诊断目标怎么描述」。★ 拆文件：这四条原先挂在
+  //    `panel-ui-check.mjs` 的 E15–E18，两份合起来 553 行超出 `CONVENTIONS.md`「单个测试文件 ≤ 400 行」
+  //    ⇒ 按语义拆成两条（各测一件事），**判据一条不丢**；共用夹具在 `tests/panel-ui-fixtures.mjs`
+  //    （**不是测试**，刻意不登记 —— 它没有断言）。
+  { file: './panel-portal-check.mjs', exportName: 'runPanelPortalCheck', zh: '★ 自建面板 · 弹层 portal（createPortal 到 document.body / fixed 落点与收边 / 无 react-dom 回退 / 诊断祖先路径）' },
 ]

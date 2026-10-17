@@ -24,7 +24,7 @@ This repository = plugin source + developer docs + delivery reports and diagrams
 │       ├── index.js           ← host-side entry: apply / tools / guard / HTTP routes / client registration
 │       ├── lib/               ← implementation, split by domain (including panel/ and the client chunks)
 │       ├── presets/           ← 16 role presets (src/ is the source, generated/ is the output)
-│       ├── tests/             ← self-tests: 110 suites, one file per suite
+│       ├── tests/             ← self-tests: 111 suites, one file per suite
 │       ├── tools/             ← repository tools; install-items.json is the single source of the copy scope
 │       ├── design/            ← open design records (agent-teams / memory / panel)
 │       ├── locale/ skills/
@@ -147,7 +147,7 @@ node tests\run-all.mjs            # full suite; writes tests\last-run.txt
 node tests\<suite>.mjs            # run one suite
 ```
 
-- The full suite currently passes **3676/3676** (**110 suites**). The panel-related ones are
+- The full suite currently passes **3676/3676** (**111 suites**). The panel-related ones are
   `panel-snapshot-check.mjs` (snapshot contract), `panel-actions-check.mjs` (write actions /
   archive / pins), and `client-check.mjs` (loading contract, rendering and clicks for the entry and
   the 16 chunks, 30 items).

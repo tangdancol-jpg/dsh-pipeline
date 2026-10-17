@@ -23,7 +23,7 @@
 │       ├── index.js           ← ホスト側エントリ：apply / ツール / ガード / HTTP ルート / クライアント登録
 │       ├── lib/               ← 実装：ドメインごとにサブディレクトリへ分割（panel/ とクライアント chunk を含む）
 │       ├── presets/           ← 16 個のロールプリセット（src/ がソース、generated/ が生成物）
-│       ├── tests/             ← 自測：110 スイート、1 ファイル 1 スイート
+│       ├── tests/             ← 自測：111 スイート、1 ファイル 1 スイート
 │       ├── tools/             ← リポジトリ用ツール。install-items.json が複製範囲の唯一の出所
 │       ├── design/            ← 公開設計記録（agent-teams / memory / panel）
 │       ├── locale/ skills/
@@ -144,7 +144,7 @@ node tests\run-all.mjs            # フルスイート。結果は tests\last-ru
 node tests\<スイート>.mjs          # 1 スイートだけ実行
 ```
 
-- フルスイートは現在 **3676/3676** が通過しています（**110 スイート**）。パネル関連は
+- フルスイートは現在 **3676/3676** が通過しています（**111 スイート**）。パネル関連は
   `panel-snapshot-check.mjs`（スナップショット契約）、`panel-actions-check.mjs`（書き込み
   アクション / アーカイブ / ピン留め）、`client-check.mjs`（エントリと 16 chunk の読み込み契約・
   描画・クリック、30 項目）です。

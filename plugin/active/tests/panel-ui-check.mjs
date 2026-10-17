@@ -1,3 +1,4 @@
+// 面板**头部按钮与「点外面关闭」**回归（E0–E14）：点「批量」/「归档 N」面板必须还在；判据缺失时不误关。
 /**
  * dsh-pipeline · 面板头部按钮回归（点「批量」/「归档 N」后面板必须还在）
  * ============================================================================
@@ -12,249 +13,30 @@
  * `useEffect` 按依赖重跑 / document 能收 pointerdown），于是整条链是走通的：
  *   按钮 onClick → renderPanelHeader 的 opts → shell 从共享作用域 S 取的
  *   toggleBatch / openArchivedView / backToTasks → setBatch / setView → 重渲染 → 面板还在不在。
- * 钉住 E1 回调接上 / E2-E3 批量 on↔off / E4-E5 归档↔返回 / E6 pointerdown 不误关 /
+ * 钉住 E0 打开并挂上监听 / E1 回调接上 / E2-E3 批量 on↔off / E4-E5 归档↔返回 / E6 pointerdown 不误关 /
  * ★E7 rootRef 为 null 时**不许**关 / E8 按钮自己 stopPropagation + no-drag /
  * E9 收尾仍开着 / E10 点真外面仍然照旧关（防御是窄的）/
  * ★E11 rootRef 脱手（被替换的节点 / null）时，target 明确在 `[data-pipeline-panel]` 里 ⇒ 不关（真机根因）/
  * ★E12 target 在 `[data-pipeline-panel-root]` 里（触发器）⇒ 不关（DOM 属性那一路判据）/
- * ★E13 `document.body` 这种真外部元素 ⇒ 仍然关 / ★E14 诊断行里能看到「上次点击：BUTTON[...]」/
- * ★E15 有 react-dom ⇒ 弹层走 `createPortal(children, document.body)`（真机根因的修法：弹层不再长在
- * 宿主头部那份 DOM 里，点击不会再被宿主的命中区吃掉）/ ★E16 `panelBoxFor` 的 fixed 落点与收边 /
- * ★E17 拿不到 createPortal（自测桩 / 老环境）⇒ 回退成原样渲染 / ★E18 诊断目标描述升级成祖先路径。
+ * ★E13 `document.body` 这种真外部元素 ⇒ 仍然关 / ★E14 诊断行里能看到「上次点击：BUTTON[...]」。
  *
+ * ★ 弹层 portal（挂到 document.body / fixed 落点 / 回退 / 诊断路径，P1–P4）在
+ *   `tests/panel-portal-check.mjs`；共享夹具在 `tests/panel-ui-fixtures.mjs`（**不是测试**，
+ *   刻意不登记）。拆文件的理由：`CONVENTIONS.md`「单个测试文件 ≤ 400 行」。
  * ★ 只读仓库里的 `lib/client*.js`，不联网、不建会话、不碰任何活体数据。
  *
  * @module dsh-pipeline/tests/panel-ui-check
  */
 
-import { readFileSync, readdirSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
-import vm from 'node:vm'
+import { find, flush, has, makeEnvironment, mountPanel, renderReport, runDirect, textOf } from './panel-ui-fixtures.mjs'
 
-const HERE = dirname(fileURLToPath(import.meta.url))
-const LIB = join(HERE, '..', 'lib')
-const ENTRY = join(LIB, 'client.js')
-
-// ---------------------------------------------------------------------------
-// 桩 React：每个组件实例一份 hook 槽 + 真 ref + 按依赖重跑的 useEffect
-// ---------------------------------------------------------------------------
-
-function createStubReact() {
-  const stores = new Map()
-  const proxies = new WeakMap()
-  let store = null
-  let cursor = 0
-  const storeOf = (component) => {
-    let hit = stores.get(component)
-    if (hit === undefined) {
-      hit = { cells: [], effects: [] }
-      stores.set(component, hit)
-    }
-    return hit
-  }
-  const sameDeps = (a, b) => {
-    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false
-    for (let i = 0; i < a.length; i += 1) if (!Object.is(a[i], b[i])) return false
-    return true
-  }
-  /** 把元素树的 ref 挂到「节点代理」上；代理的 contains() 就是面板判"里面/外面"的那把尺。 */
-  function attach(tree) {
-    const walk = (el) => {
-      if (el === null || el === undefined || typeof el !== 'object' || Array.isArray(el) || el.props === undefined) return null
-      const children = []
-      const kids = el.props.children
-      for (const kid of Array.isArray(kids) ? kids : kids === undefined ? [] : [kids]) {
-        const child = walk(kid)
-        if (child !== null) children.push(child)
-      }
-      const node = {
-        contains(target) {
-          if (target === node) return true
-          for (const child of children) if (child.contains(target)) return true
-          return false
-        },
-      }
-      proxies.set(el, node)
-      const ref = el.props.ref
-      if (typeof ref === 'function') ref(node)
-      else if (ref !== null && ref !== undefined && typeof ref === 'object') ref.current = node
-      return node
-    }
-    walk(tree)
-  }
-  return {
-    render(Component, props) {
-      store = storeOf(Component)
-      cursor = 0
-      const tree = Component(props)
-      attach(tree)
-      return tree
-    },
-    useState(initial) {
-      const i = cursor++
-      const cells = store.cells
-      if (!(i in cells)) cells[i] = typeof initial === 'function' ? initial() : initial
-      return [cells[i], (next) => { cells[i] = typeof next === 'function' ? next(cells[i]) : next }]
-    },
-    useEffect(fn, deps) {
-      const i = cursor++
-      const prev = store.effects[i]
-      if (prev !== undefined && deps !== undefined && sameDeps(prev.deps, deps)) return
-      if (prev !== undefined && typeof prev.cleanup === 'function') prev.cleanup()
-      const cleanup = fn()
-      store.effects[i] = { deps, cleanup: typeof cleanup === 'function' ? cleanup : null }
-    },
-    useRef(initial) {
-      const i = cursor++
-      if (!(i in store.cells)) store.cells[i] = { current: initial }
-      return store.cells[i]
-    },
-    useCallback(fn) {
-      cursor++
-      return fn
-    },
-    createElement(type, props, ...children) {
-      return { type, props: { ...(props ?? {}), children: children.length <= 1 ? children[0] : children } }
-    },
-    proxyOf(el) {
-      return proxies.get(el) ?? null
-    },
-  }
-}
-
-/** 在元素树里找第一个满足条件的节点。 */
-function find(node, pred) {
-  if (node === null || node === undefined || typeof node !== 'object') return null
-  if (Array.isArray(node)) {
-    for (const child of node) {
-      const hit = find(child, pred)
-      if (hit !== null) return hit
-    }
-    return null
-  }
-  if (pred(node)) return node
-  return find(node.props?.children, pred)
-}
-const has = (node, key) => node !== null && node !== undefined && node.props !== undefined && Object.prototype.hasOwnProperty.call(node.props, key)
-const textOf = (node) => (node === null || node === undefined || node === false ? '' : typeof node === 'string' || typeof node === 'number' ? String(node) : Array.isArray(node) ? node.map(textOf).join('') : typeof node === 'object' && node.props !== undefined ? textOf(node.props.children) : '')
-
-// ---------------------------------------------------------------------------
-// 环境：入口 + 16 个真 chunk（按宿主同款 require.async 取）+ 桩 document/fetch/定时器
-// ---------------------------------------------------------------------------
-
-const TASKS = [{ id: 'T-1', state: 'running', state_label: '开发中', requirement_snippet: '把客户端拆成多个 chunk', seats: [], allowed_actions: ['cancel', 'archive'] }]
-const ARCHIVED = [{ id: 'T-0', dir: 'T-0-2026-10-18T042252Z', state: 'closed', state_label: '已关闭', requirement_snippet: '老单', archived_at: '2026-10-01T10:20:00Z' }]
-
-function makeEnvironment() {
-  const doc = {
-    visibilityState: 'visible',
-    listeners: { pointerdown: [], keydown: [] },
-    // 真外部元素的替身：E13 用它验「点外面仍然能关」（连在文档上、closest 谁都不命中）
-    body: { tagName: 'BODY', isConnected: true, attributes: [], closest: () => null },
-    addEventListener(type, fn) {
-      ;(this.listeners[type] ??= []).push(fn)
-    },
-    removeEventListener(type, fn) {
-      const list = this.listeners[type] ?? []
-      const at = list.indexOf(fn)
-      if (at !== -1) list.splice(at, 1)
-    },
-  }
-  const loads = []
-  const React = createStubReact()
-  const timers = { timeouts: [], intervals: [] }
-  const timer = (bucket) => (fn, ms) => {
-    const id = { fn, ms }
-    bucket.push(id)
-    return id
-  }
-  const clearTimer = (bucket) => (id) => {
-    const at = bucket.indexOf(id)
-    if (at !== -1) bucket.splice(at, 1)
-  }
-  const fetchCalls = []
-  const fetchStub = (url) => {
-    const target = String(url)
-    fetchCalls.push(target)
-    const body = target.indexOf('view=archived') !== -1 ? { ok: true, tasks: ARCHIVED } : { ok: true, generated_at: '2026-10-18T05:00:00.000Z', tasks: TASKS }
-    return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) })
-  }
-  const windowStub = { __ModuleLoader__: { load(descriptor) { loads.push(descriptor) } } }
-  const sandbox = {
-    console,
-    window: windowStub,
-    document: doc,
-    fetch: fetchStub,
-    setTimeout: timer(timers.timeouts),
-    clearTimeout: clearTimer(timers.timeouts),
-    setInterval: timer(timers.intervals),
-    clearInterval: clearTimer(timers.intervals),
-    AbortController,
-    URL,
-  }
-  sandbox.globalThis = sandbox
-  const context = vm.createContext(sandbox)
-  const runScript = (file) => vm.runInContext(readFileSync(file, 'utf8'), context, { filename: file })
-
-  runScript(ENTRY)
-  const entry = loads.find((descriptor) => descriptor.chunk === undefined)
-  if (entry === undefined) throw new Error('入口没有调 window.__ModuleLoader__.load({ id, factory })')
-  const chunkExports = {}
-  for (const file of readdirSync(LIB).filter((f) => f.startsWith('client.') && f !== 'client.js').sort()) {
-    runScript(join(LIB, file))
-    const registered = loads.find((descriptor) => descriptor.chunk === file)
-    if (registered === undefined) throw new Error(`${file} 没有注册到 __ModuleLoader__`)
-    chunkExports['./' + file] = registered.factory(() => {
-      throw new Error(`${file} 不该 require 别的模块`)
-    })
-  }
-  const requireStub = (name) => {
-    if (name === 'react') return React
-    throw new Error(`client 不该 require("${name}")`)
-  }
-  requireStub.async = (spec) => (chunkExports[spec] === undefined ? Promise.reject(new Error('取不到 chunk ' + spec)) : Promise.resolve(chunkExports[spec]))
-  return { React, doc, window: windowStub, timers, fetchCalls, entry, requireStub, chunkExports }
-}
-
-/** 假客户端 ctx（只实现本插件用到的成员）；apply 后取回注册的「多AI协调团队」面板组件。 */
-function mountPanel(env) {
-  const registrations = []
-  const ctx = {
-    __react: env.React,
-    __require: env.requireStub,
-    effect(fn) {
-      const dispose = fn()
-      return typeof dispose === 'function' ? dispose : () => {}
-    },
-    slots: {
-      inject(key, cb) {
-        return cb()
-      },
-      register(spec, component) {
-        registrations.push({ spec, component })
-        return () => {}
-      },
-    },
-  }
-  env.entry.factory(env.requireStub).apply(ctx)
-  const hit = registrations.find((item) => item.spec.id === 'pipeline-panel')
-  if (hit === undefined) throw new Error('没有注册 pipeline-panel 条目')
-  return hit.component
-}
-
-const flush = async (rounds = 4) => {
-  for (let i = 0; i < rounds; i += 1) await new Promise((resolve) => setTimeout(resolve, 0))
-}
-
-// ---------------------------------------------------------------------------
-// 主流程
-// ---------------------------------------------------------------------------
+const TITLE = 'dsh-pipeline · 面板头部按钮回归（node:vm + 桩 React/document，无浏览器）'
+const LIMITS = ['真实浏览器里的像素级事件顺序 / Electron 窗口拖拽区，需要真机。']
 
 export async function runPanelUiCheck() {
   const items = []
   const add = (name, pass, detail) => items.push({ name, pass: pass === true, detail: String(detail ?? '') })
-  const answer = (result) => ({ passed: items.filter((item) => item.pass).length, total: items.length, text: renderText(items), items })
+  const answer = () => renderReport(TITLE, 'E 面板头部按钮', items, LIMITS)
 
   const env = makeEnvironment()
   const React = env.React
@@ -454,100 +236,10 @@ export async function runPanelUiCheck() {
       diagLine.includes('上次点击：BUTTON[data-pipeline-batch-toggle]') && desc.length <= 81 && panelOpen() !== null,
       `诊断行：${diagLine}　（描述 ${desc.length} 字符）`,
     )
-
-    // --- 弹层 portal（真机根因的修法：弹层挂到 document.body，不再长在宿主头部那份 DOM 里）---
-    const portalChunk = env.chunkExports['./client.panel-portal.js']
-    const outsideChunk = env.chunkExports['./client.panel-outside.js']
-
-    // ★ E15 有 react-dom ⇒ 弹层走 createPortal(children, document.body)
-    const portalCalls = []
-    const fakeReactDom = {
-      createPortal(children, container) {
-        const node = { portal: true, children, container }
-        portalCalls.push({ children, container, node })
-        return node
-      },
-    }
-    const portalWithDom = portalChunk.create({ require: (name) => (name === 'react-dom' ? fakeReactDom : null) })
-    const cardNode = React.createElement('div', { 'data-pipeline-panel': 'open' }, React.createElement('span', null, '批量'))
-    const portaled = portalWithDom.renderPortal(null, cardNode)
-    add(
-      '★ E15 拿到 react-dom 时弹层经 createPortal(children, document.body) 渲染 —— 弹层不再长在宿主头部那份 DOM 里',
-      portalWithDom.usable() === true && portalCalls.length === 1 && portalCalls[0].children === cardNode && portalCalls[0].container === env.doc.body && portaled === portalCalls[0].node,
-      `usable=${portalWithDom.usable()}　createPortal 调用 ${portalCalls.length} 次　container=${portalCalls[0]?.container === env.doc.body ? 'document.body ✓' : String(portalCalls[0]?.container)}　返回值=${portaled === portalCalls[0]?.node ? '就是 createPortal 的返回值' : '(对不上)'}`,
-    )
-
-    // ★ E16 落点：right = 视口宽 - rect.right、top = rect.bottom + 6、width = min(440, 92vw)，越界收边
-    env.window.innerWidth = 1280
-    env.window.innerHeight = 800
-    const boxChunk = portalChunk.create({ require: () => null })
-    const box = boxChunk.panelBoxFor({ getBoundingClientRect: () => ({ right: 1180, bottom: 30 }) })
-    const boxEdge = boxChunk.panelBoxFor({ getBoundingClientRect: () => ({ right: 1276, bottom: 795 }) })
-    const boxNoRect = boxChunk.panelBoxFor(null)
-    add(
-      '★ E16 panelBoxFor 按触发按钮的 rect 算出 fixed 落点（right/top/width，含右边与屏幕底部收边）',
-      box.right === 100 && box.top === 36 && box.width === 440 && box.maxHeight === 560 && boxEdge.right === 8 && boxEdge.top === 792 && boxNoRect.right === 8 && boxNoRect.top === 8,
-      `rect{right:1180,bottom:30} ⇒ ${JSON.stringify(box)}　贴边{right:1276,bottom:795} ⇒ ${JSON.stringify(boxEdge)}　还没挂上(null) ⇒ ${JSON.stringify(boxNoRect)}`,
-    )
-
-    // ★ E17 没有 createPortal（自测桩 / 老环境）⇒ 回退成原样渲染：不抛、返回原节点
-    const noDom = portalChunk.create({ require: () => ({}) })
-    const bare = portalChunk.create({})
-    const plainNode = React.createElement('div', { 'data-pipeline-panel': 'open' })
-    let fallbackThrew = ''
-    let fallbackNode = null
-    try {
-      fallbackNode = noDom.renderPortal(null, plainNode)
-      bare.renderPortal(null, plainNode) // 连 require 都没有也不许抛
-    } catch (err) {
-      fallbackThrew = String((err && err.message) || err)
-    }
-    add(
-      '★ E17 拿不到 createPortal（自测桩 / 无 react-dom 环境）时回退成原样渲染：不抛、原节点直接返回',
-      fallbackThrew === '' && noDom.usable() === false && fallbackNode === plainNode && bare.usable() === false,
-      `usable=${noDom.usable()}　返回=${fallbackNode === plainNode ? '原节点 ✓' : '(不是原节点)'}　无 require 也 usable=${bare.usable()}${fallbackThrew === '' ? '' : '　抛：' + fallbackThrew}`,
-    )
-
-    // ★ E18 诊断行的目标描述升级为「祖先路径」（最多 3 层、总长 ≤80）
-    const outsideMod = outsideChunk.create({})
-    const deepTarget = {
-      tagName: 'SPAN',
-      attributes: [],
-      parentElement: {
-        tagName: 'BUTTON',
-        attributes: [{ name: 'data-pipeline-panel-trigger' }],
-        parentElement: { tagName: 'DIV', attributes: [{ name: 'data-pipeline-panel-root' }], parentElement: null },
-      },
-    }
-    const deepDesc = outsideMod.describeTarget(deepTarget)
-    const wantDesc = 'DIV[data-pipeline-panel-root] > BUTTON[data-pipeline-panel-trigger] > SPAN'
-    add(
-      '★ E18 诊断行里的目标描述带祖先路径（最多 3 层、总长 ≤80）：SPAN > BUTTON[data-pipeline-panel-trigger]',
-      deepDesc === wantDesc && deepDesc.length <= 80 && outsideMod.describeTarget({ tagName: 'SPAN', attributes: [], parentElement: null }) === 'SPAN',
-      `描述：${deepDesc}　（${deepDesc.length} 字符；单层目标 ⇒ ${outsideMod.describeTarget({ tagName: 'SPAN', attributes: [], parentElement: null })}）`,
-    )
   } catch (err) {
     add('!! 执行异常（后面的断言不再可信）', false, err?.stack ?? err)
   }
   return answer()
 }
 
-function renderText(items) {
-  const lines = ['='.repeat(78), 'dsh-pipeline · 面板头部按钮回归（node:vm + 桩 React/document，无浏览器）', '='.repeat(78), '', '【E 面板头部按钮】']
-  for (const item of items) {
-    lines.push(`  ${item.pass ? '✓' : '✗'} ${item.name}`)
-    if (item.detail !== '') lines.push(`      ${item.detail.split('\n').join('\n      ')}`)
-  }
-  const passed = items.filter((item) => item.pass).length
-  lines.push('', '='.repeat(78), `总计：${passed}/${items.length} 通过`, '='.repeat(78))
-  lines.push('', '★ 没验到的（如实列出）：真实浏览器里的像素级事件顺序 / Electron 窗口拖拽区，需要真机。')
-  return lines.join('\n')
-}
-
-const invokedDirectly = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href
-if (invokedDirectly) {
-  runPanelUiCheck().then((result) => {
-    console.log(result.text)
-    if (result.passed !== result.total) process.exitCode = 1
-  })
-}
+runDirect(runPanelUiCheck, import.meta.url)

@@ -21,7 +21,7 @@
 │       ├── index.js           ← 宿主侧入口：apply / 工具 / 守门 / HTTP 路由 / 客户端注册
 │       ├── lib/               ← 实现：按域拆子目录（含 panel/ 与客户端 chunk）
 │       ├── presets/           ← 16 个角色预设（src/ 是源，generated/ 是产物）
-│       ├── tests/             ← 自测：110 套，一文件一套
+│       ├── tests/             ← 自测：111 套，一文件一套
 │       ├── tools/             ← 仓库工具；install-items.json 是复制范围的唯一出处
 │       ├── design/            ← 开放设计记录（agent-teams / memory / panel）
 │       ├── locale/ skills/
@@ -134,7 +134,7 @@ node tests\run-all.mjs            # 全套；结果写到 tests\last-run.txt
 node tests\<套件>.mjs             # 单跑一套
 ```
 
-- 全套当前 **3676/3676** 通过（**110 套**）。面板相关的是 `panel-snapshot-check.mjs`（快照契约）、
+- 全套当前 **3676/3676** 通过（**111 套**）。面板相关的是 `panel-snapshot-check.mjs`（快照契约）、
   `panel-actions-check.mjs`（写动作 / 归档 / 置顶）与 `client-check.mjs`（入口与 16 个 chunk 的
   装载契约、渲染与点击，30 项）。
 - 有少数套件依赖**宿主安装**：`DSH_APP_ASAR` 指向 `<DSH 安装>\resources\app.asar`，
