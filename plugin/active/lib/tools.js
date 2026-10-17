@@ -38,6 +38,13 @@
 import { roleLabel } from './roles.js'
 import { STATE_LABEL } from './states.js'
 import { guardDecision } from './guard.js'
+// ★★ Agent Teams 深度整合（`design/agent-teams/01-目标与边界.md` §D8 第 3 条）：
+//    工具面要把官方新工具（team 协作 / 委派 / 插件管理 / 会话搜索）**遮掉** ——
+//    席位"看不见"比"点了被拒"更省字节也更不容易误试。名单在 `guard/official-tools.js`
+//    （唯一出处）；合并动作也在那里，本文件只接线，不存第二份名单。
+//    ⚠ 派生本身在 `lib/boundaries.js` 的 `deriveToolFace()`（设计文档写的是本文件，
+//      实际代码在 boundaries.js —— 以代码为准，见 `applyOfficialDeny` 的 JSDoc）。
+import { applyOfficialDeny } from './guard/official-tools.js'
 import { deriveToolFace, eventLevelToolNames } from './boundaries.js'
 import { createSeatNotifier } from './tools/notifier.js'
 import { buildIntakeTools } from './tools/intake.js'
@@ -112,11 +119,11 @@ export function buildTools(deps) {
   /** @returns {object} 工具面（首次算完即缓存；工具名到齐后由 `buildTools` 末尾作废一次） */
   function pipelineToolFace() {
     if (faceCache === null) {
-      faceCache = deriveToolFace({
+      faceCache = applyOfficialDeny(deriveToolFace({
         toolNames: toolNameList,
         judge: toolAuthorityJudge,
         eventLevel: eventLevelToolNames(toolDefList),
-      })
+      }))
     }
     return faceCache
   }

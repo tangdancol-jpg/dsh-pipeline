@@ -18,6 +18,10 @@ import { describeTransitionRecord } from './transition-record.js'
 // ★ E3（设计 04 §3.3 / §3.1）：状态迁移落一条 `kind:'transition'` 记忆，并让活文档跟着更新。
 import { appendTransition } from '../memory/retain-transition.js'
 import { refreshLiveDocForTask } from '../memory/live-doc-write.js'
+// ★★ WP-B 接线（设计 02 §4 / 01 §D10）：开单 / 关单·取消成功后把流水线任务镜像到
+//    官方 Agent Teams 任务板。镜像**best-effort**：服务缺失 / `teamBoard:'off'` / 任何
+//    异常都只落审计（`team:board-error`）或 skipped，**绝不**改本文件的返回值。
+import { boardEnvFromStore, mirrorClose, mirrorOpen } from '../team/board.js'
 
 /**
  * 任务存储 · 开单、认领、查询、状态迁移
@@ -26,6 +30,41 @@ import { refreshLiveDocForTask } from '../memory/live-doc-write.js'
  */
 export function lifecycleMethods(ctx) {
   const { projectRoot, root, now, cache, taskFile, audit, deny, loadTask, persist, applyHubSideEffects, swOf } = ctx
+
+  /**
+   * ★★ WP-B hook：把「开单 / 关单·取消」这个**已经成功的事实**镜像到官方 Team 任务板。
+   *
+   * 为什么挂在 store 这一层而不是工具层：这两个动作"真的成功了"的唯一判据在这里
+   * （`persist` 已落盘）。接在工具层会多出第二个入口，一旦哪个入口漏接，
+   * 就会出现"回执说成功了、官方板上却查不到"的半截现场。
+   *
+   * ★ 这个函数**只**负责把能拿到的现场交给 `lib/team/board.js`：能不能镜像、
+   *   怎么降级（服务缺失 / `teamBoard:'off'` / revision CAS 重试）全在那边判，
+   *   避免同一套判据散落在两个文件里各写一遍。
+   * ★ 外面再包一层 try/catch：即使 board.js 自身有 bug，也**绝不许**它改变
+   *   主流程的 `ok` —— 任务板是辅助面（D10）。
+   *
+   * @param {'open'|'close'} action
+   * @param {object} task - 已落盘的任务卡
+   * @param {{callerAgentId?:string|null, reason?:string}} [extra]
+   */
+  async function mirrorBoard(action, task, extra = {}) {
+    try {
+      const env = boardEnvFromStore({
+        // store 的 ctx 没有宿主 ctx/config —— 那两个由 `board.js` 的模块级登记补
+        // （`index.js` 的 `apply()` 装配时登记一次；没登记就整体 skipped）。
+        dirs: { projectRoot, pipelineRoot: root },
+        // 审计签名对齐 store 的（每行自带 task_id/actor）；board 只给 action + detail。
+        audit: (name, detail) => audit(task.id, ROLE.MAIN, name, detail),
+        callerAgentId: typeof extra.callerAgentId === 'string' ? extra.callerAgentId : null,
+      })
+      if (action === 'open') return await mirrorOpen(env, task)
+      return await mirrorClose(env, task, { reason: extra.reason })
+    } catch {
+      // 镜像内部异常（理论上不该有，board.js 自己全程 catch）⇒ 一律吞掉。
+      return { ok: false, skipped: true, note: '任务板镜像内部异常（已按 best-effort 忽略）。' }
+    }
+  }
 
   return {
     /**
@@ -189,6 +228,11 @@ export function lifecycleMethods(ctx) {
        *   审计行一起落进同一个任务卡，顺序反了会把审计行挤掉。
        */
       await this.hubForceOnOpen(id, { by: input.actorRole })
+
+      // ★★ WP-B 接线（02 §4 / 01 §D10）：**开单成功之后**才镜像（此时 task 已落盘）。
+      //    best-effort：服务缺失 / teamBoard:'off' / 异常 ⇒ skipped 或只记审计，
+      //    上面那个 `ok:true` 与返回值一个字都不改（任务板是辅助面）。
+      await mirrorBoard('open', task, { callerAgentId: input.actorAgentId })
 
       return { ok: true, task, summary: `已开单 ${id}，状态：${STATE_LABEL[ST.PENDING]}。下一步：pipeline_orchestrate 做**需求分析**（出任务卡 + 不清楚处清单；分配 AI 是后面 planner 的事）。` }
     },
@@ -393,6 +437,16 @@ export function lifecycleMethods(ctx) {
       //   写失败只 warn，被包裹的这次 `pipeline_transition` 照旧返回原结果。
       await appendTransition(task.project_dir ?? projectRoot, { task, from, to: res.to, event: input.event, at: nowIso(now()), by: input.actorRole }, { swOf })
       await refreshLiveDocForTask(task, { swOf, projectDir: projectRoot })
+
+      // ★★ WP-B 接线（02 §4 / 01 §D10）：**关单 / 取消成功之后**把官方任务板上的
+      //    那条任务标完成。判据用 `res.to`（真的落到终态）而不是只信事件名；
+      //    best-effort：失败只审计，不影响下面这个 `ok:true` 与状态迁移结果。
+      if ((input.event === 'close' || input.event === 'cancel') && TERMINAL_STATES.includes(res.to)) {
+        await mirrorBoard('close', task, {
+          callerAgentId: input.actorAgentId,
+          reason: input.event === 'cancel' ? '任务取消' : '任务关闭',
+        })
+      }
 
       /**
        * ★★ **缺陷 ⑨**：`from === to` 的迁移必须自己交代"记了什么"。

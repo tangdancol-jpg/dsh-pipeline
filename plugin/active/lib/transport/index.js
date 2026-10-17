@@ -54,6 +54,15 @@ import {
 } from './slot-evidence.js'
 
 /**
+ * ★ WP-T：官方 Agent Teams 通道。放在**文件顶部** import 会形成一个受控的循环
+ * （`team.js` 反过来 import 本文件的 `normalizeSlots` / `applyPermissionSlot` 等，
+ * 目的就是**不许复制判据**）。ESM 的循环只在"求值期访问绑定"时才炸，而团队通道
+ * 只在**方法体内**用这些函数（调用发生在模块初始化完成之后）⇒ 安全。
+ * 自有模块内不重复实现这些判据，是这个仓库反复强调的纪律（F11 / F12 的教训）。
+ */
+import { TEAM_KIND, TeamTransport } from './team.js'
+
+/**
  * ★★ P0-2：**永不向宿主递 `undefined` 的 signal**。
  *
  * 宿主 `ctx.sessionController.prompt(request, signal)` 的 `signal` 是**非可选**参数，
@@ -68,7 +77,7 @@ import {
  * 纪律：**本插件永不向宿主递 `undefined`**。没有调用方 signal 时用这个"永不中止"的
  * signal（语义 = 调用方没有请求取消 —— 这正是"没有 signal"的本意），有则原样透传。
  */
-const NEVER_ABORTED_SIGNAL = new AbortController().signal
+export const NEVER_ABORTED_SIGNAL = new AbortController().signal
 
 /**
  * 把「派活单」渲染成一段可直接粘贴给人的文本（manual 通道）。
@@ -801,8 +810,12 @@ function sameSelection(a, b) {
   return a.provider === b.provider && a.model === b.model && (a.reasoningEffort ?? null) === (b.reasoningEffort ?? null)
 }
 
-/** 权限槽：钉到会话上并**读回核对**。钉不上 / 读回不符 ⇒ 拒绝派活（不回退、不静默）。 */
-async function applyPermissionSlot(ctx, sessionId, slot) {
+/**
+ * 权限槽：钉到会话上并**读回核对**。钉不上 / 读回不符 ⇒ 拒绝派活（不回退、不静默）。
+ * ★ WP-T：加 `export` 是为了让 `lib/transport/team.js` 复用**同一份**判据（team 通道
+ *   spawn 之后按 `member.id` 补钉权限档）。复制一份 = 漂移，本仓库反复列为禁忌。
+ */
+export async function applyPermissionSlot(ctx, sessionId, slot) {
   const presets = readService(ctx, 'permissionPresets')
   const want = slot === null || slot === undefined ? null : slot.value ?? null
   const rec = { ok: false, applied: false, value: want, origin: slot?.origin ?? 'default', readback: null, note: '' }
@@ -871,8 +884,11 @@ async function applyPermissionSlot(ctx, sessionId, slot) {
   return rec
 }
 
-/** 模型 / 推理等级槽：下发到该会话，并把被顺带改掉的全局默认还原。 */
-async function applyModelSlot(ctx, sessionId, slots) {
+/**
+ * 模型 / 推理等级槽：下发到该会话，并把被顺带改掉的全局默认还原。
+ * ★ WP-T：同样为 `lib/transport/team.js` 加 `export`（team 通道 spawn 后补钉）。
+ */
+export async function applyModelSlot(ctx, sessionId, slots) {
   const controller = readService(ctx, 'sessionController')
   const defaults = readService(ctx, 'agentDefaultModel')
   const raw = slots.model.value
@@ -1348,6 +1364,16 @@ export function createTransport(ctx, config, deps) {
   if (mode === 'manual') return new ManualTransport(deps)
   if (mode === 'subagent') return new SubagentTransport(wired)
   if (mode === 'session') return new SessionTransport(wired)
+  /**
+   * ★★ WP-T：显式 `transport:'team'` ⇒ 官方 Agent Teams 通道。
+   *   不可达时**不降级**（团队通道的 `spawnRole` 自己返回可读失败 + 证据）。
+   */
+  if (mode === TEAM_KIND) return new TeamTransport(wired)
+  // auto：`teamAuto:true` 时才**先**试 team（默认 false ⇒ 生产行为一个字节不变）。
+  if (config?.teamAuto === true) {
+    const team = new TeamTransport(wired)
+    if (team.available()) return team
+  }
   // auto：**先试真实会话通道**（需求1 点名要的形态），拿到就用它。
   const session = new SessionTransport(wired)
   if (session.available()) return session
@@ -1364,3 +1390,9 @@ export function createTransport(ctx, config, deps) {
 export function isSpawnableRole(roleId) {
   return roleId !== ROLE.MAIN && ROLES[roleId] !== undefined
 }
+
+/**
+ * ★ WP-T：团队通道的 kind 常量与实现**从这里转出**（「通道选择点只有一个」这条纪律
+ * 要求调用方仍然只 import 本文件；`lib/transport/team.js` 是它的实现落点）。
+ */
+export { TEAM_KIND, TeamTransport }

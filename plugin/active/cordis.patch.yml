@@ -17,10 +17,21 @@
 #   guardFileTools      参与「测试/审核不得改代码」「主对话不得读代码」判定的写/读工具名。
 #   guardShellTools     参与 shell 旁路判定（best-effort，字符串匹配）的 shell 工具名。
 #   guardMainReadsCode  是否拦截主对话读取受保护路径的代码正文（默认 true）。
-#   transport           角色驱动通道：auto | subagent | manual（默认 auto）。
-#                       auto = 有 ctx.subagents 就用真实子代理，否则退回 manual。
-#   spawnRoles          是否由本插件真的创建子代理会话（默认 true）。
-#                       自测 / 演示时置 false，只发令牌不建会话（零副作用）。
+#   transport           角色驱动通道：auto | session | team | subagent | manual（默认 auto）。
+#                       auto = 先试 session（真实会话），拿不到就**只上报、不静默降级**。
+#                       team = 官方 Agent Teams（spawnTeammate / sendMessage / interrupt）；
+#                              需要 profile 启用官方 Team 插件集，详见 docs/agent-teams.md。
+#   spawnRoles          是否由本插件真的创建 session / teammate（默认 true）。
+#                       自测 / 演示时置 false，只发令牌不建东西（零副作用）。
+#   sessionPreset       session 通道的默认会话模式（agentPreset；默认 standard）。
+#   teamAuto            auto 下是否把 team 排在 session 前面（默认 false ⇒ 生产行为不变）。
+#   teamProvider        官方 spawnTeammate 的 provider（默认 spawn；只认本地可续接的 spawn/fork）。
+#   teamNamePrefix      teammate 名字前缀（默认 p；必须 lower-kebab）。
+#   teamStrictSlots     true = 显式指定的 permission/model 钉不上就拒绝派活（默认 false）。
+#                       ★ 四槽里的 mode 在 team 通道上**恒下发不了**（官方 API 没有 agentPreset），
+#                         证据等级如实记 UNAVAILABLE，不假装生效。
+#   teamBoard           auto | off（默认 auto）：pipeline 任务 ↔ 官方 Team 任务板的镜像开关。
+#                       镜像失败只写 audit.jsonl 的 team:board-*，不改变流水线状态。
 #   defaultTier         规则引擎拿不准时的兜底档（默认 L1，宁高不低）。
 #   requireBilingual    预留字段，本插件当前不输出双语界面。
 #

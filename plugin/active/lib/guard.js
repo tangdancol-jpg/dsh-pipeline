@@ -120,3 +120,22 @@ export {
 export {
   guardDecision,
 } from './guard/decide.js'
+
+// ---------------------------------------------------------------------------
+// ★★ Agent Teams 深度整合（`design/agent-teams/01-目标与边界.md` §D8）：
+//    官方新工具的分类名单 —— **唯一出处** `guard/official-tools.js`。
+//    这里只做转出：守门（`decide.js`）、工具面（`lib/tools.js`）、测试与钩子层
+//    都必须从这一份取，**不许手抄第二份**（手抄必漂移，漂移的坏方向是放宽）。
+// ---------------------------------------------------------------------------
+export {
+  DEFAULT_TEAM_COORD_TOOLS,
+  DEFAULT_DELEGATION_TOOLS,
+  DEFAULT_ESCAPE_TOOLS,
+  DEFAULT_SESSION_READ_TOOLS,
+  SHELL_TEXT_ARG_TOOLS,
+  officialDenyForRole,
+  officialCategoryOf,
+  officialOutsideRole,
+  isShellTextArgTool,
+  applyOfficialDeny,
+} from './guard/official-tools.js'

@@ -378,6 +378,28 @@ export function shippedRowFacts(asar, yamlFiles, parse) {
   )
 }
 
+/**
+ * ★ 官方**文档化但 shipped 范本没用到**的 config 键（按模块）。
+ *
+ * 为什么需要这张表：判据⑦原来把"shipped 预设没写过的键"一律当"自己发明 config"。
+ * 但 DSH 0.2.1-rc.2 的 shipped 预设换成了「persona 只写 prefix（+可选 complete /
+ * includeRuntimeContext）」，`suffix` 从范本里消失 —— 而它**仍是** `@deepseek-ai/dsh-persona`
+ * 的合法配置字段（官方 README「Configuration」表：`suffix` 默认 `''`，含义是
+ * `deployment:persona-suffix` 的模板）。本插件的角色预设正是用 `suffix` 装尾部提示
+ * （prefix.md/suffix.md 成对），删掉会改变 persona 语义。
+ *
+ * 所以这里不是放宽判据，而是把判据改成"**文档化字段就不算发明**"：
+ *   · 只收**有官方文档出处**的键（注释里写清出处）；
+ *   · 没列出的键照旧判红 —— "自己发明 config"这条仍然会红。
+ *
+ * 新增条目的门槛：官方 README / Config schema 里能指到那一行。不要为了消红加。
+ */
+export const DOCUMENTED_EXTRA_CONFIG_KEYS = Object.freeze({
+  // @deepseek-ai/dsh-persona 的 README「Configuration」表：prefix(required) / suffix('') /
+  // complete(false) / includeRuntimeContext(true)。shipped 预设 0.2.1-rc.2 只写 prefix 等三项。
+  '@deepseek-ai/dsh-persona': Object.freeze(['suffix']),
+})
+
 /** 与 shipped 范本比对（调用方只在拿得到 shipped 事实时用）。 */
 export function checkAgainstShipped(rows, shipped) {
   const problems = []
@@ -389,7 +411,8 @@ export function checkAgainstShipped(rows, shipped) {
       problems.push({ ...row, kind: 'shipped-missing', key: '', detail: `${row.presetId} · ${row.module}：shipped 预设给了 config（${ref.keys.join(', ')}），本行没给 —— 以 shipped 为准` })
       continue
     }
-    const invented = keys.filter((k) => !ref.keys.includes(k))
+    const documented = Array.isArray(DOCUMENTED_EXTRA_CONFIG_KEYS[row.module]) ? DOCUMENTED_EXTRA_CONFIG_KEYS[row.module] : []
+    const invented = keys.filter((k) => !ref.keys.includes(k) && !documented.includes(k))
     if (invented.length > 0) {
       problems.push({ ...row, kind: 'shipped-invented', key: invented[0], detail: `${row.presetId} · ${row.module}：config.${invented.join(' / ')} 在 shipped 预设里没有（shipped 只写 ${ref.keys.join(', ') || '（无）'}）—— 不要自己发明 config` })
     }

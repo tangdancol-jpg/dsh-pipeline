@@ -9,6 +9,7 @@
 | [encoding-conventions.md](encoding-conventions.md) | `.ps1` 要 BOM、其它不要、行尾一律 LF |
 | [sandbox-temp-root.md](sandbox-temp-root.md) | `%TEMP%` 落在 workspace 内导致 shell 全挂：判据与修法 |
 | [manifest.md](manifest.md) | `MANIFEST.sha256` 的校验、生成口径、何时重算 |
+| [agent-teams.md](agent-teams.md) | `transport: 'team'`：官方 Agent Teams 原语整合、能力边界、守门新名单、任务板镜像、排障 |
 
 ## 写文档时的两条约定
 

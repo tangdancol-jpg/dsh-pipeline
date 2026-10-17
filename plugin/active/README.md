@@ -2091,16 +2091,37 @@ produced_by=self-provided 时 degraded 必须是 true。
 
 | 通道 | 行为 | 副作用 |
 |---|---|---|
+| `session` | 用 `ctx.sessionController.create({agentPreset, workspaceId})` 建**侧栏里点得进的**一等公民会话；四槽 + 建组 + 读回核对 + 令牌绑定 | 会花 token；最"真" |
+| `team` | 用**官方 Agent Teams** 原语派具名 teammate：`spawnTeammate` 建、`sendMessage` 投、`interrupt` 打断；角色人格写进派活单（官方没有 preset 参数） | 会花 token；成员名额有限（见 [docs/agent-teams.md](../../docs/agent-teams.md)） |
 | `subagent` | 用 `ctx.subagents.startContinuable()` 建**真的**子代理会话，把派活单投进去；令牌与会话 id **二次绑定** | 会花 token |
 | `manual` | **不创建任何会话**。只铸令牌 + 渲染一段可粘贴的派活单，人来复制 | 零副作用、零 token |
 | `simulated` | 内存假会话，自测用 | 零副作用 |
 
-配置 `transport: auto | subagent | manual`（默认 `auto`：有 `ctx.subagents` 就用真实的，否则退回 manual）。
+配置 `transport: auto | session | team | subagent | manual`（默认 `auto`：先试 `session`，拿不到只上报、不静默降级）。
+`teamAuto: true` 时 `auto` 先把 `team` 排在 `session` 前面（**默认 false，生产行为不变**）。
 `spawnRoles: false` 时连建都不建，只发令牌 —— 试跑/演示用这个。
 
 **为什么 `subagent` 是默认方向**：真实子代理通道下，令牌在铸造时就记下 `childId`，
 后续每次调用都要求 `exec.agent.id` 与之相符 ——**令牌转手即失效**，第 1 条"拦不住的"
 就补上了。manual 通道下这条保证拿不到。
+
+### 官方 Agent Teams（`transport: 'team'`）
+
+DSH 0.2.1 起官方带「智能体团队」：根会话是 Lead，可以 `spawn_teammate` 出具名、持久、
+可续接的 teammate，用 `send_message` 投递、`team_task_*` 维护共享任务板。本插件把它接成
+**第三条真实通道**（`lib/transport/team.js`）：
+
+- 派活 = `spawnTeammate`（同名已存在则**复用**并 `sendMessage`，官方名字永不重用）；
+- 催办 / 孤儿重投 / 失联唤醒 = `sendMessage`；`{ stop: true }` = `interrupt`；
+- 四槽：`mode` **恒 UNAVAILABLE**（官方 API 没有 agentPreset，如实登记不假装）；
+  `permission` / `model` spawn 后补钉并读回；`teamStrictSlots: true` 时钉不上就拒绝派活；
+- 任务板镜像（`teamBoard: auto`）：开单 `createTask` → 派活 `reassign` → 关单 `complete`，
+  best-effort，失败只写 `audit.jsonl` 的 `team:board-*`，**不改变流水线状态**；
+- 守门：绑定角色一律拒绝 team 协作 / 委派 / 插件管理 / 会话搜索工具（席位工具面也隐藏），
+  `terminal_send` 的正文（`text` 参数）按 shell 命令检查 —— 详见 `lib/guard/official-tools.js`。
+
+完整用法、能力边界与排障见 [`docs/agent-teams.md`](../../docs/agent-teams.md)，
+设计事实与取舍见 [`design/agent-teams/01-目标与边界.md`](design/agent-teams/01-目标与边界.md)。
 
 派活单长什么样见 [`examples/example-dispatch-brief.md`](examples/example-dispatch-brief.md)。
 

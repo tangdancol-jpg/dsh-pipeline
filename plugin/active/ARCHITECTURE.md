@@ -1138,3 +1138,71 @@ L3 是给模型的手；L4 是干活的人；L5 是下命令的人。
 - 不要画第二个人工介入通道（需求确认**就是** `human_request` 链，不另开）。
 - 不要画「主对话决定要几个 AI」（它从来没这个权力，本轮更明确）。
 - 不要给 L0 画需求分析与计划两个节点（L0 是规则引擎自批，仍是 4 个对话）。
+
+---
+
+## 十、★ 官方 Agent Teams 通道（本轮新增，画图用）
+
+**背景**：DSH 0.2.1 起官方带「智能体团队」：根会话是 Lead，可 `spawn_teammate` 出具名、
+持久、可续接的 teammate。本插件把它接成**第三条真实通道** `transport: 'team'`（前两条：
+`session` 一等公民会话、`subagent` 子代理）。**默认仍是 `auto`（session 优先），本通道只在
+显式配置或 `teamAuto: true` 时启用** —— 画图时不要把它画成默认路径。
+
+### 10.1 拓扑变化（**只加一层，不改主轴**）
+
+```
+主对话（根会话 = 官方 Team Lead）
+   │  pipeline_dispatch（既有）
+   ▼
+Transport 选择点 createTransport()          ← 唯一选择点，没变
+   ├─ session  ──► sessionController.create（既有）
+   ├─ subagent ──► ctx.subagents（既有）
+   └─ team ★新增 ──► ctx.agentTeams
+                        ├─ spawnTeammate(caller=主对话…) → 具名 teammate（subagent 延续子会话）
+                        ├─ sendMessage(caller, {target, content}) → 投消息 / 唤醒 / 催办
+                        └─ interrupt(caller, name) → 打断（{stop:true} 那条路）
+```
+
+★ **teammate 不是侧栏一等公民会话**：它是 `origin=subagent` 的延续子会话，出现在官方
+Team 名单里、可地址、可续接。图上把 `team` 通道的产物画成「官方 Team 成员」节点，
+**不要**和 session 通道的「侧栏会话」节点画成同一个东西。
+
+★ **角色预设不下发**（官方 `spawnTeammate` 没有 agentPreset 参数）：teammate 继承 Lead 的
+preset；角色人格由**派活单正文**补（`lib/team/brief.js` 读 `presets/src/<role>/`）。
+
+### 10.2 节点清单（画图用）
+
+| 节点 | 落点 | 说明 |
+|---|---|---|
+| `TeamTransport` | `lib/transport/team.js` | 通道实现：`spawnRole` / `notifyRole` / `interrupt` / `listMembers` |
+| `team 命名` | `lib/team/naming.js` | `(task, role, seat)` → lower-kebab 名字；重派 `-rN`；官方名字永不重用 |
+| `team 探测` | `lib/team/preflight.js` | `ctx.get('agentTeams')` 的可用性与缺件报告（不抛） |
+| `角色人格注入` | `lib/team/brief.js` | 派活单 = `renderDispatchBrief` + `presets/src/<role>/` 的 prefix+prompt+suffix |
+| `四槽补钉` | `lib/team/slots.js` | `mode` 恒 UNAVAILABLE；permission/model spawn 后钉 + 读回 |
+| `任务板镜像` | `lib/team/board.js` + `board-state.js` | pipeline 任务 ↔ 官方 `team_task_*`，best-effort |
+| `官方工具分类` | `lib/guard/official-tools.js` | team 协作 / 委派 / 插件管理 / 会话搜索四类拒绝名单 + shell 正文补扫 |
+
+### 10.3 边清单（画成箭头）
+
+| 从 | 到 | 边型 | 标签 | 判据 |
+|---|---|---|---|---|
+| `createTransport` | `TeamTransport` | 选择 | `transport:'team'` 或 `auto && teamAuto` | `lib/transport/index.js` 的唯一选择点 |
+| `pipeline_dispatch` | `TeamTransport.spawnRole` | 调用 | 派活 | `spec.parent` 必须是**活 Lead Agent**（官方凭据），否则 `TEAM_NO_LIVE_CALLER` |
+| `spawnRole` | `ctx.agentTeams.spawnTeammate` | 调用 | 建 teammates | 同名已存在 ⇒ **复用**并改走 `sendMessage`（不重复 spawn） |
+| `notifyRole`（催办 / 孤儿重投 / 失联唤醒） | `ctx.agentTeams.sendMessage` | 投递 | 唤醒 | 按 sessionId 反查名单拿名字；超 64KB 截断并注明 |
+| `notifyRole{stop}` | `ctx.agentTeams.interrupt` | 打断 | 停手 | 官方 `interrupt` 失败 ⇒ **不假装成功** |
+| `store.open` | `board.mirrorOpen` → `createTask` | 镜像（虚线） | 辅助面 | best-effort：失败只写 `audit.jsonl` 的 `team:board-error` |
+| `spawnRole` | `board.mirrorDispatch` → `updateTask(reassign)` | 镜像（虚线） | 辅助面 | revision CAS，冲突重读重试一次 |
+| `store.close/cancel` | `board.mirrorClose` → `updateTask(complete)` | 镜像（虚线） | 辅助面 | 只从 in_progress 能 complete；未派活就取消 ⇒ 先 claim 再 complete |
+| 绑定角色（非 main） | 官方四类工具 | **禁行** | 绕过三权分立 / 旁路 | `officialDenyForRole(role)`；席位工具面同时隐藏（`restrict({deny})`） |
+| `terminal_send` | 源码树 | **禁行（best-effort）** | 持久终端不能当 shell 旁路 | `text` 参数进命令扫描（`SHELL_TEXT_ARG_TOOLS`） |
+
+### 10.4 画法提醒
+
+- **任务板镜像画虚线**：它不是流水线权威状态（权威永远在 `.pipeline/<任务>/task.json`），
+  失败不影响主流程。
+- **四槽图**：`mode` 那一格画成「官方不支持 · 未下发（UNAVAILABLE）」，别画成绿勾；
+  `permission` / `model` 画成「spawn 后补钉 + 读回」。
+- **别画「team 通道 = 侧栏多会话」**：验收词是「官方 Team 名单里出现具名 teammate、消息可达」。
+- **别画「机制自愈在 team 通道派新席位」**：机制发起没有活 Lead Agent，明确失败（图上是断开）。
+- 名额上限（官方 `maxMembers`）画一条**容量边界**：到顶就派不出去，只能新开会话或调大配置。

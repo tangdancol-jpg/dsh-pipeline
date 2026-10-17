@@ -17,6 +17,7 @@
  */
 
 import { collectTargets } from './targets.js'
+import { isShellTextArgTool } from './official-tools.js'
 
 /** 默认的**写**类文件工具名。 */
 export const DEFAULT_WRITE_TOOLS = ['write', 'edit', 'str_replace_editor', 'notebook_edit', 'apply_patch', 'multi_edit']
@@ -64,8 +65,22 @@ export function collectPaths(args, cwd) {
 /**
  * 从 shell 工具的实参里收集命令串。
  * pwsh/bash 用 `command`；别的 shell 类工具可能叫 cmd/script/input/code。
+ *
+ * ★ 2026-10 补（`design/agent-teams/01-目标与边界.md` §D8 第 1 条）：**持久终端的命令在
+ *   `text` 参数里**（`terminal_send` / `terminal_write` / `terminal_input`）。不把 `text`
+ *   收进来，测试/审核就能用 `terminal_send { text: "echo x > src/a.js" }` 改代码 ——
+ *   该拦的拦不住，而"测试/审核不得改代码"正是三权分立的核心一条。
+ *
+ * ★ 为什么**按工具名**决定要不要扫 `text`，而不是把 `text` 加进通用键名表：
+ *   `text` 太常见了 —— `write` / `edit` 的正文、审核报告、Markdown 里都会出现 `>`。
+ *   把正文当命令扫 = 审核写报告被误拒（那是我们踩过的坑，见 defect ③）。
+ *   所以：只有在工具名**明确是**"命令在 text 里"的那一类时，才补扫 `text`。
+ *
+ * @param {any} args - 工具实参
+ * @param {{toolName?: string}} [opts] - `toolName` 给了才按 {@link SHELL_TEXT_ARG_TOOLS} 决定补扫 `text`
+ * @returns {string[]}
  */
-export function collectCommandStrings(args) {
+export function collectCommandStrings(args, opts = {}) {
   const out = []
   const seen = new Set()
   const push = (v) => {
@@ -75,6 +90,8 @@ export function collectCommandStrings(args) {
   }
   if (args === null || typeof args !== 'object') return out
   for (const k of ['command', 'cmd', 'script', 'input', 'code', 'shell_command']) push(args[k])
+  // ★ 持久终端：命令在 `text` 里 —— 只对这一类工具补扫（见上面的"为什么按工具名"）。
+  if (isShellTextArgTool(opts?.toolName)) push(args.text)
   const walk = (value, depth) => {
     if (depth > 3) return
     if (typeof value === 'string') {

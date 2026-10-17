@@ -112,6 +112,8 @@ import { pathKey, PACKAGE_ROOT } from './lib/util.js'
 // ★★ **读目录设定**：安装目录 / 工作目录的**唯一出处**（配置 > 环境变量 > 文件 > 推导）。
 //    同一份判据也被 `install.ps1` 读，两边不会各推各的。见 lib/dirs.js。
 import { resolveDirs } from './lib/dirs.js'
+// ★ WP-B：任务板镜像的宿主登记（开单/关单两个 hook 在 store 里，那里拿不到 ctx/config）。
+import { installBoardHost } from './lib/team/board.js'
 
 /** 插件名。 */
 export const name = 'dsh-pipeline'
@@ -230,15 +232,31 @@ export function apply(ctx, rawConfig) {
     /** ★ E3：`sw` 建在下面（`:235`）⇒ 这里只能给一个闭包；判据仍然只有 `lib/switch/gate.js` 一处。 */
     switchRef: () => sw,
   })
+  /**
+   * ★★ WP-B：把宿主 ctx / config / dirs 登记给**官方 Team 任务板镜像**
+   * （`lib/team/board.js`）。为什么要在 `apply()` 里登记：开单/关单的 hook 住在
+   * `lib/store/lifecycle.js`，而 store 的 ctx 只带 `projectRoot / artifactDirName`
+   * （既有形态，不为镜像改它）。不登记 ⇒ 两个 hook 一律 `skipped`（不抛、不审计）；
+   * 登记了才真机镜像。**失败不影响主流程**（board 内部全 catch）。
+   */
+  installBoardHost({ ctx, config, dirs })
   // ★ 通道侧留痕出口：通道不可达 / 「完全」档被拒 / 归组建不起来 —— 这三类判决
   //   都必须落盘。写进**既有**的 `.pipeline/<任务>/audit.jsonl`（只追加），不新开机制。
   const channelAudit = createChannelAudit({
     auditFile: (id) => store.auditFile(id),
     log: (m) => ctx.logger?.warn?.(`[pipeline] ${m}`),
   })
-  const transport = createTransport(ctx, config, { tokens, audit: channelAudit.record })
-  /** ★ 真实会话派活通道的能力探测结论（可观测：日志 + `lastChannelProbe()`）。 */
-  const channelProbe = probeSessionChannel(ctx)
+  const transport = createTransport(ctx, config, { tokens, audit: channelAudit.record, dirs })
+  /**
+   * ★★ WP-T：通道能力探测结论要按**实际选中的通道**说话。
+   *
+   * 改前这里是恒定的 `probeSessionChannel(ctx)`，与实际通道**无关** —— 接上 team 通道
+   * 之后，日志仍会喊「真实会话通道不可达」，把排查方向带偏（测绘报告
+   * `pipeline-transport.md` §9.2 第 5 条）。现在：能自报 `probe()` 的通道用自己的结论，
+   * 其余（manual / subagent / unreachable 没有 `probe()`）保持原来的真实会话通道口径
+   * —— **既有通道的日志一个字节没变**。
+   */
+  const channelProbe = typeof transport?.probe === 'function' ? transport.probe() : probeSessionChannel(ctx)
   LAST_CHANNEL_PROBE = channelProbe
 
   // -------------------------------------------------------------------------
@@ -1030,11 +1048,12 @@ export function apply(ctx, rawConfig) {
   }
 
   const snap = sw.snapshot()
+  const probeLabel = channelProbe.kind === 'team' ? '官方 Team 通道' : '真实会话通道'
   const msg =
     `[pipeline] ${NS} ${TOOL_VERSION} 已加载：29 个 pipeline_* 工具已注册；` +
     (config.guardEnabled === true ? '守门已启用；' : '**guardEnabled=false（没有硬拦截）**；') +
     `通道=${transport.kind}（transport=${config.transport}，spawnRoles=${config.spawnRoles !== false}）；` +
-    `真实会话通道=${channelProbe.ok ? '可用' : '**不可达**'}${channelProbe.ok ? '' : `（缺 ${channelProbe.missing.join('、')}）`}；` +
+    `${probeLabel}=${channelProbe.ok ? '可用' : '**不可达**'}${channelProbe.ok ? '' : `（缺 ${(channelProbe.missing ?? []).join('、')}）`}；` +
     `工作区=${join(projectRoot, config.artifactDirName)}；` +
     `多AI 协调开关=**${snap.on ? '开' : '关'}**（revision ${snap.revision}${snap.restored ? '，自状态文件恢复' : '，默认值'}）。`
   ctx.logger?.info?.(msg)
@@ -1042,11 +1061,15 @@ export function apply(ctx, rawConfig) {
 
   // ★ 通道不可达要**喊出来**（不是只在返回值里）：先上报、不静默降级。
   if (channelProbe.ok !== true) {
+    const head = channelProbe.kind === 'team'
+      ? '[pipeline] ⚠ 官方 Team 通道**不可达**（transport=team），已按「先上报、不静默降级」停住：\n'
+      : '[pipeline] ⚠ 真实会话派活通道**不可达**，已按「先上报、不静默降级」停住（不会自动退回子代理）：\n'
     const wmsg =
-      '[pipeline] ⚠ 真实会话派活通道**不可达**，已按「先上报、不静默降级」停住（不会自动退回子代理）：\n' +
-      channelProbe.evidence.map((e) => `  · ${e}`).join('\n') + '\n' +
-      '  降级方案（交用户裁定后再改配置）：\n' +
-      channelProbe.degradations.map((x, i) => `  ${i + 1}. ${x}`).join('\n')
+      head +
+      (channelProbe.evidence ?? []).map((e) => `  · ${e}`).join('\n') + '\n' +
+      (Array.isArray(channelProbe.degradations) && channelProbe.degradations.length > 0
+        ? '  降级方案（交用户裁定后再改配置）：\n' + channelProbe.degradations.map((x, i) => `  ${i + 1}. ${x}`).join('\n')
+        : `  ${channelProbe.note ?? ''}`)
     ctx.logger?.warn?.(wmsg)
     console.warn(wmsg)
   }
@@ -1109,10 +1132,12 @@ export function isDefineToolDegraded() {
 }
 
 /**
- * ★ 上一次 `apply()` 时**真实会话派活通道**的能力探测结论。
+ * ★ 上一次 `apply()` 时**实际选中通道**的能力探测结论。
  *
  * 为什么必须能查：派活通道的「可达 / 不可达 + 证据 + 降级方案」如果只写在日志里，
  * 排查时就得翻日志；它是**判决**，得能被程序读到、被自测断言、被审查引用。
+ * ★ WP-T：口径按**选中通道**（`transport.kind`）—— `team` 通道给的是官方 Team 服务的
+ *   探测结论（`kind:'team'`），其余通道仍是真实会话通道的结论（既有行为不变）。
  */
 let LAST_CHANNEL_PROBE = null
 export function lastChannelProbe() {

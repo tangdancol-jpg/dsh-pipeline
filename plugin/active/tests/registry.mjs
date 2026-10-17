@@ -244,4 +244,19 @@ export const EXTRA_SUITES = [
   //    巡检 / 升级链却全程不读 relayPolicy ⇒ 告警升了也消费不掉、一直挂着。
   //    这一套钉：不可换班 ⇒ 正文给「不可换班 / 重下 relayPolicy / 走人工」且不升级；可换班 / 白名单为空 ⇒ 逐字不变。
   { file: './f23-relay-blocked-notice-check.mjs', exportName: 'runF23RelayBlockedNoticeCheck', zh: '★ 不可换班的席位告警给出下一步（§9 噪声 ④：正文指引 + 不升级；可换班照旧）' },
+  // ★★ Agent Teams 深度整合 · WP-T（设计：`design/agent-teams/01-目标与边界.md` §4）。
+  //    `transport:'team'` 是**第三条真实派活通道**：派官方具名 teammate、走官方 sendMessage 投递。
+  //    这一套钉十条判据：`spawn:false` 零宿主调用 / 正常 spawn 的名字与正文（含令牌与角色人格）/
+  //    同名**复用**（不重复 spawn）/ `reassign` ⇒ `-r2` / 无服务与无活 caller 的可读失败
+  //    （**不静默降级**）/ 容量错误翻译 / 64KB 按字节截断 / `stop:true` ⇒ interrupt /
+  //    四槽（`mode` 记 UNAVAILABLE、permission 读回、`teamStrictSlots` 拒绝）/ 选择点与配置白名单。
+  { file: './team-transport-check.mjs', exportName: 'runTeamTransportCheck', zh: '★ team 通道（官方 teammate：命名 / 派活 / 复用 / 四槽 UNAVAILABLE / 投递截断 / 错误翻译 / 选择点）' },
+  // ★★ Agent Teams 深度整合 · WP-G（设计 01 §D8 / 02 §3）。
+  //    官方新插件把 team 协作 / 委派 / 插件管理 / 会话搜索工具塞进每个成员的工具面；
+  //    绑定角色（非 main）调它们等于绕过三权分立 ⇒ 守门必须点名拒绝，且席位工具面要隐藏。
+  { file: './team-guard-check.mjs', exportName: 'runTeamGuardCheck', zh: '★ 守门覆盖官方新工具（team / 委派 / 插件 / 会话搜索拒绝 + terminal_send 的 text 走 shell 检查 + 席位面隐藏）' },
+  // ★★ Agent Teams 深度整合 · WP-B（设计 01 §D10 / 02 §4）。
+  //    pipeline 任务 ↔ 官方 Team 任务板镜像：开单 createTask / 派活 reassign / 关单 complete；
+  //    best-effort（失败只审计，绝不改流水线 ok）。
+  { file: './team-board-check.mjs', exportName: 'runTeamBoardCheck', zh: '★ 任务板镜像（开单 / 派活 / 关单 + revision CAS 重试 + best-effort 降级）' },
 ]

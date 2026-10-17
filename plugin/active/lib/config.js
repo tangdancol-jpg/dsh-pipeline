@@ -23,11 +23,49 @@ export const DEFAULTS = {
   maxReworkPerLeg: 2,
   /**
    * 角色驱动通道：
-   *   auto     有 ctx.subagents 就用真实子代理，否则退回 manual（默认）
+   *   auto     先试真实会话通道，拿不到就**只上报**（默认；不静默降级）
+   *   session  强制真实会话通道（拿不到就报错）
    *   subagent 强制真实子代理（拿不到就报错）
-   *   manual   只发角色令牌，不创建任何子代理会话（人工复制通道，零副作用）
+   *   manual   只发角色令牌，不创建任何会话（人工复制通道，零副作用）
+   *   team     ★ 官方 Agent Teams 通道：派「具名 teammate」、走官方 sendMessage 投递
+   *            （四槽里的 mode 下发不了 —— 官方 spawnTeammate 没有这个参数，见 lib/transport/team.js）
    */
   transport: 'auto',
+  /**
+   * ★ `transport:'auto'` 时是否**先**试团队通道（默认 false ⇒ 生产行为一个字节不变）。
+   *
+   * 为什么默认关：`auto` 的既有语义是"先试真实会话通道"，改优先级等于改变现有生产行为；
+   * 团队通道的价值（官方名单可见 / 官方投递）要显式选，验证过再谈默认。
+   */
+  teamAuto: false,
+  /**
+   * 团队通道派活用哪个 subagent provider。实测本机可用值：`spawn` / `fork`
+   * （`context:'fresh'` 对应 spawn，`'fork'` 对应 fork —— 官方工具层就是这么映射的）。
+   * ★ teammate 只能用带 `prepareContinuable` 的 local provider：换成 `claude-code` / `codex`
+   *   这类 external provider 会被官方以 `UNSUPPORTED_CAPABILITY` 拒掉。
+   */
+  teamProvider: 'spawn',
+  /**
+   * ★ teammate 名字前缀（kebab）：名字 = `<前缀>-<任务小写>-<角色>[-<席位序号>]`。
+   * 官方名字**同 Team 内永久唯一、永不重用**，所以任务必须编进名字里（见 lib/team/naming.js）。
+   */
+  teamNamePrefix: 'p',
+  /**
+   * ★ **严格四槽**：官方 `spawnTeammate` 没有 agentPreset / permission / model 参数，
+   * 四槽只能 spawn 之后补钉（mode 根本补不上）。默认 false = 补钉失败时**如实登记**并继续；
+   * true = 任一槽"显式非默认却钉不上"就**拒绝派活**（`mode` 恒钉不上，所以显式给了 mode 必拒）。
+   */
+  teamStrictSlots: false,
+  /**
+   * ★ 团队通道不可达时是否自动退回别的通道。默认 `off` = **不降级**（与 `allowChannelFallback`
+   * 同一纪律：拿近似物冒名比"看得见的失败"危险得多）。本阶段只接受 `off`。
+   */
+  teamFallback: 'off',
+  /**
+   * ★ 任务板镜像（pipeline 任务 ↔ 官方 `team_task_*`）：`auto` = team 通道与服务可用时镜像，
+   * `off` = 关。镜像**失败不阻断流水线**（任务板是辅助面，错误只进 audit）。
+   */
+  teamBoard: 'auto',
   /** 是否真的创建子代理会话。false = 自测/演示用（只发令牌，不建会话）。 */
   spawnRoles: true,
   /**
@@ -37,6 +75,12 @@ export const DEFAULTS = {
   subagentProvider: 'spawn',
   /** 角色子代理的 provider（含上下文继承语义的）—— 留空表示与 subagentProvider 相同。 */
   roleProvider: '',
+  /**
+   * 真实会话通道的默认内置模式（= 会话头 `agentPreset`）。留空 = `standard`。
+   * ★ 以前它是**隐式键**：`SessionTransport` 读 `cfg.sessionPreset`，而本文件既没默认值
+   *   也没类型校验 ⇒ 填个数字会一路落进宿主 `create({agentPreset: 42})`。现在有默认值与校验。
+   */
+  sessionPreset: '',
   /** 子代理标签前缀（便于在会话列表里一眼认出流水线角色）。 */
   labelPrefix: 'pipeline',
   /** 参与「测试/审核不得改代码」「控制角色不得读代码」判定的读写工具名。 */
@@ -353,7 +397,22 @@ export function mergeConfig(raw) {
     search: Array.isArray(ft.search) && ft.search.length > 0 ? ft.search : [...DEFAULT_SEARCH_TOOLS],
   }
 
-  if (!['auto', 'subagent', 'manual'].includes(out.transport)) out.transport = DEFAULTS.transport
+  // ★ 通道白名单：`team` / `session` 是**显式**选项（`session` 以前不在白名单里 ⇒
+  //   显式写 `transport:'session'` 会被静默改回 auto，那是"配置被悄悄吃掉"）。
+  if (!['auto', 'subagent', 'manual', 'session', 'team'].includes(out.transport)) out.transport = DEFAULTS.transport
+  // ★ 团队通道（WP-T）：类型写错一律回落默认值 —— **不许**因为配置写错就把能力悄悄关掉。
+  if (typeof out.teamAuto !== 'boolean') out.teamAuto = DEFAULTS.teamAuto
+  if (typeof out.teamProvider !== 'string' || out.teamProvider.trim().length === 0) out.teamProvider = DEFAULTS.teamProvider
+  // 前缀必须是合法 kebab 段（否则拼出来的 teammate 名字会被官方以 TEAM_INVALID_MEMBER_NAME 拒）。
+  if (typeof out.teamNamePrefix !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(out.teamNamePrefix)) {
+    out.teamNamePrefix = DEFAULTS.teamNamePrefix
+  }
+  if (typeof out.teamStrictSlots !== 'boolean') out.teamStrictSlots = DEFAULTS.teamStrictSlots
+  if (!['off'].includes(out.teamFallback)) out.teamFallback = DEFAULTS.teamFallback
+  if (!['auto', 'off'].includes(out.teamBoard)) out.teamBoard = DEFAULTS.teamBoard
+  // `sessionPreset` 以前是**隐式键**（SessionTransport 读它，config.js 里既没默认值也没校验）
+  // ⇒ 填个数字会让 `create({agentPreset: 42})` 直接落进宿主，报错还看不懂。
+  if (typeof out.sessionPreset !== 'string' || out.sessionPreset.trim().length === 0) out.sessionPreset = DEFAULTS.sessionPreset
   if (!['L0', 'L1', 'L2', 'L3', 'L4', 'L5'].includes(out.defaultTier)) out.defaultTier = DEFAULTS.defaultTier
   if (typeof out.subagentProvider !== 'string' || out.subagentProvider.length === 0) out.subagentProvider = DEFAULTS.subagentProvider
 

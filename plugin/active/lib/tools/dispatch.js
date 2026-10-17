@@ -480,7 +480,13 @@ export function buildDispatchTools(ctx) {
       if (!effectiveSpawn) {
         res = await transport.spawnRole({ task, roster: task.roster, role, seat, spawn: false, agentId: null, ...slots })
       } else {
-        res = await transport.spawnRole({ task, roster: task.roster, role, seat, spawn: true, parent: exec.agent, signal: exec.signal, ...slots })
+        /**
+         * ★ WP-T：`reassign` 要一起带进 spec —— 官方 teammate 名字**同 Team 内永不重用**
+         *   （事实 F4），所以"同一席位换个人"必须换个新名字（`-r2`、`-r3`）。通道侧
+         *   只有拿到这个标志才能区分"复用既有 member"与"重派一个新 member"（01 §D5）。
+         *   ★ 其余通道不读这个字段，行为不变。
+         */
+        res = await transport.spawnRole({ task, roster: task.roster, role, seat, spawn: true, parent: exec.agent, signal: exec.signal, reassign: args.reassign === true, ...slots })
       }
       if (res.ok !== true) {
         // ★ `seat ?? ''`：**不能**把裸 `seat` 交出去。
@@ -522,7 +528,13 @@ export function buildDispatchTools(ctx) {
           token: res.token ?? null,
           at: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
           atMs: Date.now(),
-          via: spawn ? 'subagent' : 'manual',
+          /**
+           * ★ WP-T：`via` 按**通道自报**（`res.via`）记，而不是按"有没有 spawn"猜。
+           *   改前恒为 `spawn ? 'subagent' : 'manual'` —— Session 通道也被记成 subagent
+           *   （既有小谎），team 通道更会被彻底记错，而审计、失联检测、`nudgeSeat` 都读这一格。
+           *   通道不自报时保持改前的口径（逐字不变）。
+           */
+          via: res.via ?? (spawn ? 'subagent' : 'manual'),
         })
         if (rec.ok === true) indexTask(rec.task.id, rec.task)
       } catch (err) {
@@ -684,6 +696,16 @@ export function buildDispatchTools(ctx) {
             ? ''
             : `★ **席位失联重派**：任务已从「已阻塞」恢复到「${STATE_LABEL[revived.to] ?? revived.to}」（**没有消耗打回预算** —— 席位死亡不是任何角色的错）。\n`) +
           `已派出「${roleLabel(role)}」。\n${res.note}\n` +
+          /**
+           * ★ WP-T（01 §D9）：team 通道派出去的是**官方 Team member**（`list_agents` 里可见），
+           *   所以"等它的变化"应当用官方 `wait_agent`，而不是让主对话反复 `pipeline_status` 轮询。
+           *   ★ 只在 team 通道出现这一句 —— 别的通道下面没有这些官方工具，提了就是误导。
+           */
+          (res.via === 'team'
+            ? '★ 该席位是**官方 Team member**（`list_agents` 里可见、可用 `send_message` 直接对话）：' +
+              '等它的变化用 `wait_agent`（10s–1h，**不必**轮询 `pipeline_status`）；' +
+              '`wait_agent` 立刻返回「无进展」只说明队里暂时没有别的 running/provisioning 成员，**不代表**该席位失败。\n'
+            : '') +
           (advanced === null ? '' : `任务状态：${STATE_LABEL[advanced.from]} → ${STATE_LABEL[advanced.to]}。\n`) +
           (args.note ? `补充说明：${args.note}\n` : '') +
           slotNote +

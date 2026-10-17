@@ -35,6 +35,10 @@ import { collectTargets, targetLine } from './targets.js'
 //    ⚠ 它**不覆盖** shell 内容判据（§4）与授权面判据（§3a）：
 //      那两条不是"一种能力"，是边界集合（见 `capability.js` 文件头）。
 import { CAPABILITY, createCapabilityGate } from './capability-gate.js'
+// ★★ Agent Teams 深度整合（`design/agent-teams/01-目标与边界.md` §D8）：
+//    官方新工具面（team 协作 / 委派 / 插件管理 / 会话搜索）的分类名单 —— **唯一出处**
+//    `official-tools.js`。本文件只用它判定"绑定角色能不能调这个工具"，不另抄名单。
+import { officialOutsideRole, officialRefusalText } from './official-tools.js'
 import {
   makeTaskOf,
   agentIdOf,
@@ -107,6 +111,27 @@ function decide(exec, deps) {
   // 非流水线工具、且调用方没有绑定任何角色 → 与流水线无关，直接放行。
   // （守门只约束流水线参与者，绝不去管无关会话 —— 这是与其它插件共存的前提。）
   if (!isPipelineTool && binding === null) return undefined
+
+  // --- 0b) ★★ 官方新工具面：绑定角色（非 main）命中即拒 --------------------
+  //
+  //   `design/agent-teams/01-目标与边界.md` §D8 第 2 条。为什么这条必须存在：
+  //   角色会话在 Team 通道下**继承 Lead 的预设**（官方事实 F2：`spawnTeammate` 走
+  //   `composeFrom(parent)`），工具面比原来的 `pl-*` 角色预设宽得多。不拦这三类，
+  //   下面这些既有判据全部可以被**绕过**（不是"可能"）：
+  //     · 委派类（subagent / workflow / ralph）→ 测试/审核借子代理的手改代码；
+  //     · team 协作类（spawn_teammate / send_message / team_task_*）→ 私下拉人、
+  //       自己开任务板条目，绕开"结构化交接物 + 状态机"这道唯一交付入口；
+  //     · 插件管理类（plugin_manager / plugin_market）→ 直接改运行环境；
+  //     · 会话搜索类（session_search / session_*）→ 读别的会话正文，旁路读代码。
+  //   ★ 主对话（main）**不拒**：它就是 Lead，team 协作类是它的本职（派活/投消息/
+  //     任务板镜像都靠它）。名单的这层口径写在 `official-tools.js` 里，不在本文件。
+  //   ★ 未绑定角色的会话照旧放行（上面那行已经返回）—— 守门只约束流水线参与者。
+  if (!isPipelineTool && binding !== null) {
+    const category = officialOutsideRole(binding.role, name)
+    // ★ 拒绝原文的**唯一出处在 `official-tools.js`**（与名单同源：名单加一个工具，
+    //   文案里那条类别说明自然覆盖它，不会出现"名单拦住了、文案还在讲别的理由"）。
+    if (category !== null) return officialRefusalText(name, binding.role, category, { roleLabel: roleZh(binding.role), tag: TAG })
+  }
 
   // --- 1) 流水线工具的角色白名单（pre-dispatch 早拦）---------------------
   if (isPipelineTool) {
@@ -576,7 +601,9 @@ function decide(exec, deps) {
   if (isShellToolName(name, cfg) && binding !== null) {
     const task = taskOf(binding.taskId)
     if (task !== null) {
-      const commands = collectCommandStrings(args)
+      // ★ Agent Teams（§D8 第 1 条）：持久终端的命令在 `text` 里 —— 按工具名补扫
+      //   （只对 `SHELL_TEXT_ARG_TOOLS`；`write` 正文不算命令，见 `collectCommandStrings`）。
+      const commands = collectCommandStrings(args, { toolName: name })
       for (const cmd of commands) {
         // ★★ C3（2026-10-14）：既有判据先跑（逐字节不变）；它放行时才展开**脚本正文**，
         //   把正文喂回同一个 `scanShellCommand`。理由见 `collectCommandStrings` 下面那一段。
