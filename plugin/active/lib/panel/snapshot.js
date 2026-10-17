@@ -4,6 +4,8 @@
  * ============================================================================
  * 一次给齐客户端要显示的四样东西：任务列表（状态中文名 + 需求摘要）、每个任务的席位
  * （角色中文名 + 席位号 + 是否已派出 + 当前会话身份）、人工待办数。
+ * 外加一格 `allowed_actions`：这个状态下**面板能发起**哪些操作（只读判定，
+ * 执行在 `lib/panel/actions.js`，两边共用 `lib/states.js` 的同一份状态机判据）。
  *
  * ---- 硬边界 ----------------------------------------------------------------
  *   · **只读**：只 `readdirSync` / `readFileSync` / `statSync`，一个字节都不写任务数据；
@@ -37,7 +39,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { ROLE, roleLabel } from '../roles.js'
-import { STATE_LABEL } from '../states.js'
+import { STATE_LABEL, TERMINAL_STATES, findTransition } from '../states.js'
 import { pathKey } from '../util.js'
 
 /** 只认这个前缀的任务目录（`_memory` / `_trash` / 杂项一律不看）。 */
@@ -52,6 +54,16 @@ export const SEAT_STATUS = Object.freeze({ CURRENT: 'current', DISPATCHED: 'disp
 export const SEAT_KIND = Object.freeze({ SESSION: 'session', TEAM: 'team', UNKNOWN: 'unknown' })
 /** 人工请求里"已经不需要人再答"的状态（与 store 侧逐字一致）。 */
 const HUMAN_CLOSED_STATUSES = ['answered', 'withdrawn']
+/**
+ * 面板操作 id（顺序 = 契约顺序，**只出现可用的**）。
+ *
+ * ★ 与 `lib/panel/actions.js` 的 `PANEL_ACTION_IDS` 是**同一组名字**：
+ *   本文件只回答"这个状态下**能**做哪几件"，能不能真做成由 `actions.run()` 判
+ *   （开关、二次确认、终态闸、状态机全部在那一侧，本文件一个字节都不写盘）。
+ *   顺序固定为 `cancel, restore, archive, delete` —— 客户端按这个顺序渲染按钮即可，
+ *   不需要自己再排一遍。
+ */
+export const PANEL_ACTION_ORDER = Object.freeze(['cancel', 'restore', 'archive', 'delete'])
 
 /**
  * 构建面板快照（**同步 · 纯读 · 绝不抛**）。
@@ -137,6 +149,9 @@ function buildTaskRow({ taskId, taskDir, nowMs, warnings }) {
       human_pending: humanPendingCount(task),
       team_board: teamBoardOf({ taskDir, taskId, warnings }),
       seats: seatsOf(task),
+      // ★ 追加在现有 8 个键**之后**（键名/顺序不动，只多这一格）。
+      //   判据见 `allowedActionsOf()`：全部来自 `lib/states.js`，不手抄状态名单。
+      allowed_actions: allowedActionsOf(task.state),
     },
     sortMs: msOf(updatedAt) ?? 0,
   }
@@ -147,6 +162,35 @@ export function stateLabelOf(state) {
   const key = textOf(state)
   if (key.length === 0) return ''
   return Object.hasOwn(STATE_LABEL, key) ? STATE_LABEL[key] : key
+}
+
+/**
+ * 当前状态下**面板可以发起**的操作（顺序固定：`cancel, restore, archive, delete`）。
+ *
+ * ★ 判据全部**复用状态机**，本文件不另抄一份状态名单：
+ *   · `cancel`  —— 非终态 **且** `findTransition(state,'cancel')` 有边。
+ *     为什么必须先挡终态：表里那条 `cancel` 是 `from:'*'`（任意非终态可取消），
+ *     单看 `findTransition` 对 `closed` / `cancelled` 也会返回非 null —— 终态闸必须自己挡，
+ *     而"什么是终态"读的是 `TERMINAL_STATES`（与 `lib/store/purge.js` 的 `isTerminalState` 同源）。
+ *   · `restore` —— `blocked`（或状态机接受 `unblock`）。`unblock` 的边只有
+ *     `from: ST.BLOCKED` 一条，所以这里直接问表，**不把 `'blocked'` 抄成字面量**。
+ *   · `archive` / `delete` —— 仅终态（与 `purgeTask` 的硬约束同一份判据）。
+ *
+ * @param {string} state
+ * @returns {string[]} 可能是空数组（未知/空状态：什么都不能做，也绝不抛）
+ */
+export function allowedActionsOf(state) {
+  const key = textOf(state)
+  if (key.length === 0) return []
+  const terminal = TERMINAL_STATES.includes(key)
+  const out = []
+  if (!terminal && findTransition(key, 'cancel') !== null) out.push('cancel')
+  if (!terminal && findTransition(key, 'unblock') !== null) out.push('restore')
+  if (terminal) {
+    out.push('archive')
+    out.push('delete')
+  }
+  return out
 }
 
 /**

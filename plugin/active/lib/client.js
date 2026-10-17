@@ -44,6 +44,15 @@
  *      + 状态），点席位名字用 `uiWorkspace.openSession(...)` 打开那个对话，当前对话的席位
  *      带 ring 高亮与「当前对话」标签。数据来自 `GET /.dsh-pipeline/panel`（5s 轮询）。
  *
+ * 面板里还有两处交互（宿主侧只需要契约，代码全在本文件）：
+ *   · 任务卡右下角的**操作按钮**（终止 / 恢复 / 留档 / 删单）：按钮来源是快照的
+ *     `task.allowed_actions`，点击发 `POST /.dsh-pipeline/panel/action`。
+ *     「删单」用**两次点击**确认（3 秒内再点），**不弹** `window.confirm`（Electron 里体验差
+ *     且可能被拦）。
+ *   · 席位 chip **悬停 400ms** 弹一个会话预览浮层（最近 12 条，`overflowY:auto` 可滚轮翻）：
+ *     取数走客户端 `sessions` 服务（`ctx.get('sessions')` → `retain(...)` →
+ *     `binding.eventSource`），不是从面板快照里拿的。
+ *
  * ---------------------------------------------------------------------------
  * 怎么和宿主说话：同端口相对 fetch
  * ---------------------------------------------------------------------------
@@ -300,6 +309,74 @@
   /** 面板轮询周期。席位状态变得比开关勤，所以比开关的 8s 快。 */
   var PANEL_POLL_MS = 5000
 
+  // =========================================================================
+  // 面板的两个交互面：任务卡操作按钮 + 席位会话预览
+  // =========================================================================
+
+  /**
+   * 面板**写操作**路由（宿主半边在 `lib/switch-routes.js` 的 `PANEL_ACTION_PATH`）。
+   *
+   * 契约（与宿主 `lib/panel/actions.js` 是同一份）：
+   *   `POST { task_id, action: 'cancel'|'restore'|'archive'|'delete', confirm?: boolean }`
+   *     → `200 { ok:true,  action, task_id, message }`   // message 是给人看的中文
+   *     → `200 { ok:false, action?, task_id?, error }`   // 业务失败也是 200：读 ok，不猜状态码
+   */
+  var PANEL_ACTION_PATH = '/.dsh-pipeline/panel/action'
+
+  /**
+   * 四个动作的**可见顺序**（与快照 `allowed_actions` 的契约顺序一致）。
+   * 快照给什么名字就只认什么名字：认不出的动作**不渲染按钮**（宁可不显示，
+   * 也不给一个点了没反应的按钮）。
+   */
+  var PANEL_ACTION_ORDER = ['cancel', 'restore', 'archive', 'delete']
+
+  /** 动作 → 按钮文案 / 兜底成功提示 / tooltip。`done` 只在回包没给 `message` 时用。 */
+  var PANEL_ACTION_META = {
+    cancel: { label: '终止', done: '已终止', tip: '终止这张任务单（进入终态，之后才能留档或删单）' },
+    restore: { label: '恢复', done: '已恢复', tip: '解除阻塞，把任务单恢复到阻塞前的状态' },
+    archive: { label: '留档', done: '已留档', tip: '把这张终态任务单移进回收站（可恢复）' },
+    delete: { label: '删单', done: '已删单', tip: '永久删除这张终态任务单，不可恢复（要点两次）' },
+  }
+
+  /** 删单的两击确认窗口：超时或指针移开就复原 —— 不可恢复的动作不该被误触。 */
+  var DELETE_CONFIRM_MS = 3000
+
+  /** 删单按钮进入确认态后的文案（第二次点它才真的删）。 */
+  var DELETE_CONFIRM_LABEL = '再点一次确认删单'
+
+  /** 悬停多久才弹会话预览 —— 太短会在扫过一排 chip 时闪出一堆浮层。 */
+  var PREVIEW_SHOW_MS = 400
+
+  /** 指针离开后多久收起 —— 留出"移进预览层"的时间（移入会取消这个计时）。 */
+  var PREVIEW_HIDE_MS = 250
+
+  /** 预览里最多显示几条消息（取最后这么多条）。 */
+  var PREVIEW_MAX_ROWS = 12
+
+  /** 单条消息最多截多少字（空白先压成一个空格；超出加省略号）。 */
+  var PREVIEW_MAX_CHARS = 120
+
+  /** 同一会话的预览快照缓存多久：30 秒内不重复 `retain`。 */
+  var PREVIEW_CACHE_MS = 30000
+
+  /** 最多同时保留几个会话引用（超了释放最老的 —— 连点一排 chip 也不会把引用堆满）。 */
+  var PREVIEW_MAX_RETAINED = 3
+
+  /** 会话历史读取的兜底超时：`ready` 迟迟不结算时不让预览层永远转圈。 */
+  var PREVIEW_LOAD_TIMEOUT_MS = 6000
+
+  /** 预览层尺寸：小窗口看聊天（宽度自适应视口，宽一点才像聊天窗；高度上限 280px）。 */
+  var PREVIEW_MIN_WIDTH = 300
+  var PREVIEW_MAX_WIDTH = 420
+  var PREVIEW_MAX_HEIGHT = 280
+
+  /** 三种消息在预览里的标签与颜色（用户 / AI / 工具）。 */
+  var PREVIEW_ROLE = {
+    'user/message': { label: '用户', color: '#2f81f7' },
+    'assistant/message': { label: 'AI', color: '#2ea043' },
+    'tool/result': { label: '工具', color: '#d29922' },
+  }
+
   /**
    * 角色 id → 中文名（**只在 `role_label` 缺失时兜底**）。
    * 叫法与 `lib/roles.js` 里那份 `zh` 一致，不另造词。
@@ -388,6 +465,299 @@
         },
       )
     })
+  }
+
+  /**
+   * 发一次面板写操作。
+   *
+   * 失败**不抛**（与 `fetchPanel` 同一条规矩）：网络异常由调用方补 `.catch`，
+   * 这里只把"服务器回了个什么形状"归一成 `{ ok, message?, error? }`。
+   *
+   * @param {string} taskId
+   * @param {string} action - `cancel` / `restore` / `archive` / `delete`
+   * @param {boolean} confirm - 只有 `delete` 需要（宿主侧 `confirm !== true` 会明确拒绝）
+   * @returns {Promise<{ok:boolean, message?:string, error?:string}>}
+   */
+  function postPanelAction(taskId, action, confirm) {
+    var payload = { task_id: taskId, action: action }
+    if (confirm === true) payload.confirm = true
+    return fetch(PANEL_ACTION_PATH, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      cache: 'no-store',
+      body: JSON.stringify(payload),
+    }).then(function (res) {
+      return res.json().then(
+        function (body) {
+          if (body === null || typeof body !== 'object') {
+            return { ok: false, error: '返回体不是 JSON 对象（HTTP ' + res.status + '）' }
+          }
+          if (!res.ok || body.ok !== true) {
+            return { ok: false, error: typeof body.error === 'string' && body.error !== '' ? body.error : 'HTTP ' + res.status }
+          }
+          return { ok: true, message: typeof body.message === 'string' ? body.message : '' }
+        },
+        function () {
+          return { ok: false, error: '返回体不是 JSON（HTTP ' + res.status + '）' }
+        },
+      )
+    })
+  }
+
+  /**
+   * 取客户端 `sessions` 服务（拿不到返回 null，预览层降级成一行灰字）。
+   *
+   * 为什么用 `ctx.get('sessions')` 而不是把 `sessions` 写进模块的 `inject` 导出：
+   *   ① `tests/client-check.mjs` 的 B2 对 `inject` 做了硬断言（只有 `['slots']`）—— 加一项就红；
+   *   ② 写进 inject 的语义是"服务不到就不启动插件"，那会连右上角那个开关一起消失；
+   *   ③ 与 `resolveUiWorkspace` **完全同一套写法**（已装的 `dsh-orb` 也是这么取服务的）。
+   */
+  function resolveSessions(ctx) {
+    if (ctx === null || ctx === undefined) return null
+    if (typeof ctx.get === 'function') {
+      try {
+        var viaGet = ctx.get('sessions')
+        if (viaGet !== null && viaGet !== undefined && typeof viaGet.retain === 'function') return viaGet
+      } catch (err) {
+        // 没装 / 还没就绪不算错误，走下一档
+      }
+    }
+    var direct = ctx.sessions
+    if (direct !== null && direct !== undefined && typeof direct.retain === 'function') return direct
+    return null
+  }
+
+  /**
+   * 释放一个会话引用：`release()` 与 `[Symbol.dispose]` 两档都认。
+   * 释放失败**不抛** —— 一个预览的清理失败不该让面板炸。
+   */
+  function releaseSessionRef(ref) {
+    if (ref === null || ref === undefined) return
+    try {
+      if (typeof ref.release === 'function') {
+        ref.release()
+        return
+      }
+    } catch (err) {
+      return
+    }
+    try {
+      if (typeof Symbol !== 'undefined' && Symbol.dispose !== undefined) {
+        var dispose = ref[Symbol.dispose]
+        if (typeof dispose === 'function') dispose.call(ref)
+      }
+    } catch (err) {
+      // 忽略：引用是幂等释放的，这里只是兜底
+    }
+  }
+
+  /**
+   * 一个 content 块（或块数组）→ 纯文本。
+   *
+   * 只认 `type === 'text'` 的块：思考块、工具调用块都不该出现在预览里。
+   * 工具结果的正文常常裹在 `{ type:'tool_result', content:[…] }` 里，所以往下钻一层
+   * （深度上限 2，避免异常数据把这里变成递归地雷）。
+   */
+  function textOfContent(content, depth) {
+    if (typeof content === 'string') return content
+    if (!Array.isArray(content) || depth > 2) return ''
+    var parts = []
+    for (var i = 0; i < content.length; i++) {
+      var block = content[i]
+      if (typeof block === 'string') {
+        parts.push(block)
+        continue
+      }
+      if (block === null || typeof block !== 'object') continue
+      if (block.type === 'text' && typeof block.text === 'string') {
+        parts.push(block.text)
+        continue
+      }
+      if (typeof block.text === 'string' && block.type !== 'thinking') {
+        parts.push(block.text)
+        continue
+      }
+      var inner = textOfContent(block.content, depth + 1)
+      if (inner !== '') parts.push(inner)
+    }
+    return parts.join(' ')
+  }
+
+  /** 压空白 + 截断：预览里一条消息只占一行，太长的正文只留开头。 */
+  function previewText(raw) {
+    if (typeof raw !== 'string') return ''
+    var flat = raw.replace(/\s+/g, ' ').trim()
+    if (flat === '') return ''
+    if (flat.length <= PREVIEW_MAX_CHARS) return flat
+    return flat.slice(0, PREVIEW_MAX_CHARS) + '…'
+  }
+
+  /**
+   * 事件窗口 → 预览行（取最后 {@link PREVIEW_MAX_ROWS} 条）。
+   *
+   * 只认 `entry.type === 'event'`（`transient` 是流式过程中的临时行，不代表已入档内容），
+   * 事件类型限于 `user/message` / `assistant/message` / `tool/result`。
+   *
+   * ★ 正文在 `event.data` 里的位置**两种都有**（照真实 API 写，不靠猜：
+   *   `@deepseek-ai/dsh-session/lib/types/surface.js` 的 `deriveEventMessage`）：
+   *   · `user/message` 的 message 就是 `data` 本身（那里 `case 'user/message': return event.data`）；
+   *   · `assistant/message` / `tool/result` 是 `data.message`。
+   *   所以先取 `data.message`，没有就退回 `data` —— 两种都能取到正文。
+   */
+  function previewRowsFromEntries(entries) {
+    var rows = []
+    if (!Array.isArray(entries)) return rows
+    for (var i = 0; i < entries.length; i++) {
+      var entry = entries[i]
+      if (entry === null || typeof entry !== 'object' || entry.type !== 'event') continue
+      var event = entry.event
+      if (event === null || typeof event !== 'object') continue
+      var role = PREVIEW_ROLE[event.type]
+      if (role === undefined) continue
+      var data = event.data
+      if (data === null || typeof data !== 'object') continue
+      var message = data.message !== null && typeof data.message === 'object' ? data.message : data
+      var text = previewText(textOfContent(message.content, 0))
+      if (text === '') {
+        // 工具结果没正文也照样占一行（用户要看到"这里跑过一次工具"）；
+        // assistant 的空文本（max-tokens 截断那种）直接跳过。
+        if (event.type !== 'tool/result') continue
+        text = '[工具结果]'
+      }
+      rows.push({ type: event.type, role: role.label, color: role.color, text: text })
+    }
+    return rows.length > PREVIEW_MAX_ROWS ? rows.slice(rows.length - PREVIEW_MAX_ROWS) : rows
+  }
+
+  /**
+   * 读一个会话最近的事件窗口 → 预览行。
+   *
+   * 取数路径（与 `@deepseek-ai/dsh-api-session-controller` 的实现/README 一致）：
+   *   ① `sessions.retain(sessionId, { source:'gateway' })` → 引用（同步，可能抛）；
+   *   ② 引用上 `ready` 结算成**确切 binding**（`ClientSessionReference.ready` 的定义），
+   *      拿不到就退回同步的 `ref.binding`；binding 上是 `binding.eventSource`；
+   *   ③ `eventSource.getSnapshot()` 是 `ObservableSnapshot<SessionEventWindow>`，
+   *      `.entries` 就是事件窗口；
+   *   ④ 读到文本后**立刻释放**引用（预览只要几行字，不需要一直占着历史流）。
+   *
+   * 任一步失败都 reject —— 调用方把预览层降级成一行灰字（不假装有内容）。
+   *
+   * @param {object} ctx - 客户端 cordis 上下文（用来 `ctx.get('sessions')`）
+   * @param {string} sessionId
+   * @param {{rows:object, retained:Array}} cache - 面板实例的缓存（管"最多同时保留几个"）
+   * @returns {Promise<Array<{type:string, role:string, color:string, text:string}>>}
+   */
+  function loadSessionPreviewRows(ctx, sessionId, cache) {
+    return new Promise(function (resolve, reject) {
+      var sessions = resolveSessions(ctx)
+      if (sessions === null) {
+        reject(new Error('客户端没有提供 sessions 服务'))
+        return
+      }
+      var ref = null
+      try {
+        ref = sessions.retain(sessionId, { source: 'gateway' })
+      } catch (err) {
+        reject(err)
+        return
+      }
+      if (ref === null || typeof ref !== 'object') {
+        reject(new Error('sessions.retain 没有返回引用'))
+        return
+      }
+      var retained = cache !== null && cache !== undefined && Array.isArray(cache.retained) ? cache.retained : null
+      if (retained !== null) {
+        // 最多同时保留 3 个：超了先把最老的放掉
+        while (retained.length >= PREVIEW_MAX_RETAINED) releaseSessionRef(retained.shift())
+        retained.push(ref)
+      }
+      var settled = false
+      var timer = null
+      var finish = function (fn, value) {
+        if (settled) return
+        settled = true
+        if (timer !== null) {
+          clearTimeout(timer)
+          timer = null
+        }
+        if (retained !== null) {
+          var at = retained.indexOf(ref)
+          if (at !== -1) retained.splice(at, 1)
+        }
+        releaseSessionRef(ref)
+        fn(value)
+      }
+      timer = setTimeout(function () {
+        finish(reject, new Error('会话历史读取超时'))
+      }, PREVIEW_LOAD_TIMEOUT_MS)
+      var readyP = null
+      try {
+        readyP = ref.ready !== null && ref.ready !== undefined && typeof ref.ready.then === 'function' ? ref.ready : null
+      } catch (err) {
+        readyP = null
+      }
+      Promise.resolve(readyP).then(
+        function (value) {
+          var binding = null
+          try {
+            binding = value !== null && typeof value === 'object' && value.eventSource !== undefined ? value : ref.binding
+          } catch (err) {
+            finish(reject, err)
+            return
+          }
+          var source = binding !== null && typeof binding === 'object' ? binding.eventSource : undefined
+          if (source === null || source === undefined || typeof source.getSnapshot !== 'function') {
+            finish(reject, new Error('会话事件流不可用'))
+            return
+          }
+          var rows = []
+          try {
+            var snapshot = source.getSnapshot()
+            rows = previewRowsFromEntries(snapshot !== null && typeof snapshot === 'object' ? snapshot.entries : null)
+          } catch (err) {
+            finish(reject, err)
+            return
+          }
+          finish(resolve, rows)
+        },
+        function (err) {
+          finish(reject, err)
+        },
+      )
+    })
+  }
+
+  /**
+   * 预览浮层的落点：按 chip 的 `getBoundingClientRect()` 算，视口内自动左右/上下收边。
+   *
+   * 返回 `{ left, width, top? , bottom? }`：给 `top` 就是挂在 chip 下面，
+   * 给 `bottom` 就是翻到上面去（用 `bottom` 定位不必先知道自身高度）。
+   */
+  function previewBoxFor(el) {
+    var vw =
+      typeof window !== 'undefined' && typeof window.innerWidth === 'number' && window.innerWidth > 0 ? window.innerWidth : 1024
+    var vh =
+      typeof window !== 'undefined' && typeof window.innerHeight === 'number' && window.innerHeight > 0 ? window.innerHeight : 768
+    var rect = null
+    try {
+      rect = el !== null && el !== undefined && typeof el.getBoundingClientRect === 'function' ? el.getBoundingClientRect() : null
+    } catch (err) {
+      rect = null
+    }
+    var anchorLeft = rect === null ? vw / 2 : rect.left + rect.width / 2
+    var anchorTop = rect === null ? vh / 2 : rect.top
+    var anchorBottom = rect === null ? vh / 2 : rect.bottom
+    var width = Math.max(PREVIEW_MIN_WIDTH, Math.min(PREVIEW_MAX_WIDTH, vw - 16))
+    var left = Math.round(anchorLeft - width / 2)
+    if (left + width > vw - 8) left = vw - 8 - width
+    if (left < 8) left = 8
+    var below = Math.round(anchorBottom + 6)
+    // 只用来判断"下面还放不放得下"：标题 + 内边距 + 内容上限。
+    var estimate = PREVIEW_MAX_HEIGHT + 46
+    var above = below + estimate > vh - 8 && anchorTop - 6 - estimate > 8
+    if (above) return { left: left, width: width, bottom: Math.round(vh - anchorTop + 6) }
+    return { left: left, width: width, top: below }
   }
 
   /**
@@ -530,11 +900,22 @@
     } else {
       parts.push(React.createElement('span', { key: 'st', style: { fontSize: '10px', opacity: 0.72, whiteSpace: 'nowrap' } }, info.status.label))
     }
+    // 外面这层 span 只为把 title 挂在**禁用按钮之外**：<button disabled> 在多数浏览器里
+    // 不派发鼠标事件，直接挂 title 用户看不到提示。悬停预览挂在这里也是同一个理由 ——
+    // 「当前对话」那一格按钮是禁用的，可它恰恰是最想看历史的一格。
+    var outerProps = { key: opts.key, title: info.tip, style: { display: 'inline-flex', maxWidth: '100%' } }
+    if (typeof opts.onPreviewEnter === 'function') {
+      outerProps.onMouseEnter = function (ev) {
+        var el = ev !== null && ev !== undefined ? ev.currentTarget : null
+        opts.onPreviewEnter(seat, el)
+      }
+      outerProps.onMouseLeave = function () {
+        opts.onPreviewLeave(seat)
+      }
+    }
     return React.createElement(
-      // 外面这层 span 只为把 title 挂在**禁用按钮之外**：<button disabled> 在多数浏览器里
-      // 不派发鼠标事件，直接挂 title 用户看不到提示。
       'span',
-      { key: opts.key, title: info.tip, style: { display: 'inline-flex', maxWidth: '100%' } },
+      outerProps,
       React.createElement(
         'button',
         {
@@ -574,6 +955,103 @@
         },
         parts,
       ),
+    )
+  }
+
+  /** 面板动作的键：`taskId + 动作`（同一张卡上四个按钮各自独立 busy / 确认态）。 */
+  function actionKeyOf(taskId, action) {
+    return String(taskId) + '\u0000' + String(action)
+  }
+
+  /**
+   * 任务卡底部那一行**操作按钮**（右对齐）。
+   *
+   * 按钮完全由 `task.allowed_actions` 决定（快照是唯一判据，这里不猜状态）：
+   *   · 字段缺失 / 不是数组 / 空数组 ⇒ 一行都不渲染（老版本宿主没有这个字段）；
+   *   · 认不出的动作 ⇒ 跳过（宁可少一个按钮，也不给一个点了没反应的）；
+   *   · 可见顺序固定 `cancel → restore → archive → delete`。
+   *
+   * busy / 删单确认态由面板统一持有后经 `opts` 传进来 —— 这里**不碰状态**，
+   * 所以可以被自测当成纯函数调用。
+   */
+  function renderTaskActions(React, task, opts) {
+    var taskId = typeof task.id === 'string' ? task.id : ''
+    if (taskId === '') return null
+    var allowed = Array.isArray(task.allowed_actions) ? task.allowed_actions : []
+    if (allowed.length === 0) return null
+    var onAction = typeof opts.onAction === 'function' ? opts.onAction : null
+    if (onAction === null) return null
+    var onActionBlur = typeof opts.onActionBlur === 'function' ? opts.onActionBlur : function () {}
+    var clickOf = function (actionId) {
+      return function () {
+        onAction(taskId, actionId)
+      }
+    }
+    // 参数化再返回闭包（别让循环变量 `action` 被闭包按引用捕走）
+    var blurOf = function (actionId) {
+      return function () {
+        onActionBlur(taskId, actionId)
+      }
+    }
+    var buttons = []
+    for (var i = 0; i < PANEL_ACTION_ORDER.length; i++) {
+      var action = PANEL_ACTION_ORDER[i]
+      if (allowed.indexOf(action) === -1) continue
+      var meta = PANEL_ACTION_META[action]
+      var key = actionKeyOf(taskId, action)
+      var busy = opts.busyKey === key
+      var armed = action === 'delete' && opts.armedKey === key
+      var danger = action === 'delete'
+      buttons.push(
+        React.createElement(
+          'button',
+          {
+            key: action,
+            type: 'button',
+            disabled: busy,
+            'aria-busy': busy,
+            'data-pipeline-action': action,
+            'data-pipeline-action-state': busy ? 'busy' : armed ? 'armed' : 'idle',
+            title: busy ? '正在等宿主回话…' : armed ? '再点一次就**永久**删除这张任务单（不可恢复）' : meta.tip,
+            onClick: clickOf(action),
+            // 移开就连确认态一起复原（不必等满 3 秒）
+            onMouseLeave: armed ? blurOf(action) : undefined,
+            style: {
+              height: '22px',
+              padding: '0 9px',
+              font: 'inherit',
+              fontSize: '11px',
+              lineHeight: '1',
+              color: armed ? '#ffffff' : danger ? '#d9534f' : 'inherit',
+              background: armed ? '#d9534f' : 'transparent',
+              border:
+                '1px solid ' +
+                (danger
+                  ? armed
+                    ? '#d9534f'
+                    : 'rgba(217,83,79,.45)'
+                  : 'var(--dsw-alias-border-l2, rgba(127,127,127,.35))'),
+              borderRadius: '999px',
+              cursor: busy ? 'progress' : 'pointer',
+              opacity: busy ? 0.6 : 1,
+              whiteSpace: 'nowrap',
+              userSelect: 'none',
+              // 卡片也在头部拖拽区里（与 chip 同理）
+              WebkitAppRegion: 'no-drag',
+            },
+          },
+          busy ? '处理中…' : armed ? DELETE_CONFIRM_LABEL : meta.label,
+        ),
+      )
+    }
+    if (buttons.length === 0) return null
+    return React.createElement(
+      'div',
+      {
+        'data-pipeline-actions': taskId,
+        style: { display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '5px', marginTop: '7px', minWidth: 0 },
+      },
+      buttons,
     )
   }
 
@@ -686,9 +1164,13 @@
                 key: (typeof safe.role === 'string' ? safe.role : 'seat') + '#' + i,
                 currentSessionId: opts.currentSessionId,
                 onOpen: opts.onOpen,
+                onPreviewEnter: opts.onPreviewEnter,
+                onPreviewLeave: opts.onPreviewLeave,
               })
             }),
       ),
+      // 右下角那行小按钮（`allowed_actions` 为空/缺失时返回 null，这一行整体不占位）
+      renderTaskActions(React, task, opts),
     )
   }
 
@@ -718,6 +1200,27 @@
     var pinnedRef = React.useRef(false) // 点击钉住后面板不因移开而收起
     var hoverTimerRef = React.useRef(null)
     var rootRef = React.useRef(null)
+
+    // ---- 任务卡操作按钮的状态（四张卡共用一格：键是 `taskId + action`）----
+    //   busyKey  正在等回话的那个按钮（一次只让一个动作在飞，免得绿色提示互相覆盖）
+    //   armedKey 「删单」已经点过一次、正等第二次确认的按钮
+    //   note     面板顶部那一行结果提示（成功绿 / 失败红）
+    var actionHook = React.useState({ busyKey: '', armedKey: '', note: null })
+    var actionUi = actionHook[0]
+    var setActionUi = actionHook[1]
+    var armTimerRef = React.useRef(null)
+
+    // ---- 席位会话预览 ----
+    //   状态只给渲染用；"开没开 / 是哪个 key / 缓存 / 在途序号"都放 ref 里，
+    //   因为定时器与异步回包拿到的都是**旧渲染的闭包**，读 state 会读到过期值。
+    var previewHook = React.useState(null)
+    var preview = previewHook[0]
+    var setPreview = previewHook[1]
+    var previewRef = React.useRef({ open: false, key: '', seq: 0 })
+    var previewTimerRef = React.useRef(null)
+    // 缓存用无原型对象：会话 id 是外部字符串，不该有机会命中 Object.prototype 上的键
+    var previewCacheRef = React.useRef({ rows: Object.create(null), retained: [] })
+    var previewBoxRef = React.useRef(null)
 
     var sessionId = currentSessionIdOf(props)
 
@@ -789,6 +1292,10 @@
     var scheduleClose = function () {
       cancelHover()
       if (!open || pinnedRef.current) return
+      // ★ 预览层开着时先不关面板：预览是 `position:fixed` 的独立浮层，指针从 chip 移到它
+      //   上面可能经过面板之外的一小段间隙 —— 那一下不该把面板连同预览一起收掉。
+      //   预览收掉之后 `schedulePreviewHide` 会把这条"慢关"接回去。
+      if (previewRef.current.open) return
       // ★ 800ms 才关：从按钮移到面板要经过一小段间隙；官方也是"慢关"，
       //   太快就会像"碰一下就关"。
       hoverTimerRef.current = setTimeout(function () {
@@ -797,10 +1304,202 @@
       }, 800)
     }
 
-    // 卸载时清掉悬停定时器（避免卸载后还 setState）
+    // =======================================================================
+    // 任务卡操作按钮：终止 / 恢复 / 留档 / 删单
+    // =======================================================================
+
+    /** 只改传入的键，其它字段原样保留（busy / 确认态 / 提示互不覆盖）。 */
+    var patchActionUi = function (patch) {
+      setActionUi(function (prev) {
+        var next = { busyKey: prev.busyKey, armedKey: prev.armedKey, note: prev.note }
+        if (patch.busyKey !== undefined) next.busyKey = patch.busyKey
+        if (patch.armedKey !== undefined) next.armedKey = patch.armedKey
+        if (patch.note !== undefined) next.note = patch.note
+        return next
+      })
+    }
+
+    var clearArmTimer = function () {
+      if (armTimerRef.current === null) return
+      clearTimeout(armTimerRef.current)
+      armTimerRef.current = null
+    }
+
+    /** 删单第一击：只进入确认态，3 秒后自己复原（超过就不认第二击）。 */
+    var armDelete = function (key) {
+      clearArmTimer()
+      patchActionUi({ armedKey: key })
+      armTimerRef.current = setTimeout(function () {
+        armTimerRef.current = null
+        if (aliveRef.current) patchActionUi({ armedKey: '' })
+      }, DELETE_CONFIRM_MS)
+    }
+
+    /**
+     * 发一次动作：按钮转 busy → POST → 绿字/红字。
+     * 成功时**立刻刷新一次快照**（复用 `readOnce`）：按钮该消失还是该换，下一帧就看得见。
+     */
+    var runAction = function (taskId, action) {
+      var key = actionKeyOf(taskId, action)
+      var meta = PANEL_ACTION_META[action]
+      var fallback = meta === undefined ? '已完成' : meta.done
+      patchActionUi({ busyKey: key, armedKey: '', note: null })
+      postPanelAction(taskId, action, action === 'delete').then(
+        function (body) {
+          if (!aliveRef.current) return
+          if (body.ok === true) {
+            patchActionUi({
+              busyKey: '',
+              note: {
+                kind: 'ok',
+                text: typeof body.message === 'string' && body.message !== '' ? body.message : fallback,
+              },
+            })
+            readOnce(undefined)
+            return
+          }
+          patchActionUi({
+            busyKey: '',
+            note: { kind: 'err', text: typeof body.error === 'string' && body.error !== '' ? body.error : '操作失败' },
+          })
+        },
+        function (err) {
+          if (!aliveRef.current) return
+          patchActionUi({ busyKey: '', note: { kind: 'err', text: '操作失败：' + messageOf(err) } })
+        },
+      )
+    }
+
+    /** 按钮点击入口：删单的两次点击判据就在这里（第一次只"上膛"）。 */
+    var onActionClick = function (taskId, action) {
+      if (actionUi.busyKey !== '') return // 一次只让一个动作在飞
+      if (action === 'delete' && actionUi.armedKey !== actionKeyOf(taskId, action)) {
+        armDelete(actionKeyOf(taskId, action))
+        return
+      }
+      clearArmTimer()
+      runAction(taskId, action)
+    }
+
+    /** 指针离开删单按钮 ⇒ 立刻复原（不必等满 3 秒）。 */
+    var onActionBlur = function (taskId, action) {
+      if (action !== 'delete') return
+      if (actionUi.armedKey !== actionKeyOf(taskId, action)) return
+      clearArmTimer()
+      patchActionUi({ armedKey: '' })
+    }
+
+    // =======================================================================
+    // 席位会话预览（悬停 400ms 弹出，可移入、可用滚轮翻）
+    // =======================================================================
+
+    var clearPreviewTimer = function () {
+      if (previewTimerRef.current === null) return
+      clearTimeout(previewTimerRef.current)
+      previewTimerRef.current = null
+    }
+
+    /** 关掉预览（幂等；顺带把在途读取的结果作废）。 */
+    var closePreview = function () {
+      clearPreviewTimer()
+      if (!previewRef.current.open) {
+        if (aliveRef.current) setPreview(null)
+        return
+      }
+      previewRef.current.open = false
+      previewRef.current.key = ''
+      previewRef.current.seq += 1
+      previewBoxRef.current = null
+      if (aliveRef.current) setPreview(null)
+    }
+
+    /** 把读到的行落到预览层 —— 只有"还是同一条预览"时才落（防止晚到的回包串台）。 */
+    var applyPreviewRows = function (key, rows) {
+      setPreview(function (prev) {
+        if (prev === null || prev.key !== key) return prev
+        var hasRows = Array.isArray(rows) && rows.length > 0
+        return {
+          key: prev.key,
+          name: prev.name,
+          sessionId: prev.sessionId,
+          box: prev.box,
+          phase: hasRows ? 'ready' : 'none',
+          rows: hasRows ? rows : null,
+        }
+      })
+    }
+
+    /** 取数：先看缓存（30 秒内同一会话不重复 retain），没有才走 `sessions` 服务。 */
+    var loadPreview = function (key, sessionIdToRead) {
+      var cache = previewCacheRef.current
+      var hit = cache.rows[sessionIdToRead]
+      if (hit !== undefined && Date.now() - hit.at < PREVIEW_CACHE_MS) {
+        applyPreviewRows(key, hit.rows)
+        return
+      }
+      var seq = previewRef.current.seq + 1
+      previewRef.current.seq = seq
+      loadSessionPreviewRows(ctx, sessionIdToRead, cache).then(
+        function (rows) {
+          cache.rows[sessionIdToRead] = { at: Date.now(), rows: Array.isArray(rows) ? rows : [] }
+          if (!aliveRef.current || previewRef.current.seq !== seq || previewRef.current.key !== key) return
+          applyPreviewRows(key, rows)
+        },
+        function () {
+          // 失败也缓存（同一条 30 秒口径）：不会因为鼠标扫过一排 chip 就狂打历史流。
+          cache.rows[sessionIdToRead] = { at: Date.now(), rows: [] }
+          if (!aliveRef.current || previewRef.current.seq !== seq || previewRef.current.key !== key) return
+          applyPreviewRows(key, null)
+        },
+      )
+    }
+
+    /** 悬停 400ms → 弹预览；换到另一格先撤掉上一个。 */
+    var schedulePreviewShow = function (seat, el) {
+      var safe = seat !== null && typeof seat === 'object' ? seat : {}
+      var target = typeof safe.session_id === 'string' ? safe.session_id : ''
+      if (target === '') return // 没有会话 id 的席位没得预览
+      var name = seatName(safe)
+      var key = target + '|' + name
+      clearPreviewTimer()
+      if (previewRef.current.key === key && previewRef.current.open) return
+      if (previewRef.current.open) closePreview()
+      previewTimerRef.current = setTimeout(function () {
+        previewTimerRef.current = null
+        if (!aliveRef.current) return
+        previewRef.current.open = true
+        previewRef.current.key = key
+        previewRef.current.seq += 1
+        setPreview({ key: key, name: name, sessionId: target, phase: 'loading', rows: null, box: previewBoxFor(el) })
+        loadPreview(key, target)
+      }, PREVIEW_SHOW_MS)
+    }
+
+    /** 指针离开 chip：先取消待弹出的计时；已经弹出的等 250ms（移进预览层会取消）。 */
+    var schedulePreviewHide = function () {
+      clearPreviewTimer()
+      if (!previewRef.current.open) return
+      previewTimerRef.current = setTimeout(function () {
+        previewTimerRef.current = null
+        closePreview()
+        // 预览收掉之后，把"面板该不该收起"交还给原来的悬停规则
+        scheduleClose()
+      }, PREVIEW_HIDE_MS)
+    }
+
+    /** 指针移进预览层（或滚轮翻消息）时不关它。 */
+    var keepPreview = function () {
+      clearPreviewTimer()
+    }
+
+    // 卸载时清掉所有定时器，并把还留着的会话引用一并释放（避免卸载后还 setState / 占着历史流）
     React.useEffect(function () {
       return function () {
         if (hoverTimerRef.current !== null) clearTimeout(hoverTimerRef.current)
+        if (previewTimerRef.current !== null) clearTimeout(previewTimerRef.current)
+        if (armTimerRef.current !== null) clearTimeout(armTimerRef.current)
+        var retained = previewCacheRef.current.retained
+        while (retained.length > 0) releaseSessionRef(retained.pop())
       }
     }, [])
 
@@ -813,11 +1512,21 @@
       pinnedRef.current = false
       setOpen(false)
       setOpenError('')
+      // 预览 / 删单确认态 / 操作提示都是**上一个会话**那一屏的东西，一起撤掉。
+      closePreview()
+      clearArmTimer()
+      if (actionUi.armedKey !== '' || actionUi.note !== null) patchActionUi({ armedKey: '', note: null })
     }, [sessionId])
 
-    // ---- 打开时：立刻刷一次 + 点外部/ESC 关闭 ----
+    // ---- 打开时：立刻刷一次 + 点外部/ESC 关闭；收起时把预览/确认态/提示一起撤掉 ----
     React.useEffect(function () {
-      if (!open) return undefined
+      if (!open) {
+        // 面板收起 = 预览层、"删单等二次确认"、上一行提示全部作废（滚出 / 卸载也走这条）
+        closePreview()
+        clearArmTimer()
+        if (actionUi.armedKey !== '' || actionUi.note !== null) patchActionUi({ armedKey: '', note: null })
+        return undefined
+      }
       readOnce(undefined) // 别让用户等满 5 秒
       if (typeof document === 'undefined') return undefined
       var onPointerDown = function (ev) {
@@ -838,6 +1547,38 @@
         document.removeEventListener('keydown', onKeyDown)
       }
     }, [open])
+
+    // ---- 预览层开着时：滚出（面板滚动/页面滚动）或窗口尺寸变化就收掉 ----
+    //   `position:fixed` 的浮层不会跟着面板一起滚，留到滚动之后只会变成一个飘着的旧框。
+    React.useEffect(function () {
+      if (preview === null) return undefined
+      if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return undefined
+      var onScroll = function (ev) {
+        // 预览层**自己**的滚轮（翻那 12 条消息）不算"滚出去"：
+        // scroll 不冒泡，但 window 的捕获阶段照样收得到，所以要看一眼 target 在不在预览层里。
+        var box = previewBoxRef.current
+        if (
+          box !== null &&
+          ev !== null &&
+          ev !== undefined &&
+          ev.target !== null &&
+          typeof box.contains === 'function' &&
+          box.contains(ev.target)
+        ) {
+          return
+        }
+        closePreview()
+      }
+      var onResize = function () {
+        closePreview()
+      }
+      window.addEventListener('scroll', onScroll, true)
+      window.addEventListener('resize', onResize)
+      return function () {
+        window.removeEventListener('scroll', onScroll, true)
+        window.removeEventListener('resize', onResize)
+      }
+    }, [preview !== null])
 
     /**
      * 打开某个席位的对话。
@@ -936,6 +1677,29 @@
       ),
     )
 
+    // 面板顶部那一行操作结果：成功绿色、失败红色（失败时按钮保持可点，直接重试）
+    if (actionUi.note !== null && typeof actionUi.note.text === 'string' && actionUi.note.text !== '') {
+      var noteIsErr = actionUi.note.kind === 'err'
+      children.push(
+        React.createElement(
+          'div',
+          {
+            key: 'actionNote',
+            role: noteIsErr ? 'alert' : 'status',
+            'data-pipeline-action-note': noteIsErr ? 'error' : 'ok',
+            style: {
+              marginTop: '6px',
+              fontSize: '11px',
+              lineHeight: '1.5',
+              color: noteIsErr ? '#d9534f' : '#2ea043',
+              wordBreak: 'break-word',
+            },
+          },
+          actionUi.note.text,
+        ),
+      )
+    }
+
     if (openError !== '') {
       children.push(
         React.createElement(
@@ -973,6 +1737,14 @@
               key: (typeof safe.id === 'string' && safe.id !== '' ? safe.id : 'task') + '#' + i,
               currentSessionId: sessionId,
               onOpen: openSeat,
+              // 操作按钮（来源 = `allowed_actions`）
+              busyKey: actionUi.busyKey,
+              armedKey: actionUi.armedKey,
+              onAction: onActionClick,
+              onActionBlur: onActionBlur,
+              // 悬停预览
+              onPreviewEnter: schedulePreviewShow,
+              onPreviewLeave: schedulePreviewHide,
             })
           }),
         ),
@@ -1034,6 +1806,148 @@
         )
       : null
 
+    // ---- 席位会话预览浮层 ----
+    //   `position:fixed` + 按 chip 的 `getBoundingClientRect()` 落点（`previewBoxFor` 收边），
+    //   zIndex 比面板更高。挂在面板根节点里（DOM 上是子节点）有三个好处：
+    //   ① 面板一收起它就跟着消失，不会留下孤儿浮层；
+    //   ② 从 chip 移到它上面不会被判成"离开面板"；
+    //   ③ 点它不会被面板的"点外部关闭"误伤。
+    var previewNode = null
+    if (open && preview !== null) {
+      var boxStyle = {
+        position: 'fixed',
+        left: preview.box.left + 'px',
+        width: preview.box.width + 'px',
+        // 面板是 2147483000，预览要在它上面
+        zIndex: 2147483600,
+        boxSizing: 'border-box',
+        padding: '8px 10px 9px',
+        background: 'var(--dsw-specific-menu, #ffffff)',
+        color: 'var(--dsw-alias-label-primary, #1f2328)',
+        border: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.35))',
+        borderRadius: '10px',
+        boxShadow: 'var(--dsw-elevation-prominent, 0 12px 32px rgba(0,0,0,.28))',
+        font: 'inherit',
+        fontSize: '12px',
+        lineHeight: '1.45',
+        textAlign: 'left',
+        // 头部是 Electron 的窗口拖拽区：浮层里要能选中/滚动，同样显式退出拖拽
+        WebkitAppRegion: 'no-drag',
+      }
+      if (typeof preview.box.bottom === 'number') boxStyle.bottom = preview.box.bottom + 'px'
+      else boxStyle.top = preview.box.top + 'px'
+
+      var previewBody = null
+      if (preview.phase === 'loading') {
+        previewBody = React.createElement('div', { style: { marginTop: '5px', fontSize: '11px', opacity: 0.75 } }, '正在读取会话…')
+      } else if (preview.phase !== 'ready' || !Array.isArray(preview.rows) || preview.rows.length === 0) {
+        // 失败 / 没权限 / 还没上线：一行灰字，不假装有内容
+        previewBody = React.createElement(
+          'div',
+          { style: { marginTop: '5px', fontSize: '11px', color: 'rgba(127,127,127,.95)' } },
+          '该会话暂无预览（未在线或不可读）',
+        )
+      } else {
+        previewBody = React.createElement(
+          'div',
+          {
+            // ★ 最多 260px 高 + overflowY:auto ⇒ 原生滚轮就能往下翻
+            'data-pipeline-preview-list': 'true',
+            style: { marginTop: '5px', maxHeight: PREVIEW_MAX_HEIGHT + 'px', overflowY: 'auto', overscrollBehavior: 'contain' },
+          },
+          preview.rows.map(function (row, i) {
+            // 工具结果：窄灰条居中，不占气泡（和聊天界面的工具行观感一致）
+            if (row.role === '工具') {
+              return React.createElement(
+                'div',
+                {
+                  key: 'row' + i,
+                  title: row.text,
+                  style: {
+                    marginTop: i === 0 ? 0 : '4px',
+                    textAlign: 'center',
+                    fontSize: '10.5px',
+                    color: 'rgba(127,127,127,.95)',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  },
+                },
+                '工具结果：' + row.text,
+              )
+            }
+            // 用户靠右、AI 靠左 —— “缩小视窗的聊天界面”：字体不缩放，只是窗口小、可滚轮翻。
+            var isUser = row.role === '用户'
+            return React.createElement(
+              'div',
+              {
+                key: 'row' + i,
+                style: {
+                  display: 'flex',
+                  justifyContent: isUser ? 'flex-end' : 'flex-start',
+                  marginTop: i === 0 ? 0 : '6px',
+                },
+              },
+              React.createElement(
+                'div',
+                {
+                  title: row.text,
+                  style: {
+                    maxWidth: '86%',
+                    boxSizing: 'border-box',
+                    padding: '5px 9px',
+                    borderRadius: isUser ? '10px 10px 2px 10px' : '10px 10px 10px 2px',
+                    fontSize: '12px',
+                    lineHeight: '1.45',
+                    background: isUser
+                      ? 'var(--dsw-alias-bubble-user, rgba(47,129,247,.16))'
+                      : 'var(--dsw-alias-bubble-assistant, rgba(127,127,127,.14))',
+                    color: 'var(--dsw-alias-label-primary, #1f2328)',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                    overflowWrap: 'anywhere',
+                  },
+                },
+                row.text,
+              ),
+            )
+          }),
+        )
+      }
+
+      previewNode = React.createElement(
+        'div',
+        {
+          key: 'seatPreview',
+          ref: previewBoxRef,
+          role: 'dialog',
+          'aria-label': '会话预览 · ' + preview.name,
+          'data-pipeline-seat-preview': preview.key,
+          // 鼠标移进来就取消"离开即关"的计时（要能滚轮翻那 12 条）
+          onMouseEnter: keepPreview,
+          onMouseLeave: schedulePreviewHide,
+          // 预览层自己的点击不要冒泡出去（chip 的"打开对话"只认 chip 上的点击）
+          onClick: function (ev) {
+            if (ev !== null && ev !== undefined && typeof ev.stopPropagation === 'function') ev.stopPropagation()
+          },
+          style: boxStyle,
+        },
+        React.createElement(
+          'div',
+          {
+            title: preview.sessionId !== '' ? '会话 id：' + preview.sessionId : '',
+            style: { display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11.5px', fontWeight: 600, minWidth: 0 },
+          },
+          React.createElement(
+            'span',
+            { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
+            '会话预览 · ' + preview.name,
+          ),
+        ),
+        previewBody,
+      )
+    }
+
     return React.createElement(
       'div',
       {
@@ -1045,6 +1959,7 @@
       },
       trigger,
       popover,
+      previewNode,
     )
   }
 
@@ -1149,6 +2064,16 @@
         seatNumberOf: seatNumberOf,
         renderTaskCard: renderTaskCard,
         renderSeatChip: renderSeatChip,
+        renderTaskActions: renderTaskActions,
+        postPanelAction: postPanelAction,
+        actionKeyOf: actionKeyOf,
+        // 预览取数（自测可以直接拿它们验"事件窗口 → 预览行"的转换）
+        resolveSessions: resolveSessions,
+        releaseSessionRef: releaseSessionRef,
+        previewRowsFromEntries: previewRowsFromEntries,
+        previewText: previewText,
+        previewBoxFor: previewBoxFor,
+        loadSessionPreviewRows: loadSessionPreviewRows,
         SLOT: SLOT,
         ENTRY_ID: ENTRY_ID,
         ENTRY_ORDER: ENTRY_ORDER,
@@ -1156,6 +2081,18 @@
         PANEL_ENTRY_ORDER: PANEL_ENTRY_ORDER,
         STATE_PATH: STATE_PATH,
         PANEL_PATH: PANEL_PATH,
+        PANEL_ACTION_PATH: PANEL_ACTION_PATH,
+        PANEL_ACTION_ORDER: PANEL_ACTION_ORDER,
+        PANEL_ACTION_META: PANEL_ACTION_META,
+        DELETE_CONFIRM_MS: DELETE_CONFIRM_MS,
+        DELETE_CONFIRM_LABEL: DELETE_CONFIRM_LABEL,
+        PREVIEW_SHOW_MS: PREVIEW_SHOW_MS,
+        PREVIEW_HIDE_MS: PREVIEW_HIDE_MS,
+        PREVIEW_MAX_ROWS: PREVIEW_MAX_ROWS,
+        PREVIEW_MAX_CHARS: PREVIEW_MAX_CHARS,
+        PREVIEW_CACHE_MS: PREVIEW_CACHE_MS,
+        PREVIEW_MAX_RETAINED: PREVIEW_MAX_RETAINED,
+        PREVIEW_MAX_HEIGHT: PREVIEW_MAX_HEIGHT,
         POLL_MS: POLL_MS,
         PANEL_POLL_MS: PANEL_POLL_MS,
         MODULE_ID: MODULE_ID,

@@ -14,9 +14,17 @@
  *   F. `human_pending` 只数**还没答复**的（`answered` / `withdrawn` 不算，`relayed` 还算）；
  *   G. 任务按 `updated_at` **倒序**；
  *   H. 路由：`GET /.dsh-pipeline/panel` 只读、带 `no-store`；`/state` 行为一个字没变。
+ *   I. 只读硬约束：跑完之后夹具的 `task.json` 逐字节未改；
+ *   J. `allowed_actions`：终态 ⇒ `archive+delete`、`blocked` ⇒ `restore`、
+ *      `reviewing` ⇒ `cancel`、`pending` 无 `archive/delete`；顺序固定、判据来自状态机；
+ *   K. 面板操作执行器（`createPanelActions`）：白名单 / 开关门 / 删单二次确认 /
+ *      底层拒绝原样透出 / 异常归一化（**绝不抛**）；
+ *   L. 面板操作路由（`POST /.dsh-pipeline/panel/action`）：405 / 403 / 503 / 400 / 413
+ *      各有明确回执，`/panel` 与 `/state` 一个字没变。
  *
  * ★ 全程密闭：夹具自造临时目录，**不读任何活体真单**（不重蹈 P1-12 那条）。
  * ★ 只读：跑完之后临时目录整个删掉，工作区里不留东西。
+ * ★ 面板操作那几组用**假 store**（只记录入参），不碰任何真实任务目录。
  */
 
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -25,8 +33,10 @@ import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 import {
+  PANEL_ACTION_ORDER,
   PANEL_SNIPPET_MAX,
   SEAT_STATUS,
+  allowedActionsOf,
   buildPanelSnapshot,
   declaredSeatsOf,
   humanPendingCount,
@@ -34,7 +44,13 @@ import {
   snippetOf,
   stateLabelOf,
 } from '../lib/panel/snapshot.js'
-import { PANEL_PATH, STATE_PATH, createSwitchHandler } from '../lib/switch-routes.js'
+import {
+  DELETE_CONFIRM_ERROR,
+  PANEL_ACTION_IDS,
+  SWITCH_OFF_ERROR,
+  createPanelActions,
+} from '../lib/panel/actions.js'
+import { PANEL_ACTION_PATH, PANEL_PATH, STATE_PATH, createSwitchHandler } from '../lib/switch-routes.js'
 import { roleLabel } from '../lib/roles.js'
 import { pathKey } from '../lib/util.js'
 
@@ -174,6 +190,50 @@ function fakeSwitch() {
   return { isOn: () => true, snapshot: () => snap, stateFile: '/tmp/fixture-switch.json' }
 }
 
+/** 带请求体的假 req（`readBody` 走 data/end 事件；这里在挂上 end 监听之后下一拍再灌）。 */
+function fakeBodyReq({ method = 'POST', url = '/', headers = {}, body = '' } = {}) {
+  const handlers = new Map()
+  const emit = (event, arg) => {
+    for (const fn of handlers.get(event) ?? []) fn(arg)
+  }
+  const req = {
+    method,
+    url,
+    headers: { 'content-type': 'application/json', ...headers },
+    socket: { remoteAddress: '127.0.0.1' },
+    on(event, fn) {
+      if (!handlers.has(event)) handlers.set(event, [])
+      handlers.get(event).push(fn)
+      if (event === 'end') {
+        queueMicrotask(() => {
+          if (body.length > 0) emit('data', Buffer.from(body, 'utf8'))
+          emit('end')
+        })
+      }
+      return req
+    },
+  }
+  return req
+}
+
+/** 假 store：只记录入参（**不碰任何真实目录**），可注入返回值 / 抛异常。 */
+function fakeActionStore({ purgeResult = null, transitionResult = null, throwOn = null } = {}) {
+  const calls = []
+  return {
+    calls,
+    async purgeTask(input) {
+      calls.push({ method: 'purgeTask', input })
+      if (throwOn === 'purgeTask') throw new Error('目录被占用了（夹具故意抛）')
+      return purgeResult ?? { ok: true, mode: input?.mode, task_id: input?.taskId, moved_to: null, files: 1, bytes: 2, purged_at: '2026-10-18T00:00:00Z' }
+    },
+    async transition(input) {
+      calls.push({ method: 'transition', input })
+      if (throwOn === 'transition') throw new Error('状态机抛了（夹具故意抛）')
+      return transitionResult ?? { ok: true, task: null, from: 'blocked', to: input?.event === 'cancel' ? 'cancelled' : 'developing', state_zh: 'x', summary: '...' }
+    },
+  }
+}
+
 /* ------------------------------------------------------------------------- */
 
 export async function runPanelCheck() {
@@ -188,6 +248,9 @@ export async function runPanelCheck() {
   const G_G = 'G · 排序'
   const G_H = 'H · 只读路由'
   const G_I = 'I · 只读硬约束'
+  const G_J = 'J · allowed_actions（快照判定）'
+  const G_K = 'K · 面板操作执行器（白名单 / 开关 / 确认 / 归一化）'
+  const G_L = 'L · 面板操作路由（POST /panel/action）'
 
   try {
     const pipelineDir = makeFixture(root)
@@ -208,8 +271,9 @@ export async function runPanelCheck() {
     rec.add(G_A, '`warnings` 是字符串数组', Array.isArray(snap?.warnings) && snap.warnings.every((w) => typeof w === 'string'), JSON.stringify(snap?.warnings))
 
     const task = (snap?.tasks ?? []).find((t) => t.id === NEWER) ?? null
-    const TASK_KEYS = ['human_pending', 'id', 'requirement_snippet', 'seats', 'state', 'state_label', 'team_board', 'updated_at']
-    rec.add(G_A, '任务行字段与契约**逐个**对齐（8 个）', task !== null && JSON.stringify(Object.keys(task).sort()) === JSON.stringify(TASK_KEYS), `实际键=${JSON.stringify(Object.keys(task ?? {}).sort())}`)
+    const TASK_KEYS = ['allowed_actions', 'human_pending', 'id', 'requirement_snippet', 'seats', 'state', 'state_label', 'team_board', 'updated_at']
+    rec.add(G_A, '任务行字段与契约**逐个**对齐（9 个，`allowed_actions` 追加在最后）', task !== null && JSON.stringify(Object.keys(task).sort()) === JSON.stringify(TASK_KEYS), `实际键=${JSON.stringify(Object.keys(task ?? {}).sort())}`)
+    rec.add(G_A, '`allowed_actions` 排在任务行**最后一个键**（原 8 个键的位置没动）', task !== null && Object.keys(task).at(-1) === 'allowed_actions' && Object.keys(task).slice(0, 8).join(',') === 'id,state,state_label,requirement_snippet,updated_at,human_pending,team_board,seats', `键序=${JSON.stringify(Object.keys(task ?? {}))}`)
     const SEAT_KEYS = ['kind', 'layer', 'member_name', 'parent_session_id', 'role', 'role_label', 'seat', 'session_id', 'status']
     const seatKeysOk = (task?.seats ?? []).every((s) => JSON.stringify(Object.keys(s).sort()) === JSON.stringify(SEAT_KEYS))
     rec.add(G_A, '席位行字段与契约**逐个**对齐（9 个）', seatKeysOk && (task?.seats ?? []).length > 0, `首个席位=${JSON.stringify(task?.seats?.[0] ?? null)}`)
@@ -308,6 +372,185 @@ export async function runPanelCheck() {
     const resUnknown = fakeRes()
     await handler(fakeReq({ url: '/.dsh-pipeline/nope' }), resUnknown)
     rec.add(G_H, '其它路径仍然 404（没有因为加面板而放宽前缀）', resUnknown.statusCode === 404, `status=${resUnknown.statusCode}`)
+
+    // === J allowed_actions =================================================
+    rec.add(G_J, '`allowed_actions` 是字符串数组（每个任务都有，且都来自白名单）', (snap?.tasks ?? []).every((t) => Array.isArray(t.allowed_actions) && t.allowed_actions.every((a) => typeof a === 'string' && PANEL_ACTION_IDS.includes(a))), JSON.stringify((snap?.tasks ?? []).map((t) => `${t.state}:${JSON.stringify(t.allowed_actions)}`)))
+    rec.add(G_J, '`reviewing`（非终态）⇒ 只有 `cancel`', JSON.stringify(task?.allowed_actions) === JSON.stringify(['cancel']), JSON.stringify(task?.allowed_actions))
+    rec.add(G_J, '快照里的 `allowed_actions` 与纯函数 `allowedActionsOf` **同源**（逐行相等）', (snap?.tasks ?? []).every((t) => JSON.stringify(t.allowed_actions) === JSON.stringify(allowedActionsOf(t.state))), '')
+    rec.add(G_J, '`PANEL_ACTION_ORDER` 与执行器白名单是同一组名字（快照与执行器不漂移）', JSON.stringify(PANEL_ACTION_ORDER) === JSON.stringify(PANEL_ACTION_IDS) && JSON.stringify(PANEL_ACTION_ORDER) === JSON.stringify(['cancel', 'restore', 'archive', 'delete']), JSON.stringify(PANEL_ACTION_ORDER))
+
+    // 四种状态的判据各一例（**单独一份夹具**：不动上面那 2 条既有断言）
+    const statesRoot = mkdtempSync(join(tmpdir(), 'dsh-pipeline-panel-states-'))
+    const STATE_CASES = [
+      { state: 'closed', expect: ['archive', 'delete'] },
+      { state: 'cancelled', expect: ['archive', 'delete'] },
+      { state: 'blocked', expect: ['cancel', 'restore'] },
+      { state: 'reviewing', expect: ['cancel'] },
+      { state: 'pending', expect: ['cancel'] },
+      // ★ 未知状态**不是终态**，而 `cancel` 在状态机里是 `from:'*'`（任意非终态可取消）
+      //   ⇒ 这里如实给 `cancel`：这不是"猜"，是查表查出来的（`applyTransition` 也会放行）。
+      { state: '没人定义过的状态', expect: ['cancel'] },
+    ]
+    try {
+      for (const [i, c] of STATE_CASES.entries()) {
+        const id = `T-20261019-a${i}`
+        const dir = join(statesRoot, '.pipeline', id)
+        mkdirSync(dir, { recursive: true })
+        writeFileSync(join(dir, 'task.json'), JSON.stringify({ id, state: c.state, requirement: `状态 ${c.state} 的单。`, updated_at: '2026-10-18T00:00:00Z' }), 'utf8')
+      }
+      const statesSnap = buildPanelSnapshot({ projectRoot: statesRoot })
+      const rowOfState = (s) => (statesSnap.tasks ?? []).find((t) => t.state === s) ?? null
+      for (const c of STATE_CASES) {
+        const got = rowOfState(c.state)?.allowed_actions
+        rec.add(G_J, `状态「${c.state}」⇒ ${JSON.stringify(c.expect)}`, JSON.stringify(got) === JSON.stringify(c.expect), `实际=${JSON.stringify(got)} 期望=${JSON.stringify(c.expect)}`)
+      }
+      rec.add(G_J, '`pending`（待分配）明确**没有** `archive` / `delete`', !(rowOfState('pending')?.allowed_actions ?? []).includes('archive') && !(rowOfState('pending')?.allowed_actions ?? []).includes('delete'), JSON.stringify(rowOfState('pending')?.allowed_actions))
+      rec.add(G_J, '`blocked` 明确**有** `restore`，终态明确**没有**（终态闸与状态机同源）', (rowOfState('blocked')?.allowed_actions ?? []).includes('restore') && !(rowOfState('closed')?.allowed_actions ?? []).includes('restore') && !(rowOfState('closed')?.allowed_actions ?? []).includes('cancel'), JSON.stringify({ blocked: rowOfState('blocked')?.allowed_actions, closed: rowOfState('closed')?.allowed_actions }))
+      rec.add(G_J, '顺序恒定：每个数组都是 `cancel, restore, archive, delete` 的子序列', (statesSnap.tasks ?? []).every((t) => JSON.stringify(t.allowed_actions) === JSON.stringify(PANEL_ACTION_ORDER.filter((a) => t.allowed_actions.includes(a)))), JSON.stringify((statesSnap.tasks ?? []).map((t) => t.allowed_actions)))
+      rec.add(G_J, '空 / 缺状态 ⇒ 空数组；未知但非终态 ⇒ 只剩 `cancel`（状态机 `from:"*"` 那条边，不是猜的）', JSON.stringify(allowedActionsOf('')) === '[]' && JSON.stringify(allowedActionsOf(undefined)) === '[]' && JSON.stringify(allowedActionsOf('没人定义过的状态')) === JSON.stringify(['cancel']), JSON.stringify({ empty: allowedActionsOf(''), unknown: allowedActionsOf('没人定义过的状态') }))
+    } finally {
+      rmSync(statesRoot, { recursive: true, force: true })
+    }
+
+    // === K 面板操作执行器 ==================================================
+    const ACTION_SW_ON = { isOn: () => true }
+    const ACTION_SW_OFF = { isOn: () => false }
+    const NOT_TERMINAL_ERROR = '拒绝清理：任务 T-1 现在停在「developing」，**不是终态**。'
+    const BAD_TRANSITION_ERROR = '状态迁移被拒（任务 T-1）：状态「developing」不接受事件「cancel」。'
+    {
+      const store = fakeActionStore()
+      const run = createPanelActions({ store, sw: ACTION_SW_ON })
+      const out = await run.run({ task_id: 'T-1', action: 'archive' })
+      const call = store.calls.at(-1)
+      rec.add(G_K, '`archive` ⇒ `purgeTask({mode:"trash", by:"human", reason:"面板·留档"})`', call?.method === 'purgeTask' && JSON.stringify(call.input) === JSON.stringify({ taskId: 'T-1', mode: 'trash', by: 'human', reason: '面板·留档' }), JSON.stringify(call))
+      rec.add(G_K, '`archive` 成功 ⇒ `{ok:true, action, task_id, message:"已留档"}`（成功形状只有这 4 个键）', out.ok === true && out.message === '已留档' && out.action === 'archive' && out.task_id === 'T-1' && JSON.stringify(Object.keys(out).sort()) === JSON.stringify(['action', 'message', 'ok', 'task_id']), JSON.stringify(out))
+    }
+    {
+      const store = fakeActionStore()
+      const run = createPanelActions({ store, sw: ACTION_SW_ON })
+      const noConfirm = await run.run({ task_id: 'T-1', action: 'delete' })
+      rec.add(G_K, '`delete` 缺 confirm ⇒ 被拒，且**一次都没调 store**', noConfirm.ok === false && noConfirm.error === DELETE_CONFIRM_ERROR && store.calls.length === 0, JSON.stringify(noConfirm))
+      const strConfirm = await run.run({ task_id: 'T-1', action: 'delete', confirm: 'true' })
+      rec.add(G_K, '`delete` 的 confirm 必须**严格** `true`（字符串 `"true"` 不算）', strConfirm.ok === false && strConfirm.error === DELETE_CONFIRM_ERROR && store.calls.length === 0, JSON.stringify(strConfirm))
+      const confirmed = await run.run({ task_id: 'T-1', action: 'delete', confirm: true })
+      const call = store.calls.at(-1)
+      rec.add(G_K, '`delete` + confirm ⇒ `purgeTask({mode:"delete", reason:"面板·删单"})`，message 是「已删单」', confirmed.ok === true && confirmed.message === '已删单' && call?.method === 'purgeTask' && JSON.stringify(call.input) === JSON.stringify({ taskId: 'T-1', mode: 'delete', by: 'human', reason: '面板·删单' }), JSON.stringify({ confirmed, call }))
+    }
+    {
+      const store = fakeActionStore()
+      const run = createPanelActions({ store, sw: ACTION_SW_ON })
+      const cancelled = await run.run({ task_id: 'T-2', action: 'cancel' })
+      const cancelCall = store.calls.at(-1)
+      rec.add(G_K, '`cancel` ⇒ `transition({event:"cancel", actorRole:"human", note:"面板·终止"})`，message 是「已终止：cancelled」', cancelled.ok === true && cancelled.message === '已终止：cancelled' && cancelCall?.method === 'transition' && JSON.stringify(cancelCall.input) === JSON.stringify({ taskId: 'T-2', event: 'cancel', actorRole: 'human', note: '面板·终止' }), JSON.stringify({ cancelled, call: cancelCall }))
+      const restored = await run.run({ task_id: 'T-2', action: 'restore' })
+      const restoreCall = store.calls.at(-1)
+      rec.add(G_K, '`restore` ⇒ `transition({event:"unblock", actorRole:"human", note:"面板·恢复"})`，message 是「已恢复」', restored.ok === true && restored.message === '已恢复' && restoreCall?.method === 'transition' && JSON.stringify(restoreCall.input) === JSON.stringify({ taskId: 'T-2', event: 'unblock', actorRole: 'human', note: '面板·恢复' }), JSON.stringify({ restored, call: restoreCall }))
+    }
+    {
+      const store = fakeActionStore()
+      const run = createPanelActions({ store, sw: ACTION_SW_ON })
+      const unknown = await run.run({ task_id: 'T-1', action: 'nuke' })
+      rec.add(G_K, '未知操作 ⇒ `未知操作：<action>`，不碰 store', unknown.ok === false && unknown.error === '未知操作：nuke' && unknown.action === 'nuke' && unknown.task_id === 'T-1' && store.calls.length === 0, JSON.stringify(unknown))
+      const junk = await run.run(undefined)
+      rec.add(G_K, '入参不是对象也不抛（按未知操作拒，形状照旧）', junk.ok === false && junk.error === '未知操作：' && typeof junk.action === 'string' && typeof junk.task_id === 'string', JSON.stringify(junk))
+    }
+    {
+      const store = fakeActionStore()
+      const run = createPanelActions({ store, sw: ACTION_SW_OFF })
+      const outs = []
+      for (const action of PANEL_ACTION_IDS) outs.push(await run.run({ task_id: 'T-1', action, confirm: true }))
+      rec.add(G_K, '开关关 ⇒ 四个动作**一律**被拒（store 一次都没调），文案点名「先打开右上角开关」', outs.every((o) => o.ok === false && o.error === SWITCH_OFF_ERROR) && store.calls.length === 0, JSON.stringify(outs.map((o) => o.error)))
+      const noSwitch = await createPanelActions({ store }).run({ task_id: 'T-1', action: 'cancel' })
+      let threwSwitch = null
+      let threwOut = null
+      try {
+        threwOut = await createPanelActions({ store, sw: { isOn() { throw new Error('boom') } } }).run({ task_id: 'T-1', action: 'cancel' })
+      } catch (err) {
+        threwSwitch = String(err?.message ?? err)
+      }
+      rec.add(G_K, '没有开关对象 / `isOn()` 抛异常 ⇒ 按「关」处理（fail-closed，**不抛**）', noSwitch.ok === false && noSwitch.error === SWITCH_OFF_ERROR && threwSwitch === null && threwOut?.error === SWITCH_OFF_ERROR, JSON.stringify({ noSwitch, threwSwitch, threwOut }))
+    }
+    {
+      const store = fakeActionStore({ throwOn: 'purgeTask' })
+      const out = await createPanelActions({ store, sw: ACTION_SW_ON }).run({ task_id: 'T-1', action: 'archive' })
+      rec.add(G_K, '`store.purgeTask` 抛异常 ⇒ 归一成 `ok:false` + code，**不抛**', out.ok === false && out.code === 'PANEL_ACTION_FAILED' && out.error.includes('目录被占用了') && out.action === 'archive' && out.task_id === 'T-1', JSON.stringify(out))
+      const store2 = fakeActionStore({ throwOn: 'transition' })
+      const out2 = await createPanelActions({ store: store2, sw: ACTION_SW_ON }).run({ task_id: 'T-1', action: 'restore' })
+      rec.add(G_K, '`store.transition` 抛异常 ⇒ 同上（`ok:false` + code，不抛）', out2.ok === false && out2.code === 'PANEL_ACTION_FAILED' && out2.error.includes('状态机抛了'), JSON.stringify(out2))
+    }
+    {
+      const store = fakeActionStore({ purgeResult: { ok: false, code: 'NOT_TERMINAL', error: NOT_TERMINAL_ERROR } })
+      const out = await createPanelActions({ store, sw: ACTION_SW_ON }).run({ task_id: 'T-1', action: 'archive' })
+      rec.add(G_K, '底层拒绝**原样透出**（`code` + `error` 逐字，不粉饰成成功）', out.ok === false && out.code === 'NOT_TERMINAL' && out.error === NOT_TERMINAL_ERROR, JSON.stringify(out))
+      const store2 = fakeActionStore({ transitionResult: { ok: false, code: 'BAD_TRANSITION', error: BAD_TRANSITION_ERROR } })
+      const out2 = await createPanelActions({ store: store2, sw: ACTION_SW_ON }).run({ task_id: 'T-1', action: 'cancel' })
+      rec.add(G_K, '状态机拒绝也原样透出（`BAD_TRANSITION`）', out2.ok === false && out2.code === 'BAD_TRANSITION' && out2.error === BAD_TRANSITION_ERROR, JSON.stringify(out2))
+    }
+    {
+      const bare = createPanelActions({ store: {}, sw: ACTION_SW_ON })
+      const out = await bare.run({ task_id: 'T-1', action: 'archive' })
+      const out2 = await bare.run({ task_id: 'T-1', action: 'cancel' })
+      rec.add(G_K, 'store 上没有对应方法 ⇒ `STORE_UNAVAILABLE`（不拿 TypeError 当判词）', out.code === 'STORE_UNAVAILABLE' && out2.code === 'STORE_UNAVAILABLE' && out.error.includes('purgeTask') && out2.error.includes('transition'), JSON.stringify({ out, out2 }))
+    }
+
+    // === L 面板操作路由 ====================================================
+    const fakePanelAction = () => {
+      const calls = []
+      return {
+        calls,
+        async run(input) {
+          calls.push(input)
+          return { ok: true, action: input.action, task_id: input.task_id, message: '已终止：cancelled' }
+        },
+      }
+    }
+    rec.add(G_L, '`PANEL_ACTION_PATH` = `/.dsh-pipeline/panel/action`（在 `/panel` 之下）', PANEL_ACTION_PATH === '/.dsh-pipeline/panel/action' && PANEL_ACTION_PATH.startsWith(`${PANEL_PATH}/`), PANEL_ACTION_PATH)
+    const pa = fakePanelAction()
+    const actionHandler = createSwitchHandler({ sw: fakeSwitch(), version: '9.9.9', panelAction: pa })
+    const resOk = fakeRes()
+    await actionHandler(fakeBodyReq({ url: PANEL_ACTION_PATH, body: JSON.stringify({ task_id: 'T-1', action: 'cancel' }) }), resOk)
+    const okBody = JSON.parse(resOk.body)
+    rec.add(G_L, '`POST /panel/action` ⇒ 200 + JSON（`application/json` + `no-store`）', resOk.statusCode === 200 && okBody.ok === true && okBody.message === '已终止：cancelled' && String(resOk.headers?.['content-type'] ?? '').startsWith('application/json') && resOk.headers?.['cache-control'] === 'no-store', `status=${resOk.statusCode} headers=${JSON.stringify(resOk.headers)} body=${resOk.body}`)
+    rec.add(G_L, '执行器收到的参数与请求体一致（`confirm` 归一成布尔）', JSON.stringify(pa.calls.at(-1)) === JSON.stringify({ task_id: 'T-1', action: 'cancel', confirm: false }), JSON.stringify(pa.calls))
+    const resConfirm = fakeRes()
+    await actionHandler(fakeBodyReq({ url: PANEL_ACTION_PATH, body: JSON.stringify({ task_id: 'T-1', action: 'delete', confirm: true }) }), resConfirm)
+    rec.add(G_L, '`confirm:true` 原样传给执行器（二次确认不会被路由层吞掉）', JSON.parse(resConfirm.body).ok === true && pa.calls.at(-1)?.confirm === true, JSON.stringify(pa.calls.at(-1)))
+    const resGet = fakeRes()
+    await actionHandler(fakeReq({ url: PANEL_ACTION_PATH }), resGet)
+    rec.add(G_L, '非 POST ⇒ 405（面板操作没有 GET 入口）', resGet.statusCode === 405, `status=${resGet.statusCode} body=${resGet.body}`)
+    const resCross = fakeRes()
+    await actionHandler(fakeBodyReq({ url: PANEL_ACTION_PATH, headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'task_id=T-1&action=delete' }), resCross)
+    rec.add(G_L, '免预检的跨站表单（`text/plain` / form）⇒ 403（与 `/state` 写操作同一道闸）', resCross.statusCode === 403 && pa.calls.length === 2, `status=${resCross.statusCode} body=${resCross.body}`)
+    const resBadJson = fakeRes()
+    await actionHandler(fakeBodyReq({ url: PANEL_ACTION_PATH, body: '{ 这不是 JSON' }), resBadJson)
+    rec.add(G_L, '坏 JSON ⇒ 400 + 「请求体不是合法 JSON」', resBadJson.statusCode === 400 && JSON.parse(resBadJson.body).error === '请求体不是合法 JSON', `status=${resBadJson.statusCode} body=${resBadJson.body}`)
+    const resArr = fakeRes()
+    await actionHandler(fakeBodyReq({ url: PANEL_ACTION_PATH, body: '[1,2]' }), resArr)
+    rec.add(G_L, '请求体是数组 ⇒ 400（必须是对象）', resArr.statusCode === 400, `status=${resArr.statusCode} body=${resArr.body}`)
+    const resTooBig = fakeRes()
+    await actionHandler(fakeBodyReq({ url: PANEL_ACTION_PATH, body: JSON.stringify({ task_id: 'T-1', action: 'cancel', pad: 'x'.repeat(9000) }) }), resTooBig)
+    rec.add(G_L, '请求体超过 8 KB ⇒ 413（上限是**路由层**的，不是执行器的）', resTooBig.statusCode === 413, `status=${resTooBig.statusCode}`)
+    const resNoAction = fakeRes()
+    await createSwitchHandler({ sw: fakeSwitch(), version: '9.9.9' })(fakeBodyReq({ url: PANEL_ACTION_PATH, body: '{}' }), resNoAction)
+    rec.add(G_L, '没接线执行器 ⇒ 503（不拿"空操作"冒充成功）', resNoAction.statusCode === 503, `status=${resNoAction.statusCode} body=${resNoAction.body}`)
+    const resBiz = fakeRes()
+    await createSwitchHandler({
+      sw: fakeSwitch(),
+      version: '9.9.9',
+      panelAction: { async run() { return { ok: false, action: 'archive', task_id: 'T-1', error: NOT_TERMINAL_ERROR, code: 'NOT_TERMINAL' } } },
+    })(fakeBodyReq({ url: PANEL_ACTION_PATH, body: JSON.stringify({ task_id: 'T-1', action: 'archive' }) }), resBiz)
+    rec.add(G_L, '业务失败照旧 HTTP 200，正文 `{ok:false, error, code}`（客户端读 `ok`，不猜状态码）', resBiz.statusCode === 200 && JSON.parse(resBiz.body).ok === false && JSON.parse(resBiz.body).code === 'NOT_TERMINAL' && JSON.parse(resBiz.body).error === NOT_TERMINAL_ERROR, `status=${resBiz.statusCode} body=${resBiz.body}`)
+    const tmpStore = fakeActionStore()
+    const resE2E = fakeRes()
+    await createSwitchHandler({
+      sw: fakeSwitch(),
+      version: '9.9.9',
+      panelAction: createPanelActions({ store: tmpStore, sw: ACTION_SW_ON }),
+    })(fakeBodyReq({ url: PANEL_ACTION_PATH, body: JSON.stringify({ task_id: 'T-9', action: 'archive' }) }), resE2E)
+    rec.add(G_L, '真执行器 + 真路由：`archive` 落到 `purgeTask(mode:"trash")`', resE2E.statusCode === 200 && JSON.parse(resE2E.body).message === '已留档' && tmpStore.calls.at(-1)?.input.mode === 'trash' && tmpStore.calls.at(-1)?.input.taskId === 'T-9', resE2E.body)
+    const resPanelAgain = fakeRes()
+    await handler(fakeReq({ url: PANEL_PATH }), resPanelAgain)
+    rec.add(G_L, '★ 新路由没有改变 `/panel`（仍 200、仍是那份只读快照）', resPanelAgain.statusCode === 200 && JSON.parse(resPanelAgain.body).ok === true && Array.isArray(JSON.parse(resPanelAgain.body).tasks), `status=${resPanelAgain.statusCode}`)
 
     // 只读硬约束：跑完之后工作区的 task.json 一个字节都没变
     const before = JSON.stringify(newerTask(), null, 2)

@@ -92,6 +92,11 @@ import { mountSwitchRoute, ROUTE_PREFIX, STATE_PATH } from './lib/switch-routes.
 //   挂法见下面 `mountSwitchRouteWhenReady` 的 `panel` 那一条 —— 目录来自本文件已有的
 //   `projectRoot` 与 `config.artifactDirName`，**不另造第二份目录来源**。
 import { buildPanelSnapshot } from './lib/panel/snapshot.js'
+// ★ 自建流水线面板的**写操作面**（用户点按钮：终止 / 恢复 / 留档 / 删单）：
+//   判据（白名单、开关门、二次确认、状态机）全在 `lib/panel/actions.js`，
+//   路由层只负责 HTTP 形状。这里注入的 `store` / `sw` 就是上面那两个**同一个实例** ——
+//   不另造第二份目录来源、也不另开一个开关读数。
+import { createPanelActions } from './lib/panel/actions.js'
 import { createTokenStore } from './lib/tokens.js'
 // ★★ E 路 ③：角色常量（"主对话不收紧工具面"这条口径要按**同一个**角色 id 判）。
 import { ROLE, ROLES, roleLabel } from './lib/roles.js'
@@ -983,6 +988,19 @@ export function apply(ctx, rawConfig) {
   //    所以"挂上了没有"这句话只能由回调自己说，不能拿 apply 结尾那一刻的状态去断言。
   let routeMounted = false
 
+  /**
+   * ★★ 面板写操作的执行器（`POST /.dsh-pipeline/panel/action`）。
+   *
+   * `store` 与 `sw` 都是**本作用域已有的那两个实例**（`createTaskStore` / `createSwitch`）：
+   * 动作因此与 `pipeline_task_purge` / `pipeline_transition` 走**同一份**判据，
+   * 不存在"面板有自己的一套删除逻辑"这种分叉。
+   */
+  const panelActions = createPanelActions({
+    store,
+    sw,
+    log: (m) => ctx.logger?.debug?.(`[pipeline] ${m}`),
+  })
+
   /** 把路由挂到 target（有 webServer 才算数）；返回是否挂上。 */
   const mountSwitchRouteWhenReady = (target, via) => {
     try {
@@ -1002,6 +1020,16 @@ export function apply(ctx, rawConfig) {
          * 绝不抛），所以面板看到的永远是盘上的当前状态，而不是插件启动那一刻的缓存。
          */
         panel: () => buildPanelSnapshot({ projectRoot, artifactDirName: config.artifactDirName }),
+        /**
+         * ★★ 自建流水线面板的**写操作面**（`POST /.dsh-pipeline/panel/action`）。
+         *
+         * 为什么交执行器而不是把 store 递给路由层：路由层只该认识 HTTP
+         * （方法 / 跨站闸 / 8KB 上限 / 坏 JSON），动作判据（白名单、开关门、
+         * 删单二次确认、状态机）在 `lib/panel/actions.js` 里**只有一份** ——
+         * 与工具层的 `pipeline_task_purge` / `pipeline_transition` 同一份实现。
+         * `store` / `sw` 都是本作用域已有的那两个实例，不另造。
+         */
+        panelAction: panelActions,
       })
       if (mounted === null) return false
       target.effect(() => mounted.dispose, 'pipeline: switch route')

@@ -54,8 +54,21 @@ export const STATE_PATH = `${ROUTE_PREFIX}/state`
  */
 export const PANEL_PATH = `${ROUTE_PREFIX}/panel`
 
+/**
+ * 面板**写操作**路由的完整路径（`POST`；动作执行在 `lib/panel/actions.js`）。
+ *
+ * 与 `/panel` 的关系：`/panel` 只读快照，`/panel/action` 才是用户点按钮的出口。
+ * 两条都是**精确匹配**（`path === …`），所以加这一条**不改** `/panel` 的任何行为。
+ * 数据/执行来源不在这里猜：由 `mountSwitchRoute` 的 `panelAction` 入参注入
+ * （见 `index.js` 的 `createPanelActions(...)` 接线）。
+ */
+export const PANEL_ACTION_PATH = `${ROUTE_PREFIX}/panel/action`
+
 /** 请求体上限（就一个布尔，给 4 KB 已经很宽容了）。 */
 const MAX_BODY_BYTES = 4096
+
+/** 面板操作的请求体上限：`{task_id, action, confirm}` 三格，8 KB 绰绰有余。 */
+const MAX_PANEL_ACTION_BODY_BYTES = 8192
 
 /** 环回判定（IPv4 / IPv6 / IPv4-mapped IPv6）。 */
 export function isLoopback(addr) {
@@ -141,6 +154,9 @@ export function readBody(req, limit = MAX_BODY_BYTES) {
  * @param {(m:string)=>void} [deps.log]
  * @param {() => object} [deps.panel] - 面板快照数据源（只读；缺省 ⇒ `/panel` 回 503）。
  *   **本文件不猜 projectRoot** —— 目录从哪来是接线方（`index.js`）的事。
+ * @param {{ run: (input:object) => Promise<object> }} [deps.panelAction] - 面板写操作执行器
+ *   （`lib/panel/actions.js` 的 `createPanelActions()`；缺省 ⇒ `/panel/action` 回 503）。
+ *   本文件**不判**动作白名单 / 开关 / 二次确认 —— 那些全在执行器里，只有一份。
  * @returns {(req:any, res:any)=>Promise<void>}
  */
 export function createSwitchHandler(deps) {
@@ -148,6 +164,8 @@ export function createSwitchHandler(deps) {
   const log = typeof deps.log === 'function' ? deps.log : () => {}
   /** 面板数据源：没有就如实说"没接线"，不拿空对象冒充一份快照。 */
   const panel = typeof deps.panel === 'function' ? deps.panel : null
+  /** 面板写操作执行器：同上，没接线就 503（**不**拿"空操作"冒充一次成功）。 */
+  const panelAction = deps.panelAction !== null && typeof deps.panelAction?.run === 'function' ? deps.panelAction : null
 
   return async function handleSwitchRoute(req, res) {
     try {
@@ -183,6 +201,61 @@ export function createSwitchHandler(deps) {
           return
         }
         sendJson(res, 200, snapshot)
+        return
+      }
+
+      // --- 面板写操作（★ 与 `/panel` 精确匹配、互不影响）------------------
+      //   `/panel/action` 走 POST；`/panel` 的 GET/405/503 行为一个字都没动。
+      if (path === PANEL_ACTION_PATH) {
+        if (method !== 'POST') {
+          sendJson(res, 405, { ok: false, error: `面板操作只支持 POST，不支持 ${method}。` })
+          return
+        }
+        // ★ 与 `/state` 的写操作**同一道跨站闸**（本路由能删任务，比开关更该挡）：
+        //   跨站发 JSON 必须先过预检，而本路由对 OPTIONS 回 405 ⇒ 预检过不去；
+        //   免预检的表单 / text/plain 在这里直接拒。同源客户端照常发 JSON，不受影响。
+        const crossSite = crossSiteReason(req)
+        if (crossSite !== null) {
+          log(`拒绝了一次面板操作请求：${crossSite}`)
+          sendJson(res, 403, { ok: false, error: crossSite })
+          return
+        }
+        if (panelAction === null) {
+          sendJson(res, 503, { ok: false, error: '面板操作未接线（mountSwitchRoute 没收到 panelAction 执行器）。' })
+          return
+        }
+        const raw = await readBody(req, MAX_PANEL_ACTION_BODY_BYTES)
+        if (raw.ok !== true) {
+          sendJson(res, 413, { ok: false, error: raw.error })
+          return
+        }
+        let parsed = null
+        try {
+          parsed = raw.text.trim().length === 0 ? {} : JSON.parse(raw.text)
+        } catch {
+          sendJson(res, 400, { ok: false, error: '请求体不是合法 JSON' })
+          return
+        }
+        if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          sendJson(res, 400, { ok: false, error: '请求体必须是对象。' })
+          return
+        }
+        // ★ 判据（白名单 / 开关门 / 二次确认 / 状态机）**全在执行器里**，这里只递参。
+        //   业务失败照旧 HTTP 200：客户端读 `ok`，不必在状态码与正文之间做二次推断。
+        let result = null
+        try {
+          result = await panelAction.run({
+            task_id: parsed.task_id,
+            action: parsed.action,
+            confirm: parsed.confirm === true,
+          })
+        } catch (err) {
+          // 执行器承诺绝不抛；真抛了也不让路由层炸，如实回一句。
+          log(`面板操作执行器抛异常：${String(err?.stack ?? err)}`)
+          sendJson(res, 500, { ok: false, action: typeof parsed.action === 'string' ? parsed.action : '', task_id: typeof parsed.task_id === 'string' ? parsed.task_id : '', error: '面板操作执行失败。' })
+          return
+        }
+        sendJson(res, 200, result)
         return
       }
 
@@ -273,6 +346,9 @@ export function createSwitchHandler(deps) {
  *
  * ★ 面板数据面：`deps.panel` 原样递给 `createSwitchHandler`（本函数不看内容、不猜目录）。
  *   同一个前缀下于是有两条路：`/state` 可读写开关位，`/panel` 只读快照。
+ * ★ 面板**写操作**：`deps.panelAction` 原样递给 `createSwitchHandler` ——
+ *   动作白名单 / 开关门 / 二次确认 / 状态机全在 `lib/panel/actions.js`，
+ *   本文件只负责 HTTP 形状（方法、跨站闸、8KB 上限、坏 JSON）。
  *
  * @returns {{ dispose:()=>void, handler:Function } | null}
  */
