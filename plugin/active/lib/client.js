@@ -40,7 +40,7 @@
  * 这个文件现在挂**两个**条目（同槽位，互不顶替）
  * ---------------------------------------------------------------------------
  *   ① `pipeline-coordination-toggle`（order 100）—— 「多AI 协调」功能总开关。
- *   ② `pipeline-panel`（order 110）—— 「流水线」面板：列任务 + 席位（角色中文名 + 席位号
+ *   ② `pipeline-panel`（order 110）—— 「多AI协调团队」面板：列任务 + 席位（角色中文名 + 席位号
  *      + 状态），点席位名字用 `uiWorkspace.openSession(...)` 打开那个对话，当前对话的席位
  *      带 ring 高亮与「当前对话」标签。数据来自 `GET /.dsh-pipeline/panel`（5s 轮询）。
  *
@@ -277,7 +277,7 @@
   }
 
   // =========================================================================
-  // 流水线面板（与上面的开关**并排**，不替换它）
+  // 多AI协调团队面板（与上面的开关**并排**，不替换它）
   // =========================================================================
 
   /**
@@ -693,7 +693,7 @@
   }
 
   /**
-   * 右上角的「流水线」面板：看得到队员（任务 + 席位 + 状态），点名字打开对话。
+   * 右上角的「多AI协调团队」面板：看得到队员（任务 + 席位 + 状态），点名字打开对话。
    *
    * 与上面的「多AI 协调」开关**并排**，不替换它：开关管功能总开关，这个面板只管导航。
    * 纯内联样式（不注入 CSS）：不污染宿主样式表，也不怕宿主改 CSS Module 类名。
@@ -715,8 +715,6 @@
     var setOpenError = openErrHook[1]
 
     var aliveRef = React.useRef(true)
-    var pinnedRef = React.useRef(false)
-    var hoverTimerRef = React.useRef(null)
     var rootRef = React.useRef(null)
 
     var sessionId = currentSessionIdOf(props)
@@ -769,45 +767,11 @@
       // 只挂一次：轮询句柄与 abort 都在闭包里
     }, [])
 
-    var cancelHover = function () {
-      if (hoverTimerRef.current !== null) {
-        clearTimeout(hoverTimerRef.current)
-        hoverTimerRef.current = null
-      }
-    }
-
-    // 卸载时清掉悬停定时器（避免卸载后还 setState）
-    React.useEffect(function () {
-      return function () {
-        if (hoverTimerRef.current !== null) clearTimeout(hoverTimerRef.current)
-      }
-    }, [])
-
-    var scheduleOpen = function () {
-      cancelHover()
-      if (open) return
-      hoverTimerRef.current = setTimeout(function () {
-        hoverTimerRef.current = null
-        setOpen(true)
-      }, 140)
-    }
-
-    var scheduleClose = function () {
-      cancelHover()
-      if (!open || pinnedRef.current) return
-      hoverTimerRef.current = setTimeout(function () {
-        hoverTimerRef.current = null
-        setOpen(false)
-      }, 180)
-    }
-
     // 会话切换时收起面板并清掉上一条错误 —— 别让「打不开会话：…」跟着用户跑到新会话里。
     var lastSessionRef = React.useRef(sessionId)
     React.useEffect(function () {
       if (lastSessionRef.current === sessionId) return
       lastSessionRef.current = sessionId
-      cancelHover()
-      pinnedRef.current = false
       setOpen(false)
       setOpenError('')
     }, [sessionId])
@@ -820,12 +784,10 @@
       var onPointerDown = function (ev) {
         var root = rootRef.current
         if (root !== null && typeof root.contains === 'function' && ev.target !== null && root.contains(ev.target)) return
-        pinnedRef.current = false
         setOpen(false)
       }
       var onKeyDown = function (ev) {
         if (ev.key !== 'Escape') return
-        pinnedRef.current = false
         setOpen(false)
       }
       document.addEventListener('pointerdown', onPointerDown, true)
@@ -884,14 +846,11 @@
         type: 'button',
         'aria-haspopup': 'dialog',
         'aria-expanded': open,
-        'aria-label': '流水线面板' + (tasks === null ? '' : '：' + tasks.length + ' 个任务'),
+        'aria-label': '多AI协调团队面板' + (tasks === null ? '' : '：' + tasks.length + ' 个任务'),
         'data-pipeline-panel-trigger': open ? 'open' : 'closed',
-        onMouseEnter: scheduleOpen,
         onClick: function () {
-          cancelHover()
-          var next = !(open && pinnedRef.current)
-          pinnedRef.current = next
-          setOpen(next)
+          // 只认点击：点开后面板一直留着（点外部 / Esc 才关），鼠标移开不再自动收起。
+          setOpen(!open)
         },
         style: {
           display: 'inline-flex',
@@ -914,7 +873,7 @@
           WebkitAppRegion: 'no-drag',
         },
       },
-      React.createElement('span', null, '流水线'),
+      React.createElement('span', null, '多AI协调团队'),
       React.createElement('span', { style: { opacity: 0.7, fontVariantNumeric: 'tabular-nums' } }, countText),
     )
 
@@ -926,7 +885,7 @@
         React.createElement(
           'strong',
           { style: { fontSize: '12.5px', fontWeight: 600 } },
-          tasks === null ? '流水线' : '流水线 · ' + tasks.length + ' 个任务',
+          tasks === null ? '多AI协调团队' : '多AI协调团队 · ' + tasks.length + ' 个任务',
         ),
       ),
     )
@@ -950,12 +909,12 @@
         React.createElement(
           'div',
           { key: 'loading', style: { marginTop: '8px', fontSize: '11.5px', opacity: 0.75 } },
-          errorText === '' ? '正在读取流水线…' : '读不到流水线数据：' + errorText,
+          errorText === '' ? '正在读取多AI协调团队…' : '读不到多AI协调团队数据：' + errorText,
         ),
       )
     } else if (tasks.length === 0) {
       children.push(
-        React.createElement('div', { key: 'empty', style: { marginTop: '8px', fontSize: '11.5px', opacity: 0.75 } }, '暂无流水线任务'),
+        React.createElement('div', { key: 'empty', style: { marginTop: '8px', fontSize: '11.5px', opacity: 0.75 } }, '暂无任务'),
       )
     } else {
       children.push(
@@ -993,7 +952,7 @@
           'div',
           {
             role: 'dialog',
-            'aria-label': '流水线',
+            'aria-label': '多AI协调团队',
             'data-pipeline-panel': 'open',
             style: {
               position: 'absolute',
@@ -1028,7 +987,6 @@
       {
         ref: rootRef,
         'data-pipeline-panel-root': 'true',
-        onMouseLeave: scheduleClose,
         style: { position: 'relative', display: 'inline-flex', alignItems: 'center', WebkitAppRegion: 'no-drag' },
       },
       trigger,
@@ -1067,13 +1025,13 @@
             },
           )
 
-          // 「流水线」面板：**并排**新增，不替换上面的开关（order 110 = 开关右边一格）。
+          // 「多AI协调团队」面板：**并排**新增，不替换上面的开关（order 110 = 开关右边一格）。
           var disposePanel = ctx.slots.register(
             {
               name: SLOT,
               id: PANEL_ENTRY_ID,
               order: PANEL_ENTRY_ORDER,
-              label: '流水线',
+              label: '多AI协调团队',
             },
             function PipelinePanelBound(props) {
               return PipelinePanel(Object.assign({}, props, { React: React, ctx: ctx }))
@@ -1086,7 +1044,7 @@
           }
         })
       },
-      'dsh-pipeline: 多AI 协调开关 + 流水线面板',
+      'dsh-pipeline: 多AI 协调开关 + 多AI协调团队面板',
     )
   }
 
