@@ -42,6 +42,7 @@ import { guardDecision } from '../lib/guard.js'
 import { createTokenStore } from '../lib/tokens.js'
 import { mergeConfig } from '../lib/config.js'
 import * as plugin from '../index.js'
+import { EXPECTED_TOOL_COUNT } from './load-smoke.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 
@@ -1077,8 +1078,8 @@ export async function runERouteCheck(opts = {}) {
       void face
       rec.add(
         '④ 可复现',
-        '★ 工具面**从真实注册对象派生**（工具名不需要另抄一份）：31 个工具一个不多一个不少',
-        Object.keys(bare).length === 31,
+        `★ 工具面**从真实注册对象派生**（工具名不需要另抄一份）：${EXPECTED_TOOL_COUNT} 个工具一个不多一个不少`,
+        Object.keys(bare).length === EXPECTED_TOOL_COUNT,
         `buildTools 的键数=${Object.keys(bare).length}`,
       )
     }

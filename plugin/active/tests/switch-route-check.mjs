@@ -26,6 +26,8 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
+import { EXPECTED_TOOL_COUNT } from './load-smoke.mjs'
+
 const HERE = dirname(fileURLToPath(import.meta.url))
 
 function pluginRoot() {
@@ -199,7 +201,7 @@ export async function checkSwitchRoute() {
           `  守门注册数：${r.guardLog.length}`,
       )
       if (r.threw !== null) F('apply', order, `不应抛异常：${String(r.threw?.message ?? r.threw)}`)
-      if (r.toolLog.length !== 29) F('tools', order, `应当注册 29 个工具，实际 ${r.toolLog.length}`)
+      if (r.toolLog.length !== EXPECTED_TOOL_COUNT) F('tools', order, `应当注册 ${EXPECTED_TOOL_COUNT} 个工具，实际 ${r.toolLog.length}`)
       if (expectedTools === null) expectedTools = [...r.toolLog].sort()
       else if (JSON.stringify([...r.toolLog].sort()) !== JSON.stringify(expectedTools)) {
         F('tools', order, '工具清单与其它排布不一致')
@@ -223,7 +225,7 @@ export async function checkSwitchRoute() {
       '\n\n' +
       (failures.length === 0
         ? '全部通过：webServer 先/后两种顺序都真的挂上了 /.dsh-pipeline（register 被调用到），\n' +
-          '而**完全没有 webServer** 时 apply 不抛、29 个工具照常注册、不碰 register。\n'
+          `而**完全没有 webServer** 时 apply 不抛、${EXPECTED_TOOL_COUNT} 个工具照常注册、不碰 register。\n`
         : failures.map((f) => `✗ ${f}`).join('\n'))
 
     return { checked: true, ok: failures.length === 0, total: 3, failed: failures.length, failures, source: cordis.source, text }

@@ -653,7 +653,7 @@ Write-Host '    想整体关掉：翻右上角总开关（即时），或把配�
 Write-Host ''
 Write-Host '装完请先做这三件事：'
 Write-Host '  1) 重启 DSH，在日志里找这两行，确认装上了：'
-Write-Host "     [pipeline] dsh-pipeline 0.1.0 已加载：17 个 pipeline_* 工具已注册；...；多AI 协调开关=**开**（...）。"
+Write-Host "     [pipeline] dsh-pipeline 0.1.0 已加载：36 个 pipeline_* 工具已注册；...；多AI 协调开关=**开**（...）。"
 Write-Host "     [pipeline] 开关 UI 端点已挂载：GET/POST /.dsh-pipeline/state（右上角「多AI 协调」按钮走它）。"
 Write-Host '  2) 看窗口右上角头部那一排（⋯ 菜单与右侧栏切换按钮之间）有没有出现'
 Write-Host '     「● 多AI 协调 开」这个胶囊按钮；点一下应当立即变成「关」。'

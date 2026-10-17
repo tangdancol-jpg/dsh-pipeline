@@ -6,7 +6,7 @@
  * 十八套：
  *   1. selftest      正例全流程 + 10 组反例 + 分档验证（真跑，含拒绝原文）
  *   2. load-smoke    插件装载冒烟（假 ctx，验证 apply/注册/守门/路由/卸载路径）
- *   3. schema-check  用**真** `defineTool` 编译器校验 27 个工具定义
+ *   3. schema-check  用**真** `defineTool` 编译器校验全部工具定义
  *   4. switch-check  功能开关：开关语义 / 守门弃权 / 工具拒绝 / HTTP 路由
  *   5. client-check  客户端半边：装载契约 / 挂载契约 / 按钮行为（桩 React，无浏览器）
  *   6. human-check   ★人工介入链路：四步留痕 + 四类越权（用户只与主对话相连）

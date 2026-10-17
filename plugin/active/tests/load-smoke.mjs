@@ -4,7 +4,7 @@
  * 「插件能被 cordis 装载」是交付物里的一句硬承诺，本脚本把它变成可执行的断言：
  *
  *   · `apply(ctx, config)` 在一个**假 ctx** 上真的跑起来了；
- *   · 13 个工具全部注册进了 `ctx.tools.register`，且注册用的是 `ctx.effect`
+ *   · 全部 `pipeline_*` 工具注册进了 `ctx.tools.register`，且注册用的是 `ctx.effect`
  *     （宿主里取消注册的唯一正确姿势 —— `register` 返回精确 disposer）；
  *   · 守门注册进了 `ctx.tools.guard`，且**真的会拒**一条越权调用；
  *   · `enabled:false` 时什么也不注册；`guardEnabled:false` 时只注册工具不注册守门；

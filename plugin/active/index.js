@@ -1050,7 +1050,7 @@ export function apply(ctx, rawConfig) {
   const snap = sw.snapshot()
   const probeLabel = channelProbe.kind === 'team' ? '官方 Team 通道' : '真实会话通道'
   const msg =
-    `[pipeline] ${NS} ${TOOL_VERSION} 已加载：29 个 pipeline_* 工具已注册；` +
+    `[pipeline] ${NS} ${TOOL_VERSION} 已加载：${Object.keys(tools).length} 个 pipeline_* 工具已注册；` +
     (config.guardEnabled === true ? '守门已启用；' : '**guardEnabled=false（没有硬拦截）**；') +
     `通道=${transport.kind}（transport=${config.transport}，spawnRoles=${config.spawnRoles !== false}）；` +
     `${probeLabel}=${channelProbe.ok ? '可用' : '**不可达**'}${channelProbe.ok ? '' : `（缺 ${(channelProbe.missing ?? []).join('、')}）`}；` +
