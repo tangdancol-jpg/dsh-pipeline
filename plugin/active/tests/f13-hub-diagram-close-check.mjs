@@ -33,7 +33,7 @@
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
-import { callTool, createHarness, disposeHarness } from './selftest-core.mjs'
+import { callTool, createHarness, disposeHarness, fileSha256 } from './selftest-core.mjs'
 import { ST } from '../lib/states.js'
 import { buildRoster } from '../lib/tiers.js'
 
@@ -192,6 +192,7 @@ async function resubmit(h, taskId, TK, diagramPath, declaredVersion) {
         task_id: taskId,
         based_on_artifact_version: declaredVersion,
         diagram_path: diagramPath,
+        html_sha256: fileSha256(diagramPath),
         produced_by: 'self-provided',
         covered_modules: ['m1'],
         degraded: true,

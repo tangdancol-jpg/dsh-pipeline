@@ -32,7 +32,8 @@
  * @module dsh-pipeline/tests/selftest-core
  */
 
-import { existsSync, rmSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { existsSync, readFileSync, rmSync } from 'node:fs'
 import { mkdtemp, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -50,6 +51,11 @@ const ownedTempDirs = new Set()
 /** ★ 还没清掉的临时目录（run-all 用它断言"没有泄漏"）。 */
 export function leakedTempDirs() {
   return [...ownedTempDirs].filter((d) => existsSync(d))
+}
+
+/** 文件原始字节的 sha256（十六进制）—— 架构图交接物的 `html_sha256` 必填且与盘上核对（缺陷 ⑰）。 */
+export function fileSha256(p) {
+  return createHash('sha256').update(readFileSync(p)).digest('hex')
 }
 
 import { mergeConfig } from '../lib/config.js'

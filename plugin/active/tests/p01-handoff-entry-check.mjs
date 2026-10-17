@@ -26,7 +26,7 @@
  * @module dsh-pipeline/tests/p01-handoff-entry-check
  */
 
-import { createHarness, disposeHarness, callTool } from './selftest-core.mjs'
+import { createHarness, disposeHarness, callTool, fileSha256 } from './selftest-core.mjs'
 import { HUB_HANDOFF_CONFIRM_STATIONS, ST, STATE_LABEL, TRANSITIONS, findTransition } from '../lib/states.js'
 import { buildRoster } from '../lib/tiers.js'
 
@@ -280,7 +280,7 @@ async function drive(h, rec) {
     const dgDir = `${h.projectRoot}/.pipeline/${taskId}/reports/diagrammer`
     await mkdir(dgDir, { recursive: true })
     await wf(`${dgDir}/diagrammer-topology.html`, '<html>topology</html>', 'utf8')
-    const dg = await callTool(h, 'pipeline_handoff', { task_id: taskId, kind: 'architecture_diagram', role_token: TK.diag, payload: { task_id: taskId, based_on_artifact_version: 'pre-plan', diagram_path: `${dgDir}/diagrammer-topology.html`, produced_by: 'self-provided', covered_modules: ['m1'], degraded: true, degraded_reason: '夹具：自备产物' } }, AG.diag)
+    const dg = await callTool(h, 'pipeline_handoff', { task_id: taskId, kind: 'architecture_diagram', role_token: TK.diag, payload: { task_id: taskId, based_on_artifact_version: 'pre-plan', diagram_path: `${dgDir}/diagrammer-topology.html`, html_sha256: fileSha256(`${dgDir}/diagrammer-topology.html`), produced_by: 'self-provided', covered_modules: ['m1'], degraded: true, degraded_reason: '夹具：自备产物' } }, AG.diag)
     if (dg.denied === true) throw new Error(`夹具：交架构图失败：${await state()}\n${dg.text}`)
 
     const dgH = (await task()).handoffs.filter((x) => x.kind === 'architecture_diagram').pop()

@@ -33,7 +33,7 @@
 
 import { mkdir, writeFile } from 'node:fs/promises'
 
-import { createHarness, disposeHarness, callTool } from './selftest-core.mjs'
+import { createHarness, disposeHarness, callTool, fileSha256 } from './selftest-core.mjs'
 import { HUB_HANDOFF_CONFIRM_STATIONS, HUB_STATIONS, ST } from '../lib/states.js'
 
 function createRecorder() {
@@ -176,7 +176,7 @@ async function drive(h, rec) {
   const dgDir = `${h.projectRoot}/.pipeline/${taskId}/reports/diagrammer`
   await mkdir(dgDir, { recursive: true })
   await writeFile(`${dgDir}/hub-seat-spawn-diagram.html`, '<html>x</html>', 'utf8')
-  const d1 = await callTool(h, 'pipeline_handoff', { task_id: taskId, kind: 'architecture_diagram', role_token: DIAG.token, payload: { task_id: taskId, based_on_artifact_version: 'pre-plan', diagram_path: `${dgDir}/hub-seat-spawn-diagram.html`, produced_by: 'self-provided', covered_modules: ['m1'], degraded: true, degraded_reason: '夹具：自备产物' } }, DIAG.session_id)
+  const d1 = await callTool(h, 'pipeline_handoff', { task_id: taskId, kind: 'architecture_diagram', role_token: DIAG.token, payload: { task_id: taskId, based_on_artifact_version: 'pre-plan', diagram_path: `${dgDir}/hub-seat-spawn-diagram.html`, html_sha256: fileSha256(`${dgDir}/hub-seat-spawn-diagram.html`), produced_by: 'self-provided', covered_modules: ['m1'], degraded: true, degraded_reason: '夹具：自备产物' } }, DIAG.session_id)
   rec.add('B 唤醒点A', '★★ 新架构位**拿自己的令牌就能交图**（⇒ 状态到「架构图待主管确认」）', diag !== null && d1.denied !== true && (await state()) === ST.ARCH_CONFIRM, `${await state()} ${d1.text.split('\n')[0]}`)
 
   // =========================================================================

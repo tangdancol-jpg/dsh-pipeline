@@ -216,13 +216,13 @@ export const HANDOFF_SCHEMAS = {
       produced_by: F('enum', '怎么产出的', { values: ['diagram_deliver', 'self-provided'] }),
       receipt_path: F('string', '交付收据路径（produced_by=diagram_deliver 时必填，且必须真实存在）'),
       receipt_id: F('string', '收据 id（可空）'),
-      html_sha256: F('string', '产物 sha256（可空；给了就会与磁盘上的文件核对）'),
+      html_sha256: F('string', '产物 sha256（必填；与 diagram_path 指向的文件逐字节核对，两条产出路都核 —— 缺陷 ⑰）'),
       covered_modules: F('string[]', '这张图覆盖了哪些模块'),
       degraded: F('boolean', '是否降级产出（没走 diagram_deliver）'),
       degraded_reason: F('text', '降级原因（degraded=true 时必填）'),
       notes: F('string[]', '说明（可空）'),
     },
-    required: ['task_id', 'based_on_artifact_version', 'diagram_path', 'produced_by', 'covered_modules', 'degraded'],
+    required: ['task_id', 'based_on_artifact_version', 'diagram_path', 'produced_by', 'html_sha256', 'covered_modules', 'degraded'],
   },
 
   // --- ★★主管枢纽（T-20261011-56a37e）：五道确认的留痕载体 ------------------

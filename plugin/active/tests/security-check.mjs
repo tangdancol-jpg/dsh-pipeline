@@ -17,7 +17,7 @@
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
-import { callTool, auditFor, cleanSecurity, manifestFor } from './selftest-core.mjs'
+import { callTool, auditFor, cleanSecurity, manifestFor, fileSha256 } from './selftest-core.mjs'
 import { createMultiWriterFixture } from './writers-check.mjs'
 
 // ---------------------------------------------------------------------------
@@ -140,7 +140,7 @@ async function degradedDiagram(fx) {
     {
       task_id: fx.taskId, kind: 'architecture_diagram', role_token: fx.tokens.diagrammer,
       payload: {
-        task_id: fx.taskId, based_on_artifact_version: cur0(fx), diagram_path: html,
+        task_id: fx.taskId, based_on_artifact_version: cur0(fx), diagram_path: html, html_sha256: fileSha256(html),
         produced_by: 'self-provided', degraded: true,
         degraded_reason: '安全测试夹具：不引入 diagram_deliver 依赖，用自备产物。',
         covered_modules: ['x'], notes: [],

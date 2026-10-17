@@ -227,4 +227,8 @@ export const EXTRA_SUITES = [
   //    状态表上这条边只从 arch_drawing 出发 ⇒ BAD_TRANSITION，与「②b/②c 可以再交一次」的注释不符。
   //    这一套钉：只有首次出图推状态 / 前置站三处重交放行且不推 / 已有编写产物照旧拒 / 推导用的无状态调用不变。
   { file: './f19-diagram-resubmit-check.mjs', exportName: 'runF19DiagramResubmitCheck', zh: '★ 前置站重交架构图（缺陷 ⑯：只有首次出图推状态，arch_confirm / ②b / ②c 上重交不再 BAD_TRANSITION）' },
+  // ★★ 缺陷 ⑰（2026-10-17）：架构图的 html_sha256 原先可空，且只在 diagram_deliver 那一路核盘 ——
+  //    self-provided 给错照样放行 ⇒ 「这张图就是盘上那个文件」无从判定。
+  //    这一套钉：缺哈希两路都拒 / 哈希不符两路都拒 / 一致放行 / 交付站版本判据照旧在。
+  { file: './f20-diagram-hash-check.mjs', exportName: 'runF20DiagramHashCheck', zh: '★ 架构图产物哈希必填且必核（缺陷 ⑰：两条产出路都与盘上逐字节核对，版本判据不松）' },
 ]

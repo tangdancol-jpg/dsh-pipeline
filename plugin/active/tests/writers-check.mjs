@@ -15,7 +15,7 @@
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
-import { callTool, auditFor, cleanSecurity, createHarness, manifestFor, runAnalysisThenPlan, runHappyPath } from './selftest-core.mjs'
+import { callTool, auditFor, cleanSecurity, createHarness, manifestFor, runAnalysisThenPlan, runHappyPath, fileSha256 } from './selftest-core.mjs'
 
 // ---------------------------------------------------------------------------
 // 断言小工具（与其它套一致的形状）
@@ -365,6 +365,7 @@ export async function runWritersCheck() {
           task_id: fx.taskId,
           based_on_artifact_version: versions['writer#3'],
           diagram_path: htmlPath,
+          html_sha256: fileSha256(htmlPath),
           produced_by: 'diagram_deliver',
           receipt_path: receiptPath,
           receipt_id: 'R-1',
@@ -517,7 +518,7 @@ export async function runWritersCheck() {
         kind: 'architecture_diagram',
         role_token: g.tokens.diagrammer,
         payload: {
-          task_id: g.taskId, based_on_artifact_version: 'v1', diagram_path: html,
+          task_id: g.taskId, based_on_artifact_version: 'v1', diagram_path: html, html_sha256: fileSha256(html),
           produced_by: 'diagram_deliver', receipt_path: rc, covered_modules: ['x'], degraded: false,
         },
       },
@@ -590,7 +591,7 @@ export async function runWritersCheck() {
       {
         task_id: g.taskId, kind: 'architecture_diagram', role_token: g.tokens.diagrammer,
         payload: {
-          task_id: g.taskId, based_on_artifact_version: 'v1', diagram_path: html,
+          task_id: g.taskId, based_on_artifact_version: 'v1', diagram_path: html, html_sha256: fileSha256(html),
           produced_by: 'diagram_deliver', receipt_path: join(dir, 'nope.json'),
           covered_modules: ['x'], degraded: false,
         },
@@ -604,7 +605,7 @@ export async function runWritersCheck() {
       {
         task_id: g.taskId, kind: 'architecture_diagram', role_token: g.tokens.diagrammer,
         payload: {
-          task_id: g.taskId, based_on_artifact_version: 'v1', diagram_path: html,
+          task_id: g.taskId, based_on_artifact_version: 'v1', diagram_path: html, html_sha256: fileSha256(html),
           produced_by: 'self-provided', covered_modules: ['x'], degraded: false,
         },
       },
@@ -617,7 +618,7 @@ export async function runWritersCheck() {
       {
         task_id: g.taskId, kind: 'architecture_diagram', role_token: g.tokens.diagrammer,
         payload: {
-          task_id: g.taskId, based_on_artifact_version: 'v1', diagram_path: html,
+          task_id: g.taskId, based_on_artifact_version: 'v1', diagram_path: html, html_sha256: fileSha256(html),
           produced_by: 'self-provided', degraded: true,
           degraded_reason: 'dsh-archigate 未安装，diagram_deliver 不可用；用自备规格产物代替。',
           covered_modules: ['x'], notes: ['降级交付'],

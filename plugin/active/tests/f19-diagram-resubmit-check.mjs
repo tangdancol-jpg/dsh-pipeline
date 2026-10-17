@@ -20,7 +20,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
-import { callTool, createHarness, disposeHarness } from './selftest-core.mjs'
+import { callTool, createHarness, disposeHarness, fileSha256 } from './selftest-core.mjs'
 import { ST } from '../lib/states.js'
 import { hubAdvanceFor } from '../lib/store.js'
 import { buildRoster } from '../lib/tiers.js'
@@ -123,7 +123,7 @@ const submitDiagram = (h, s, path, version = 'pre-plan') =>
       task_id: s.taskId,
       kind: 'architecture_diagram',
       role_token: s.tk,
-      payload: { task_id: s.taskId, based_on_artifact_version: version, diagram_path: path, produced_by: 'self-provided', covered_modules: ['m1'], degraded: true, degraded_reason: 'F19 夹具：自备产物' },
+      payload: { task_id: s.taskId, based_on_artifact_version: version, diagram_path: path, html_sha256: fileSha256(path), produced_by: 'self-provided', covered_modules: ['m1'], degraded: true, degraded_reason: 'F19 夹具：自备产物' },
     },
     DIAG,
   )

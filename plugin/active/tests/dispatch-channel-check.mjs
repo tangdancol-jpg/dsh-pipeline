@@ -23,7 +23,7 @@
  * @module dsh-pipeline/tests/dispatch-channel-check
  */
 
-import { createHarness, disposeHarness, callTool } from './selftest-core.mjs'
+import { createHarness, disposeHarness, callTool, fileSha256 } from './selftest-core.mjs'
 import { HUB_HANDOFF_CONFIRM_STATIONS, HUB_STATIONS, ST } from '../lib/states.js'
 import { buildRoster } from '../lib/tiers.js'
 
@@ -219,7 +219,7 @@ async function driveHub(h, rec) {
     await wf(`${dgDir}/diagrammer-topology-a.html`, '<html>a</html>', 'utf8')
     await wf(`${dgDir}/diagrammer-topology-b.html`, '<html>b</html>', 'utf8')
 
-    const dgBody = (path) => ({ task_id: taskId, based_on_artifact_version: 'pre-plan', diagram_path: path, produced_by: 'self-provided', covered_modules: ['m1'], degraded: true, degraded_reason: '夹具：自备产物' })
+    const dgBody = (path) => ({ task_id: taskId, based_on_artifact_version: 'pre-plan', diagram_path: path, html_sha256: fileSha256(path), produced_by: 'self-provided', covered_modules: ['m1'], degraded: true, degraded_reason: '夹具：自备产物' })
     const d1 = await callTool(h, 'pipeline_handoff', { task_id: taskId, kind: 'architecture_diagram', role_token: TK.diag, payload: dgBody(`${dgDir}/diagrammer-topology-a.html`) }, AG.diag)
     rec.add('E 架构图前置', '★★ 前置站交图 ⇒ 放行，并**自动**推进到「架构图待主管确认」', d1.denied !== true && (await state()) === ST.ARCH_CONFIRM, `${await state()} ${d1.text.split('\n')[0]}`)
 

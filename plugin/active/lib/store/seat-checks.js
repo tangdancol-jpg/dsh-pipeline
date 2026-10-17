@@ -7,10 +7,11 @@
  * @module dsh-pipeline/lib/store/seat-checks
  */
 
+import { createHash } from 'node:crypto'
 import { isAbsolute, join, resolve } from 'node:path'
 import { ROLES_CAN_RAISE_HUMAN, ST } from '../states.js'
 import { ROLE } from '../roles.js'
-import { fullHash, nowIso, pathKey } from '../util.js'
+import { nowIso, pathKey } from '../util.js'
 import { hashGateEscalationPending, renderHashGateEscalation, shouldEscalateHashGate } from '../hashgate.js'
 import { writeJsonAtomic, writerSeatsOf, seatPartitionOf } from './shared.js'
 
@@ -94,11 +95,11 @@ export function seatCheckMethods(ctx) {
      *
      * 判据分两条路：
      *   · `produced_by=diagram_deliver`：收据文件必须**真实存在**（这是"声称走过闸门"的凭据）；
-     *     若还给了 `html_sha256`，与磁盘上的产物核对
      *   · `produced_by=self-provided`：`degraded` 必须为 true 且有原因（字段校验已管），
      *     这里只确认产物本身存在
      *
-     * 无论哪条路，`diagram_path` 都必须指向一个**真实存在**的文件 ——
+     * 无论哪条路，`diagram_path` 都必须指向一个**真实存在**的文件，且 `html_sha256` 必须与它逐字节一致
+     * （缺陷 ⑰：原先只有 diagram_deliver 那一路核哈希）——
      * 交一份指向不存在路径的"交付物"没有意义。
      */
     async checkDiagramDelivery(task, payload) {
@@ -121,6 +122,22 @@ export function seatCheckMethods(ctx) {
         )
       }
 
+      // ★ 缺陷 ⑰（2026-10-17）：哈希核对挪到两条产出路共用的位置（原先只有 diagram_deliver 那一路核，
+      //   self-provided 给错了照样放行）；按**原始字节**算，与任何外部 sha256 工具的结果一致。
+      //   字段本身已是必填（schemas.js），这里兜底"给了空串"也拒。
+      const declared = String(payload.html_sha256 ?? '').trim().toLowerCase()
+      const { readFile } = await import('node:fs/promises')
+      const actual = createHash('sha256').update(await readFile(diagramPath)).digest('hex')
+      if (declared !== actual) {
+        return deny(
+          'DIAGRAM_HASH_MISMATCH',
+          `html_sha256 与磁盘上的产物对不上。\n` +
+            `交接物里写的：${declared || '(缺失)'}\n实际文件的：      ${actual}\n` +
+            '制品版本化就是为了防"说的是这一版、交的是另一版"。\n' +
+            '下一步：对 diagram_path 指向的那个文件算 sha256（十六进制），原样填进 html_sha256 再交。',
+        )
+      }
+
       if (payload.produced_by === 'diagram_deliver') {
         const receiptPath = resolveOne(payload.receipt_path)
         if (receiptPath === null || !existsSync(receiptPath)) {
@@ -135,18 +152,6 @@ export function seatCheckMethods(ctx) {
           )
         }
 
-        if (typeof payload.html_sha256 === 'string' && payload.html_sha256.trim().length > 0) {
-          const { readFile } = await import('node:fs/promises')
-          const actual = fullHash(await readFile(diagramPath, 'utf8'))
-          if (actual !== payload.html_sha256.trim()) {
-            return deny(
-              'DIAGRAM_HASH_MISMATCH',
-              `html_sha256 与磁盘上的产物对不上。\n` +
-                `交接物里写的：${payload.html_sha256.trim()}\n实际文件的：      ${actual}\n` +
-                '制品版本化就是为了防"说的是这一版、交的是另一版"。',
-            )
-          }
-        }
         return { ok: true, diagramPath, receiptPath }
       }
 
