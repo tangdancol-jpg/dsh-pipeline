@@ -715,6 +715,8 @@
     var setOpenError = openErrHook[1]
 
     var aliveRef = React.useRef(true)
+    var pinnedRef = React.useRef(false) // 点击钉住后面板不因移开而收起
+    var hoverTimerRef = React.useRef(null)
     var rootRef = React.useRef(null)
 
     var sessionId = currentSessionIdOf(props)
@@ -767,11 +769,48 @@
       // 只挂一次：轮询句柄与 abort 都在闭包里
     }, [])
 
+    // ---- 悬停（参考官方）：移上去就开，移开**慢一点**才关；点过（钉住）就永不自动关 ----
+    var cancelHover = function () {
+      if (hoverTimerRef.current !== null) {
+        clearTimeout(hoverTimerRef.current)
+        hoverTimerRef.current = null
+      }
+    }
+
+    var scheduleOpen = function () {
+      cancelHover()
+      if (open) return
+      hoverTimerRef.current = setTimeout(function () {
+        hoverTimerRef.current = null
+        setOpen(true)
+      }, 140)
+    }
+
+    var scheduleClose = function () {
+      cancelHover()
+      if (!open || pinnedRef.current) return
+      // ★ 800ms 才关：从按钮移到面板要经过一小段间隙；官方也是"慢关"，
+      //   太快就会像"碰一下就关"。
+      hoverTimerRef.current = setTimeout(function () {
+        hoverTimerRef.current = null
+        setOpen(false)
+      }, 800)
+    }
+
+    // 卸载时清掉悬停定时器（避免卸载后还 setState）
+    React.useEffect(function () {
+      return function () {
+        if (hoverTimerRef.current !== null) clearTimeout(hoverTimerRef.current)
+      }
+    }, [])
+
     // 会话切换时收起面板并清掉上一条错误 —— 别让「打不开会话：…」跟着用户跑到新会话里。
     var lastSessionRef = React.useRef(sessionId)
     React.useEffect(function () {
       if (lastSessionRef.current === sessionId) return
       lastSessionRef.current = sessionId
+      cancelHover()
+      pinnedRef.current = false
       setOpen(false)
       setOpenError('')
     }, [sessionId])
@@ -784,10 +823,12 @@
       var onPointerDown = function (ev) {
         var root = rootRef.current
         if (root !== null && typeof root.contains === 'function' && ev.target !== null && root.contains(ev.target)) return
+        pinnedRef.current = false
         setOpen(false)
       }
       var onKeyDown = function (ev) {
         if (ev.key !== 'Escape') return
+        pinnedRef.current = false
         setOpen(false)
       }
       document.addEventListener('pointerdown', onPointerDown, true)
@@ -848,9 +889,14 @@
         'aria-expanded': open,
         'aria-label': '多AI协调团队面板' + (tasks === null ? '' : '：' + tasks.length + ' 个任务'),
         'data-pipeline-panel-trigger': open ? 'open' : 'closed',
+        onMouseEnter: scheduleOpen,
         onClick: function () {
-          // 只认点击：点开后面板一直留着（点外部 / Esc 才关），鼠标移开不再自动收起。
-          setOpen(!open)
+          // 点击 = 钉住 / 取消钉住。悬停打开的算是"没钉住"，点一下才钉住；
+          // 钉住后鼠标移开不会收起，再点一下面板才收。
+          cancelHover()
+          var next = !(open && pinnedRef.current)
+          pinnedRef.current = next
+          setOpen(next)
         },
         style: {
           display: 'inline-flex',
@@ -951,34 +997,40 @@
       ? React.createElement(
           'div',
           {
-            role: 'dialog',
-            'aria-label': '多AI协调团队',
-            'data-pipeline-panel': 'open',
-            style: {
-              position: 'absolute',
-              top: 'calc(100% + 6px)',
-              right: 0,
-              zIndex: 2147483000,
-              width: 'min(440px, 92vw)',
-              maxHeight: 'min(70vh, 560px)',
-              overflowY: 'auto',
-              overscrollBehavior: 'contain',
-              boxSizing: 'border-box',
-              padding: '10px 12px 12px',
-              background: 'var(--dsw-specific-menu, #ffffff)',
-              color: 'var(--dsw-alias-label-primary, #1f2328)',
-              border: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.35))',
-              borderRadius: '12px',
-              boxShadow: 'var(--dsw-elevation-prominent, 0 12px 32px rgba(0,0,0,.28))',
-              font: 'inherit',
-              fontSize: '12px',
-              lineHeight: '1.45',
-              textAlign: 'left',
-              // 面板整体也落在头部拖拽区里，同样要显式退出拖拽
-              WebkitAppRegion: 'no-drag',
-            },
+            // 外层只负责补上「按钮 ↔ 面板」之间那 6px 的缝：指针经过缝时仍在这个元素里，
+            // 所以悬停横移不会被误判成"离开"（这是"没那么容易关"的另一半）。
+            'data-pipeline-panel-frame': 'true',
+            style: { position: 'absolute', top: '100%', right: 0, paddingTop: '6px', WebkitAppRegion: 'no-drag' },
           },
-          children,
+          React.createElement(
+            'div',
+            {
+              role: 'dialog',
+              'aria-label': '多AI协调团队',
+              'data-pipeline-panel': 'open',
+              style: {
+                zIndex: 2147483000,
+                width: 'min(440px, 92vw)',
+                maxHeight: 'min(70vh, 560px)',
+                overflowY: 'auto',
+                overscrollBehavior: 'contain',
+                boxSizing: 'border-box',
+                padding: '10px 12px 12px',
+                background: 'var(--dsw-specific-menu, #ffffff)',
+                color: 'var(--dsw-alias-label-primary, #1f2328)',
+                border: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.35))',
+                borderRadius: '12px',
+                boxShadow: 'var(--dsw-elevation-prominent, 0 12px 32px rgba(0,0,0,.28))',
+                font: 'inherit',
+                fontSize: '12px',
+                lineHeight: '1.45',
+                textAlign: 'left',
+                // 面板整体也落在头部拖拽区里，同样要显式退出拖拽
+                WebkitAppRegion: 'no-drag',
+              },
+            },
+            children,
+          ),
         )
       : null
 
@@ -987,6 +1039,8 @@
       {
         ref: rootRef,
         'data-pipeline-panel-root': 'true',
+        onMouseEnter: cancelHover,
+        onMouseLeave: scheduleClose,
         style: { position: 'relative', display: 'inline-flex', alignItems: 'center', WebkitAppRegion: 'no-drag' },
       },
       trigger,
