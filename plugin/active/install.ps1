@@ -9,13 +9,14 @@
     脚本根本无法启动。用编辑器保存时请选 "UTF-8 with BOM"
     （VS Code：右下角编码 → Save with Encoding → UTF-8 with BOM）。
 
- 做五件事，顺序固定，改任何文件之前先备份：
+ 做六件事，顺序固定，改任何文件之前先备份：
 
    1. 备份 profile 的 `cordis.patch.yml` 与 `package.json`（带时间戳，同目录）
    2. 把插件**运行期需要的文件**复制到 <profile>\node_modules\dsh-pipeline
    3. 清掉目标目录里上一轮可能留下的非运行期目录
    4. 把 "dsh-pipeline" 加进 <profile>\package.json 的 dsh.profile.bundles
-   5. 往 <profile>\cordis.patch.yml 追加一条本插件的行（含 config）
+   5. 把 "dsh-pipeline" 登进 <profile>\package.json 的 dependencies（缺了它插件管理器会把本插件当「手工残留」摘掉）
+   6. 往 <profile>\cordis.patch.yml 追加一条本插件的行（含 config）
 
  ⚠️ 不跑 pnpm、不装依赖：本插件**没有任何运行期第三方依赖**
      （只用 node 内置模块 + 可选的 DSH 核心包 `@deepseek-ai/dsh-tools`，
@@ -513,6 +514,67 @@ if ($alreadyInBundles) {
     Info "已把 `"$PluginName`" 追加进 dsh.profile.bundles。"
   } else {
     Info "[DryRun] 会把 `"$PluginName`" 追加进 dsh.profile.bundles。"
+  }
+}
+
+# ---------------------------------------------------------------------------
+# 4.5) 把插件登记进 dependencies（幂等、只 append）
+# ---------------------------------------------------------------------------
+# 为什么必须登记：插件管理器（@deepseek-ai/dsh-plugin-manager）判定"哪些是已装
+# 插件"时读的是 profile 的 package.json —— 「只在 bundles 里、却不在 dependencies
+# 里」的名字在它看来是一个没有包作后盾的孤儿条目：它重写清单时会把它摘掉，甚至
+# 把 node_modules 下的整个目录挪进 .pm-backup-*（2026-10-18 的启用/禁用循环就把
+# dsh-pipeline 这么摘了一次，插件随后从「已安装插件」列表里消失）。登记成依赖
+# 之后它才是一个"装好的包"，而不是一条悬浮的名字。
+#
+# 形态：本插件未发布到 registry，所以**不能**写版本号 —— 那会让 pnpm 去 registry
+# 找一个不存在的版本（registry 上的 dsh-pipeline 是别人的 0.0.1）。这里与 profile
+# 里已装的本地源码插件（dsh-persona-whale 用 link:）保持同一形态。
+$depSpec = 'link:' + ($PluginSrc -replace '\\', '/')
+
+# 步骤 4 可能刚重写过文件，所以这里**重新读盘**，不复用上面的 $pkgText。
+$pkgTextNow = Read-Text $PkgPath
+$pkgNow = $null
+try { $pkgNow = $pkgTextNow | ConvertFrom-Json } catch {
+  Die "profile 的 package.json 在写 bundles 之后不再可解析，已中止（未改 dependencies）。请用备份 $PkgBackup 回退：$($_.Exception.Message)"
+}
+
+$alreadyInDeps = $false
+$existingDepSpec = $null
+if ($pkgNow.dependencies) {
+  foreach ($prop in $pkgNow.dependencies.PSObject.Properties) {
+    if ($prop.Name -eq $PluginName) { $alreadyInDeps = $true; $existingDepSpec = $prop.Value }
+  }
+}
+
+if ($alreadyInDeps) {
+  if ($existingDepSpec -eq $depSpec) {
+    Info "package.json 的 dependencies 里已有 $PluginName（$existingDepSpec），跳过。"
+  } else {
+    Warn "package.json 的 dependencies 里已有 $PluginName，但写的是 `"$existingDepSpec`"（本脚本期望 `"$depSpec`"）—— 保留原值不动；要改写请手工编辑。"
+  }
+} else {
+  # 与步骤 4 同一套做法：只用正则往对象末尾插一项，不重新序列化整份 JSON，
+  # 免得丢掉原有格式、字段顺序和别人的内容。
+  $depPattern = '(?s)("dependencies"\s*:\s*\{)(.*?)(\s*\})'
+  $dm = [regex]::Match($pkgTextNow, $depPattern)
+  if (-not $dm.Success) {
+    Die "在 package.json 里找不到 dependencies 对象，无法自动登记 $PluginName。请手工把 `"$PluginName`": `"$depSpec`" 加进 dependencies。"
+  }
+  $dInner = $dm.Groups[2].Value
+  $dNeedsComma = ($dInner.TrimEnd().Length -gt 0 -and -not $dInner.TrimEnd().EndsWith(','))
+  $newDInner = $dInner + $(if ($dNeedsComma) { ',' } else { '' }) + "`r`n    `"$PluginName`": `"$depSpec`"`r`n  "
+  $newPkgText = $pkgTextNow.Substring(0, $dm.Groups[2].Index) + $newDInner + $pkgTextNow.Substring($dm.Groups[2].Index + $dm.Groups[2].Length)
+
+  # 写盘前先确认改完仍是合法 JSON —— 宁可中止，也不在用户 profile 里留一份坏清单。
+  try { $null = $newPkgText | ConvertFrom-Json } catch {
+    Die "自动登记 dependencies 会破坏 package.json 的 JSON 结构，已中止（未写盘）：$($_.Exception.Message)"
+  }
+  if (-not $DryRun) {
+    Write-TextNoBom $PkgPath $newPkgText
+    Info "已把 `"$PluginName`" 登记进 dependencies（$depSpec）。"
+  } else {
+    Info "[DryRun] 会把 `"$PluginName`": `"$depSpec`" 登记进 dependencies。"
   }
 }
 
