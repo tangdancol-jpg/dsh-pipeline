@@ -231,4 +231,8 @@ export const EXTRA_SUITES = [
   //    self-provided 给错照样放行 ⇒ 「这张图就是盘上那个文件」无从判定。
   //    这一套钉：缺哈希两路都拒 / 哈希不符两路都拒 / 一致放行 / 交付站版本判据照旧在。
   { file: './f20-diagram-hash-check.mjs', exportName: 'runF20DiagramHashCheck', zh: '★ 架构图产物哈希必填且必核（缺陷 ⑰：两条产出路都与盘上逐字节核对，版本判据不松）' },
+  // ★★ §9 噪声 ②③（2026-10-17）：交接物被拒收时播的 delivery-rejected 以提交方为 actor、类别又不在
+  //    MECHANISM_NOTICE_KINDS ⇒ 被巡检再报 unconsumed-delivery、被升级链再升 #escalated（同一条事实报三次）。
+  //    这一套走真工具 + 真唤醒器钉：只播一次 / 不进未接管清单 / 不升级 / 正文仍写提交方；真交付照旧报、照旧升。
+  { file: './f21-rejected-delivery-notice-check.mjs', exportName: 'runF21RejectedDeliveryNoticeCheck', zh: '★ 拒收播报不当作等待接管的交付（§9 噪声 ②③：只播一次、不升级；真交付照旧报与升）' },
 ]

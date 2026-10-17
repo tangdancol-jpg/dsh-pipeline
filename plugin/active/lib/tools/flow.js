@@ -21,6 +21,7 @@ import {
   HUB_HANDOFF_CONFIRM_STATIONS,
 } from '../states.js'
 // ★★ 长入参通道（`payload_path`）：字段说明的唯一出处在这儿，别在 schema 里另抄一份。
+import { WAKE_ACTOR_MECHANISM } from '../wakeup/keys.js'
 import { ARGS_FILE_DOC } from './args-file.js'
 // ★★ 主管枢纽的**席位补派**（唤醒点要真的派人 + 缺位自愈）：判据与实现都在它里面。
 import { HUB_SEAT_RESPAWN_HEAD } from './hub-seats.js'
@@ -128,13 +129,17 @@ export function buildFlowTools(ctx) {
             store.warn?.(`[pipeline] 归档被拒收的交付失败（拒绝判决本身不受影响）：${String(err?.message ?? err)}`)
           }
           // ★ 播报（失败不抛：唤醒是副作用，拒绝判决才是正事）。
+          //   ★ §9 噪声 ②③（2026-10-17）：actor 是**机制**（类别也已进 MECHANISM_NOTICE_KINDS）——
+          //     这条是"没有被接收"的结论，不是一份等人接管的交付；不这样它会被巡检再报、被升级链再升。
+          //     提交方照样写进正文（谁交的一眼可见）。
           try {
+            const submitter = `${roleLabel(actor.role)}（${actor.role}${actor.seat ? `#${actor.seat}` : ''}）`
             await deps.wakeup?.wake?.({
               taskId: String(args.task_id ?? ''),
-              actorRole: actor.role,
-              actorSeat: actor.seat ?? null,
+              actorRole: WAKE_ACTOR_MECHANISM,
+              actorSeat: null,
               kind: 'delivery-rejected',
-              what: `提交的**交接物被拒收**（${HANDOFF_SCHEMAS[kind]?.zh ?? kind}）—— 这条**没有**被接收，但内容已留档`,
+              what: `${submitter}提交的**交接物被拒收**（${HANDOFF_SCHEMAS[kind]?.zh ?? kind}）—— 这条**没有**被接收，但内容已留档`,
               disc: String(archived?.delivery_id ?? ''),
               identitySource: 'rejected-delivery-record',
               task: archived?.task ?? res.task ?? null,

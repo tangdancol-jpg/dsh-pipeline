@@ -99,6 +99,10 @@ export const DEFAULT_MAX_ESCALATION_DEPTH = 1
  * ★ **凡新增一种"由巡检发出去的"通知类别，必须同时加进这张表**（例：2026-10-14 追加的
  *   `missing-transition`）—— 漏加一个，那个类别下一轮就会被当成"等待接管的交付"
  *   再报一次，套娃原样复发。`tests/terminal-filter-check.mjs` 有一条断言专门锁这条纪律。
+ * ★ 2026-10-17 追加 `delivery-rejected`（§9 噪声 ②③）：交接物被状态机拒收时 `tools/flow.js`
+ *   播的那一条 —— 它本身就是"这条没有被接收"的结论，没有"等谁接管"的语义；漏在表外时它被
+ *   巡检再报一次 `unconsumed-delivery`、再被升级一次。播报点的 actor 同时改成 `mechanism`
+ *   （判据是两段与，只进表不改 actor 仍不成立）；`tests/f21-rejected-delivery-notice-check.mjs` 锁着。
  */
 export const MECHANISM_NOTICE_KINDS = Object.freeze([
   'escalation',
@@ -107,6 +111,7 @@ export const MECHANISM_NOTICE_KINDS = Object.freeze([
   'task-stall',
   'patrol-stalled',
   'missing-transition',
+  'delivery-rejected',
 ])
 
 /**

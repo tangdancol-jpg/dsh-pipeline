@@ -9,6 +9,7 @@
 
 import { agentIdOf } from '../guard.js'
 import { assertHostMessage } from '../hostmsg.js'
+import { isMechanismNotice } from '../wakeledger.js'
 import {
   WAKE_SOURCE_KIND,
   WAKE_AUDIT,
@@ -776,7 +777,10 @@ export function createWaker(deps) {
      */
     async escalateUnconsumed(taskId, spec = {}) {
       if (ledger === null) return { ok: false, escalated: 0, note: '没有账本 —— 不升级。' }
+      // ★ §9 噪声 ③（2026-10-17）：与巡检播报路**同一个判据**显式再挡一道机制通知 ——
+      //   取数口 pendingUnconsumed 默认已滤，这里不依赖它的默认参数（两路判据同源，不靠巧合对称）。
       const pending = this.pendingDeliveries(taskId, { olderThanMs: Number.isFinite(spec.olderThanMs) ? spec.olderThanMs : 0, limit: Number.isInteger(spec.limit) ? spec.limit : 3 })
+        .filter((p) => !isMechanismNotice(p))
       let escalated = 0
       const lines = []
       for (const p of pending) {

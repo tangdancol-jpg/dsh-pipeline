@@ -121,6 +121,7 @@ function hostStub(name) {
  *
  * @param {object} [opts]
  * @param {object} [opts.config] - 覆盖默认配置
+ * @param {object} [opts.wakeup] - 唤醒器（`{ wake(spec) }`）；不给 = 不接（工具层的播报全部跳过）
  * @param {string} [opts.projectRoot]
  */
 export async function createHarness(opts = {}) {
@@ -217,6 +218,8 @@ export async function createHarness(opts = {}) {
     indexTask,
     counter,
     retireAgent,
+    // ★ 可选：要验"工具层播了什么"的套件自带唤醒器（默认不接，与既有断言一致）。
+    ...(opts.wakeup === undefined ? {} : { wakeup: opts.wakeup }),
   })
   const byName = new Map(Object.values(tools).map((t) => [t.name, t]))
   for (const n of Object.keys(HOST_TOOL_STUBS)) byName.set(n, hostStub(n))
