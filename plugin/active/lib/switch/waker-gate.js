@@ -38,7 +38,7 @@ const offResult = (extra = {}) => ({
  * ★★ 把唤醒器包成"过闸门"的唤醒器。
  *
  * 语义与 `waker` **逐字一致**，只在最前面多一句"功能关着 ⇒ 直接返回"。
- * 关掉时会动手的四个出口全部包住：`wake` / `wakeForTool` / `escalateUnconsumed`
+ * 关掉时会动手的出口全部包住：`wake` / `wakeForTool` / `escalateUnconsumed` / `settleByProgress`
  * （以及 `wakeForTool` 内部对 `wake` 的调用）。
  *
  * @param {object} waker - `createWaker()` 的产物
@@ -66,6 +66,12 @@ export function withSwitchGate(waker, sw) {
       // ★ 它写账本（`ledger.markEscalated`）—— off 下必须**一个字节都不写**。
       if (gate()) return { ok: true, escalated: 0, note: '多 AI 协调功能当前是关闭状态 ⇒ 不升级（也不写账本）。' }
       return waker.escalateUnconsumed(taskId, spec)
+    },
+
+    settleByProgress(taskId, task) {
+      // ★ 它也写账本（`ledger.markConsumed`）—— off 下同样一个字节都不写。
+      if (gate()) return { ok: true, marked: 0, note: '多 AI 协调功能当前是关闭状态 ⇒ 不结算（也不写账本）。' }
+      return waker.settleByProgress(taskId, task)
     },
   }
 }

@@ -25,6 +25,7 @@ import {
 } from './keys.js'
 import { eventIdentityFor } from './identity.js'
 import { LAST_RESORT_VIA } from './last-resort.js'
+import { progressAfter } from './progress.js'
 import { sleep, wakeMessage, probeTargetSession, deliverWake } from './deliver.js'
 
 /**
@@ -756,6 +757,31 @@ export function createWaker(deps) {
         if (r.ok === true) marked += 1
       }
       return { ok: true, marked, note: marked === 0 ? '没有"已投递未接管"的条目（无需记）。' : `记下 ${marked} 条接管留痕。` }
+    },
+
+    /**
+     * ★ §9 噪声 ①（2026-10-17）：**按任务进展结算接管** —— 投递之后状态真前进过、或出现了新交接物
+     *   ⇒ 记一笔接管（`by: 'mechanism'`，`action` 写明是哪一步进展；判据见 `progress.js`）。
+     *   记在账本上，巡检播报与升级链共用的取数口就都不再拿到它。巡检每轮取清单之前调一次。
+     *
+     * @param {string} taskId
+     * @param {object|null} task - 当前任务（只读）
+     */
+    settleByProgress(taskId, task) {
+      if (ledger === null || typeof ledger.markConsumed !== 'function') return { ok: false, marked: 0, note: '没有账本 —— 不结算。' }
+      const list = this.pendingDeliveries(taskId, { limit: 50 })
+      let marked = 0
+      const lines = []
+      for (const e of list) {
+        const p = progressAfter(task, e.at)
+        if (p === null) continue
+        const r = ledger.markConsumed({ key: e.key, by: WAKE_ACTOR_MECHANISM, action: `progressed:${p.action}@${p.at}` })
+        if (r.ok === true) {
+          marked += 1
+          lines.push(`  · ${e.key} ⇐ ${p.action} @ ${p.at}`)
+        }
+      }
+      return { ok: true, marked, note: marked === 0 ? '没有可按进展结算的投递。' : `按任务进展记下 ${marked} 条接管：\n${lines.join('\n')}` }
     },
 
     /** 「已投递但没人接管」的清单（A28 / T30 的数据面）。 */

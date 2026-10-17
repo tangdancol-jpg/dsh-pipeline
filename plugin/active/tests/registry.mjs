@@ -235,4 +235,9 @@ export const EXTRA_SUITES = [
   //    MECHANISM_NOTICE_KINDS ⇒ 被巡检再报 unconsumed-delivery、被升级链再升 #escalated（同一条事实报三次）。
   //    这一套走真工具 + 真唤醒器钉：只播一次 / 不进未接管清单 / 不升级 / 正文仍写提交方；真交付照旧报、照旧升。
   { file: './f21-rejected-delivery-notice-check.mjs', exportName: 'runF21RejectedDeliveryNoticeCheck', zh: '★ 拒收播报不当作等待接管的交付（§9 噪声 ②③：只播一次、不升级；真交付照旧报与升）' },
+  // ★★ §9 噪声 ①（2026-10-17）：「已消费」原先只认显式 markConsumed ⇒ 席位走别的路推进了状态，
+  //    那条投递永远停在未消费，巡检反复报、升级链再升。
+  //    这一套钉：投递后状态前进 / 新交接物 ⇒ 记为已接管（账上写依据、幂等）/ 什么都没发生照旧报与升 /
+  //    冻结、等待态、投递之前的进展不算 / 巡检先结算再取清单。
+  { file: './f22-unconsumed-progress-check.mjs', exportName: 'runF22UnconsumedProgressCheck', zh: '★ 状态已前进的投递不再算没人接管（§9 噪声 ①：按任务进展结算接管；什么都没发生照旧报与升）' },
 ]

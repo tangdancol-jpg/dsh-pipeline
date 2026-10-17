@@ -866,6 +866,8 @@ export function apply(ctx, rawConfig) {
         for (const entry of list) {
           const task = await store.get(entry.id)
           if (task === null) continue
+          // ★ §9 噪声 ①：先按任务进展结算接管（状态已前进 / 有新交接物的投递不再算"没人接管"），再取清单。
+          wakeup.settleByProgress?.(entry.id, task)
           const res = patrolFindings({
             task,
             now: Date.now(),
