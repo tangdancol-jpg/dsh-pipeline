@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "dsh-pipeline",
+    "description": "Multi-AI collaboration pipeline for DSH: the main conversation only dispatches work, the writing / testing / review roles are kept strictly separate, and out-of-scope calls, skipped steps, and closing without an OK are blocked in code before the tool runs."
+  }
+}

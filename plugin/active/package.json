@@ -20,12 +20,15 @@
     ".": "./index.js",
     "./client": "./lib/client.js",
     "./lib/*": "./lib/*",
+    "./locale/*.json": "./locale/*.json",
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },
   "files": [
     "index.js",
     "lib",
+    "locale",
+    "icon.svg",
     "presets",
     "tests",
     "examples",
@@ -36,6 +39,7 @@
     "install.ps1",
     "rollback.ps1"
   ],
+  "icon": "./icon.svg",
   "license": "MIT",
   "engines": {
     "node": ">=20"

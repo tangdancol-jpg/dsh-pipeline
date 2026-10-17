@@ -3,6 +3,8 @@
   "runtime": [
     "index.js",
     "lib",
+    "locale",
+    "icon.svg",
     "skills",
     "tests",
     "package.json",
