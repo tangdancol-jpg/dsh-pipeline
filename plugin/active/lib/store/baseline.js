@@ -19,6 +19,7 @@ import {
   resetHashGateOrigin,
 } from '../hashgate.js'
 import { writeJsonAtomic, appendJsonl } from './shared.js'
+import { seatTouchedKeys, splitSelfTree } from '../hashgate/self-tree.js'
 
 /**
  * 任务存储 · 改动基线与前后对比
@@ -381,6 +382,18 @@ export function baselineMethods(ctx) {
         }
         return null
       }
+      // ★★ 缺陷 ⑧：插件自身文件不在授权面内、本单席位也没碰过的，单列进 self_tree，不进越界判据（见 lib/hashgate/self-tree.js）
+      const seatKeys = seatTouchedKeys((await this.loadSeatWriteLedger()).entries, task.id)
+      const self = splitSelfTree({
+        diff: { added, modified, removed },
+        knownPaths: [...Object.keys(base.files), ...Object.keys(snap.files)],
+        isAuthorized: (rel) => hasScope && inScope(rel) !== null,
+        touchedBySeat: (rel) => seatKeys.has(baselineAbsKey(rel)),
+      })
+      added.splice(0, added.length, ...self.added)
+      modified.splice(0, modified.length, ...self.modified)
+      removed.splice(0, removed.length, ...self.removed)
+
       const unauthorized = []
       if (hasScope) {
         for (const x of added) {
@@ -439,7 +452,9 @@ export function baselineMethods(ctx) {
           ? ''
           : '本单**没有授权面**（L0 自批：没有"计划"这一站，`change_scope` 是 null）—— ' +
             '"多改 / 少改 / 改错地方"三条判据在本单上**不适用**；下面的 added / modified / removed 是**前后差异**，不是"越界"结论。',
-        counts: { added: added.length, modified: modified.length, removed: removed.length, unauthorized: unauthorized.length, missing: missing.length },
+        self_tree: self.excluded, // ★ 缺陷 ⑧：被排除的插件自身文件（路径 · 类别 · 增改删）
+        profile_root: self.profileRoot, // 项目根是不是装着本插件的 profile
+        counts: { added: added.length, modified: modified.length, removed: removed.length, unauthorized: unauthorized.length, missing: missing.length, self_tree: self.counts },
       }
     },
 

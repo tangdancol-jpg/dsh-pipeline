@@ -208,4 +208,10 @@ export const EXTRA_SUITES = [
   //    多 ⇒ extra、少 ⇒ missing / 同步两次第二次零拷贝且 mtime 不变、字节原样 / 永不碰 .bak* · *-last-run.txt · *.jsonl /
   //    install.ps1 的复制范围来自 tools/install-items.json（唯一出处）。
   { file: './f15-install-sync-check.mjs', exportName: 'runF15InstallSyncCheck', zh: '★ 安装副本同步与一致性校验（缺陷 ⑦：sync-check 判一致 / sync 幂等保 LF / 永不碰备份与运行期数据）' },
+  // ★★ 缺陷 ⑧（2026-10-17）：project_root 就是 profile 时，插件安装副本落在项目根内 ⇒ 同步一次副本，
+  //    dev_to_test 被判越界 306 处（安装树 298 · 备份残留 6 · profile 配置 2），整单交不出交接物。
+  //    这一套钉：只动插件自身文件 ⇒ pass 且审计带分类计数 / 项目文件越界照样拒 + 拒绝给分类摘要 /
+  //    席位写过的插件文件照常审计 / 授权面内的插件文件照常审计 / 普通项目根的同名配置照常审计 /
+  //    profile 根上点名禁改的 cordis.patch.yml 不自动排除（文案点明重取基线）。
+  { file: './f16-hashgate-self-tree-check.mjs', exportName: 'runF16HashgateSelfTreeCheck', zh: '★ 哈希闸门排除插件自身文件（缺陷 ⑧：安装树 / 备份残留 / orb-update.json 不计越界；项目文件、席位碰过的、授权面内的、禁改配置照常审计）' },
 ]

@@ -12,6 +12,7 @@ import { ST, STATE_LABEL, applyTransition } from '../states.js'
 import { ROLE, canProduceHandoff, roleLabel } from '../roles.js'
 import { nowIso, shortHash } from '../util.js'
 import { hashGateEscalationPending, hashGateVerdict, nextHashGateStreak, renderGateRejection } from '../hashgate.js'
+import { describeProtectedProfileConfig, describeSelfTree } from '../hashgate/self-tree.js'
 import { planAdvance, hubAdvanceFor, writerSeatsOf, checkAllSeatsSubmitted } from './shared.js'
 
 /**
@@ -408,6 +409,8 @@ export function submitMethods(ctx) {
               threshold: hashGateEscalateAfter,
               counts: verdict.counts,
               violations: verdict.violations,
+              /** ★ 缺陷 ⑧：这一轮排除掉的插件自身文件（分类计数；逐条在 changeAudit 的 self_tree 里）。 */
+              self_tree: auditRes.counts?.self_tree ?? null,
               added: auditRes.added.map((x) => ({ path: x.path, sha256: x.sha256 ?? null })),
               modified: auditRes.modified.map((x) => ({ path: x.path, sha256: x.sha256 ?? null, baseline_sha256: x.baseline_sha256 ?? null })),
               removed: auditRes.removed.map((x) => ({ path: x.path, baseline_sha256: x.baseline_sha256 ?? null })),
@@ -432,6 +435,7 @@ export function submitMethods(ctx) {
                 threshold: hashGateEscalateAfter,
                 counts: verdict.counts,
                 violations: verdict.violations.map((x) => `${x.how}:${x.path}`),
+                self_tree: auditRes.counts?.self_tree ?? null,
                 attributed_foreign: verdict.attributed_foreign.map((x) => `${x.path}→${x.attributed_to.task_id}`),
                 write_ledger: {
                   written: ledgerWrite.written,
@@ -466,7 +470,12 @@ export function submitMethods(ctx) {
               //   否则守门看不到 hash_gate.blocked（"闸门没过不许跑测试"会静默失效）。
               return deny(
                 'HASH_GATE_FAILED',
-                renderGateRejection({ verdict, audit: auditRes, scope: task.change_scope ?? [], baseline, streak, threshold: hashGateEscalateAfter, escalation }),
+                [
+                  renderGateRejection({ verdict, audit: auditRes, scope: task.change_scope ?? [], baseline, streak, threshold: hashGateEscalateAfter, escalation }),
+                  // ★ 缺陷 ⑧：被排除的插件自身文件给分类摘要（不是甩一长串原始清单）
+                  describeSelfTree(auditRes.counts?.self_tree),
+                  describeProtectedProfileConfig(verdict.violations.map((x) => x.path), auditRes.profile_root === true),
+                ].filter((x) => x.length > 0).join('\n'),
                 { task },
               )
             }
