@@ -108,10 +108,10 @@ Line numbers such as `lib/store.js:2471` in the reports under `docs/` refer to t
 before the split; to find the current location, look up the corresponding code under `lib/` in the
 current source tree.
 
-### Client: one entry + 14 chunks
+### Client: one entry + 15 chunks
 
 The browser half is not one large file: the entry is 400 lines (exactly at the limit) and the panel
-implementation is split into 14 chunks.
+implementation is split into 15 chunks.
 
 | File | Lines | Responsibility |
 |---|---|---|
@@ -125,7 +125,7 @@ How it loads (three stages; the chunk protocol is native to the host package
    (no `import` / `export` / top-level `await`), and the entry itself registers via
    `window.__ModuleLoader__.load({ id, factory })`.
 2. **Chunks on demand**: the first time the panel is rendered, the entry runs
-   `Promise.all(require.async('./client.panel-*.js'))` to fetch all 14 chunks in parallel and hands
+   `Promise.all(require.async('./client.panel-*.js'))` to fetch all 15 chunks in parallel and hands
    them to `shell` to compose via `create(deps)` in dependency order — if the panel is never
    opened, nothing is downloaded.
 3. **How the host serves them**: chunks come from `/plugins/dsh-pipeline/<chunk>?rev=<entry rev>`;
@@ -147,14 +147,14 @@ node tests\run-all.mjs            # full suite; writes tests\last-run.txt
 node tests\<suite>.mjs            # run one suite
 ```
 
-- The full suite currently passes **3668/3668** (**110 suites**). The panel-related ones are
+- The full suite currently passes **3672/3672** (**110 suites**). The panel-related ones are
   `panel-snapshot-check.mjs` (snapshot contract), `panel-actions-check.mjs` (write actions /
   archive / pins), and `client-check.mjs` (loading contract, rendering and clicks for the entry and
-  the 14 chunks, 30 items).
+  the 15 chunks, 30 items).
 - A few suites need the **host installation**: `DSH_APP_ASAR` pointing at
   `<DSH install>\resources\app.asar`, because preset and host-schema criteria read host packages
   from there. When unavailable they are clearly marked "skipped, not counted in the pass rate". On
-  this machine: with `DSH_APP_ASAR` set, 3668/3668; without it, 3 preset checks report red (an
+  this machine: with `DSH_APP_ASAR` set, 3672/3672; without it, 3 preset checks report red (an
   environment fact, not a code defect).
 - `tests/seat-liveness-wake-check.mjs` is not registered in the full suite, and its content is
   outdated relative to the current liveness criteria, so running it on its own will fail.

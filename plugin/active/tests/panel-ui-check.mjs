@@ -14,7 +14,10 @@
  *   toggleBatch / openArchivedView / backToTasks → setBatch / setView → 重渲染 → 面板还在不在。
  * 钉住 E1 回调接上 / E2-E3 批量 on↔off / E4-E5 归档↔返回 / E6 pointerdown 不误关 /
  * ★E7 rootRef 为 null 时**不许**关 / E8 按钮自己 stopPropagation + no-drag /
- * E9 收尾仍开着 / E10 点真外面仍然照旧关（防御是窄的）。
+ * E9 收尾仍开着 / E10 点真外面仍然照旧关（防御是窄的）/
+ * ★E11 rootRef 脱手（被替换的节点 / null）时，target 明确在 `[data-pipeline-panel]` 里 ⇒ 不关（真机根因）/
+ * ★E12 target 在 `[data-pipeline-panel-root]` 里（触发器）⇒ 不关（DOM 属性那一路判据）/
+ * ★E13 `document.body` 这种真外部元素 ⇒ 仍然关 / ★E14 诊断行里能看到「上次点击：BUTTON[...]」。
  *
  * ★ 只读仓库里的 `lib/client*.js`，不联网、不建会话、不碰任何活体数据。
  *
@@ -134,7 +137,7 @@ const has = (node, key) => node !== null && node !== undefined && node.props !==
 const textOf = (node) => (node === null || node === undefined || node === false ? '' : typeof node === 'string' || typeof node === 'number' ? String(node) : Array.isArray(node) ? node.map(textOf).join('') : typeof node === 'object' && node.props !== undefined ? textOf(node.props.children) : '')
 
 // ---------------------------------------------------------------------------
-// 环境：入口 + 14 个真 chunk（按宿主同款 require.async 取）+ 桩 document/fetch/定时器
+// 环境：入口 + 15 个真 chunk（按宿主同款 require.async 取）+ 桩 document/fetch/定时器
 // ---------------------------------------------------------------------------
 
 const TASKS = [{ id: 'T-1', state: 'running', state_label: '开发中', requirement_snippet: '把客户端拆成多个 chunk', seats: [], allowed_actions: ['cancel', 'archive'] }]
@@ -144,6 +147,8 @@ function makeEnvironment() {
   const doc = {
     visibilityState: 'visible',
     listeners: { pointerdown: [], keydown: [] },
+    // 真外部元素的替身：E13 用它验「点外面仍然能关」（连在文档上、closest 谁都不命中）
+    body: { tagName: 'BODY', isConnected: true, attributes: [], closest: () => null },
     addEventListener(type, fn) {
       ;(this.listeners[type] ??= []).push(fn)
     },
@@ -277,6 +282,38 @@ export async function runPanelUiCheck() {
     element.props.onClick({ stopPropagation() { stopped += 1 } })
     return stopped
   }
+  /** 直接派一次 pointerdown（target 是"像真 DOM"的元素 / document.body，不走桩 proxy）。 */
+  const pointerDownAt = (target) => {
+    for (const fn of env.doc.listeners.pointerdown.slice()) fn({ target })
+  }
+  /**
+   * 造一个"像真 DOM"的元素：tagName + data-pipeline-* 属性 + closest() 沿祖先链找。
+   * 桩 React 的节点代理只有 contains、没有 closest —— 而 closest 正是真机上的事实来源。
+   */
+  const domElement = (tagName, attrs, ancestors, connected = true) => {
+    const chain = [...attrs.map((a) => `[${a}]`), ...ancestors]
+    return {
+      tagName,
+      attrs,
+      isConnected: connected,
+      closest(sel) {
+        return chain.includes(sel) ? { tagName: 'DIV' } : null
+      },
+    }
+  }
+  /** 弹层 header 上那颗「批量」按钮的样子（在 [data-pipeline-panel] 里）。 */
+  const inPanelTarget = () =>
+    domElement('BUTTON', ['data-pipeline-batch-toggle'], ['[data-pipeline-panel]', '[data-pipeline-panel-frame]', '[data-pipeline-panel-root]'])
+  /** 面板根里的触发器（比弹层更外层，只在 [data-pipeline-panel-root] 里）。 */
+  const inRootTarget = () => domElement('BUTTON', ['data-pipeline-panel-trigger'], ['[data-pipeline-panel-root]'])
+  /** 重新打开面板（E10 把它关了；走的是用户那条路：点触发器）。 */
+  const reopenPanel = async () => {
+    const hit = find(tree, (n) => has(n, 'data-pipeline-panel-trigger'))
+    if (hit !== null) hit.props.onClick({ stopPropagation() {} })
+    tree = React.render(Panel, panelProps)
+    await flush(3)
+    tree = React.render(Panel, panelProps)
+  }
   const batchButton = () => find(tree, (n) => has(n, 'data-pipeline-batch-toggle'))
   const archiveButton = () => find(tree, (n) => has(n, 'data-pipeline-archive-toggle'))
   const backButton = () => find(tree, (n) => has(n, 'data-pipeline-archive-back'))
@@ -356,6 +393,64 @@ export async function runPanelUiCheck() {
     for (const fn of env.doc.listeners.pointerdown.slice()) fn({ target: { tag: 'OUTSIDE' } })
     tree = React.render(Panel, panelProps)
     add('E10 判据齐全时点真外面仍然关面板（防御没有把正常关闭一起关掉）', panelOpen() === null, panelOpen() === null ? '已关闭 ✓' : '还在开着 ✗（"点外面关闭"被改坏了）')
+
+    // --- E11 ★ 真机根因：rootRef 脱手（指向被替换的节点 / 干脆是 null），但 target 明确在
+    //     [data-pipeline-panel] 里 ⇒ 不许关。真机上"点「批量」弹层就消失"就是这个判据失真的结果。 ---
+    await reopenPanel()
+    const rootElNow = find(tree, (n) => n.props?.['data-pipeline-panel-root'] === 'true')
+    const rootRefNow = rootElNow?.props?.ref
+    const canPuppet = rootRefNow !== null && rootRefNow !== undefined && typeof rootRefNow === 'object'
+    // ① ref 指向一个被替换/已脱手的节点：它的 contains 永远 false —— 这正是真机上的样子
+    if (canPuppet) rootRefNow.current = { contains: () => false }
+    pointerDownAt(inPanelTarget())
+    tree = React.render(Panel, panelProps)
+    const survivedDetached = panelOpen() !== null
+    // ② ref 干脆还没挂上（null）
+    if (canPuppet) rootRefNow.current = null
+    pointerDownAt(inPanelTarget())
+    tree = React.render(Panel, panelProps)
+    const survivedNull = panelOpen() !== null
+    add(
+      '★ E11 rootRef 脱手（被替换的节点 contains 恒 false / null）时 target 明确在 [data-pipeline-panel] 里 ⇒ **不关面板**（真机根因）',
+      canPuppet && survivedDetached && survivedNull,
+      canPuppet
+        ? `ref.contains(target)=false（脱手节点）→ panel=${survivedDetached ? 'open' : '(被关掉了)'}　ref=null → panel=${survivedNull ? 'open' : '(被关掉了)'}`
+        : '找不到根节点的 ref，这条断言不成立',
+    )
+
+    // --- E12 DOM 属性那一路：target 在 [data-pipeline-panel-root] 里（触发器）⇒ 不关（ref 这里说 false）---
+    const refNow = rootRefNow?.current ?? null
+    const triggerish = inRootTarget()
+    const refSaysInside = refNow !== null && typeof refNow.contains === 'function' ? refNow.contains(triggerish) : null
+    pointerDownAt(triggerish)
+    tree = React.render(Panel, panelProps)
+    add(
+      '★ E12 target 在 [data-pipeline-panel-root] 里（触发器）⇒ 不关面板；证的正是 DOM 属性那一路（ref 的 contains 说 false）',
+      refSaysInside === false && panelOpen() !== null,
+      `ref.contains(target)=${refSaysInside}（只靠 ref 就会误关）　closest('[data-pipeline-panel-root]')≠null　→ panel=${panelOpen() === null ? '(被关掉了)' : 'open'}`,
+    )
+
+    // --- E13 防御是窄的：连在文档上的真外部元素（document.body）⇒ 仍然关（别把正常关闭改坏）---
+    pointerDownAt(env.doc.body)
+    tree = React.render(Panel, panelProps)
+    add(
+      '★ E13 target 是真实文档里的外部元素（document.body）⇒ 仍然关面板（"点外面关闭"没被修坏）',
+      panelOpen() === null,
+      panelOpen() === null ? '已关闭 ✓' : '还在开着 ✗（该关的关不掉了）',
+    )
+
+    // --- E14 诊断行：记下"上次点击打在谁身上"，真机排障不用再猜 ---
+    await reopenPanel()
+    pointerDownAt(inPanelTarget()) // 点面板里那颗「批量」
+    tree = React.render(Panel, panelProps)
+    const diagLine = textOf(find(tree, (n) => has(n, 'data-pipeline-diagnostic')))
+    const clickAt = diagLine.indexOf('上次点击：')
+    const desc = clickAt === -1 ? '' : diagLine.slice(clickAt + '上次点击：'.length)
+    add(
+      '★ E14 诊断行里出现「上次点击：BUTTON[data-pipeline-batch-toggle]」（超长截断到 ~80 字符），面板仍在',
+      diagLine.includes('上次点击：BUTTON[data-pipeline-batch-toggle]') && desc.length <= 81 && panelOpen() !== null,
+      `诊断行：${diagLine}　（描述 ${desc.length} 字符）`,
+    )
   } catch (err) {
     add('!! 执行异常（后面的断言不再可信）', false, err?.stack ?? err)
   }

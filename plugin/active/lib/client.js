@@ -233,7 +233,6 @@
   //   这里做：首次渲染面板时 `Promise.all(require.async(...))` 并行取回 → 交给 shell
   //   按依赖序 `create(deps)` 组装。spec 只认 `./client.<name>.js`
   //   （宿主 CLIENT_CHUNK = /^client\.[A-Za-z0-9][A-Za-z0-9._-]*\.js$/）。
-
   /** 面板 chunk：键名决定依赖顺序（见下方 shell 的 createPanel）。 */
   var CHUNKS = {
     actions: 'client.panel-actions.js',
@@ -249,6 +248,7 @@
     'preview-bubble': 'client.panel-preview-bubble.js',
     data: 'client.panel-data.js',
     'card-actions': 'client.panel-card-actions.js',
+    outside: 'client.panel-outside.js',
     shell: 'client.panel-shell.js',
   }
 

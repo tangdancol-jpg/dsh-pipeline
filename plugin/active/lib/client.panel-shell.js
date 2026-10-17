@@ -21,6 +21,8 @@
       // 各 chunk 按依赖序 create：每个只拿到它自己用到的模块，且都在它前面建好。
       var deps = {}
       deps.actions = m.actions.create({})
+      // 「点外面关闭」的判据（ref 在真机上会失真 ⇒ 还要按 DOM 属性复核；判不出来就不关）
+      deps.outside = m.outside.create({})
       deps.atoms = m.atoms.create({ actions: deps.actions })
       deps.seats = m.seats.create({})
       deps.menu = m.menu.create({ actions: deps.actions, atoms: deps.atoms })
@@ -74,7 +76,9 @@
         var stopHostEvent = deps.atoms.stopHostEvent, messageOf = deps.actions.messageOf
         var PANEL_PAD_X = deps.atoms.PANEL_PAD_X, PANEL_PAD_BOTTOM = deps.atoms.PANEL_PAD_BOTTOM
         var renderPanelHeader = deps.view.renderPanelHeader, renderTaskList = deps.view.renderTaskList
-        var renderArchivedList = deps.view.renderArchivedList, diagText = S.diagText
+        var renderArchivedList = deps.view.renderArchivedList
+        // ★ 诊断行：原有「挂载 / 上次收起 / 上次动作」后面再挂一段「上次点击打在谁身上」（取证用，定位后移除）
+        var diagText = S.diagText + ' · ' + deps.outside.lastPointerText()
         var renderBatchBar = deps.batchBar.renderBatchBar, batchActionsFor = deps.batchBar.batchActionsFor
 
       // ---- 打开时：立刻刷一次 + 点外部/ESC 关闭；收起时把预览/确认态/提示/批量/菜单一起撤掉 ----
@@ -92,31 +96,18 @@
         readArchivedOnce(undefined) // 头部「归档 N」上的数量靠它（顺带预热归档视图）
 
         if (typeof document === 'undefined') return undefined
-        var onPointerDown = function (ev) {
-          var root = rootRef.current
-          var target = ev === null || ev === undefined ? null : ev.target
-          // ★ 判据不全就**不要关**：root 还没挂上 ref（首帧 / 宿主重挂 / ref 脱手）或事件
-          //   没带 target 时，"点在里还是外"根本判不出来。以前这里把"判不出来"当成了
-          //   "点在外面"，于是面板里随便一次 pointerdown（比如点「批量」）都可能把它收掉。
-          //   宁可漏关一次，也不能误关正在用的面板。
-          if (root === null || root === undefined || typeof root.contains !== 'function') return
-          if (target === null || target === undefined) return
-          if (root.contains(target)) {
-            // 面板内部的点击不关面板；但点在卡片菜单 / 那颗「⋯」之外 ⇒ 收起菜单。
-            // 菜单自己与触发器要放过，否则 pointerdown 先关、click 又开，等于点不动。
-            if (menuKeyRef.current !== '') {
-              var menu = menuRef.current
-              var trigger = menuTriggerRef.current
-              var inMenu = menu !== null && menu !== undefined && typeof menu.contains === 'function' && menu.contains(target)
-              var onTrigger =
-                trigger !== null && trigger !== undefined && typeof trigger.contains === 'function' && trigger.contains(target)
-              if (!inMenu && !onTrigger) closeCardMenu()
-            }
-            return
-          }
-          setPinned(false)
-          setOpen(false, 'outside')
-        }
+        // 「点外面关闭」的判定与处理器都在 outside chunk 里：ref 的 contains 在真机上会失真，
+        // 所以那边还要按 DOM 属性（[data-pipeline-panel-root] / [data-pipeline-panel]）复核；
+        // 判不出来就**不关** —— 宁可漏关一次，也不能误关正在用的面板。
+        var onPointerDown = deps.outside.makePointerDown({
+          rootRef: rootRef,
+          menuKeyRef: menuKeyRef,
+          menuRef: menuRef,
+          menuTriggerRef: menuTriggerRef,
+          closeCardMenu: closeCardMenu,
+          setPinned: setPinned,
+          setOpen: setOpen,
+        })
         var onKeyDown = function (ev) {
           if (ev.key !== 'Escape') return
           // ESC 先关卡片菜单（菜单开着时不该顺手把整个面板也收掉）
