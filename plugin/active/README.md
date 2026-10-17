@@ -333,7 +333,7 @@ profile 配置里加条目、每个钩子起一个子进程、判据还得重写
 - [编写分工（1~3 席位）](#编写分工13-席位)
 - [架构图角色](#架构图角色)
 - [结构化交接物 schema](#结构化交接物-schema)
-- [工具面（29 个）](#工具面29-个)
+- [工具面（36 个）](#工具面36-个)
 - [落盘布局](#落盘布局)
 - [守门：哪些是真拦截，哪些只是约定](#守门哪些是真拦截哪些只是约定)
 - [通信通道（可插拔）](#通信通道可插拔)
@@ -421,7 +421,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -DryRun
 重启后在日志里找这一行确认装上了：
 
 ```
-[pipeline] dsh-pipeline 0.1.0 已加载：14 个 pipeline_* 工具已注册；守门已启用；通道=subagent（...）；工作区=...；多AI 协调开关=**开**（revision 0，默认值）。
+[pipeline] dsh-pipeline 0.1.0 已加载：36 个 pipeline_* 工具已注册；守门已启用；通道=<auto|session|team|subagent|manual>（...）；工作区=...；多AI 协调开关=**开**（revision 0，默认值）。
 [pipeline] 开关 UI 端点已挂载：GET/POST /.dsh-pipeline/state（右上角「多AI 协调」按钮走它）。
 ```
 
@@ -1890,7 +1890,11 @@ produced_by=self-provided 时 degraded 必须是 true。
 
 ---
 
-## 工具面（25 个）
+## 工具面（36 个）
+
+> 下表只列**常用/关键**的 20 个（它们覆盖 99% 的日常操作）；**完整清单（36 个）**以
+> `lib/tools.js` 的注册、`pipeline_boundaries` 的 `tool_face` 与 `tests/load-smoke.mjs`
+> 的计数断言为准（本轮已按 36 校准；`lib/tools/` 下按工具分组）。
 
 | 工具 | 谁能调 | 干什么 |
 |---|---|---|
@@ -1915,7 +1919,13 @@ produced_by=self-provided 时 degraded 必须是 true。
 | `pipeline_human_relay` | **只有主对话** | ★ ② 把请求转告用户（不带 request_id = 收件箱）。不改状态 |
 | `pipeline_human_reply` | **只有主对话** | ★ ③④ 记录用户答复（原话+归属）并据它恢复状态 |
 
-（工具总数 **25**：两级升级梯给了 `pipeline_clarify_request` / `pipeline_clarify_reply`，安全确认给了 `pipeline_security_check`，上下文水位与继任给了 `pipeline_context_report` / `pipeline_succession`，分权落档给了 `pipeline_record_submit` / `pipeline_compile_requirement` / `pipeline_contacts`。）
+（工具总数 **36**。上表里的 20 个是常用面；其余 16 个按分组在 `lib/tools/`：
+分档编排/项目目录（`pipeline_demo` / `pipeline_project_init` / `pipeline_supervise`）、
+计划与授权面（`pipeline_plan` / `pipeline_scope_amend` / `pipeline_change_audit` / `pipeline_boundaries`）、
+分权落档（`pipeline_record_submit` / `pipeline_compile_requirement` / `pipeline_contacts`）、
+继任与水位（`pipeline_context_report` / `pipeline_succession`）、
+能力申请（`pipeline_capability_request`）、全量测试（`pipeline_full_test`）、
+记忆（`pipeline_recall`）、清理（`pipeline_task_purge`）。）
 
 ---
 
@@ -2150,23 +2160,27 @@ DSH 0.2.1 起官方带「智能体团队」：根会话是 Lead，可以 `spawn_
 
 ```powershell
 cd <插件目录>
-node tests\run-all.mjs            # 十一套一起跑（415 项，含残留检查）
+$env:DSH_APP_ASAR = '<DSH 安装>\resources\app.asar'   # 预设/宿主 schema 类判据要读宿主安装
+node tests\run-all.mjs            # 107 套一起跑（3477 项，含残留检查）
 node tests\run-all.mjs --quiet    # 只打结论，不贴完整拒绝原文
 ```
 
-| 套件 | 内容 |
-|---|---|
-| `tests/selftest.mjs` | 正例全流程 + 10 组反例 + 5 档分档验证 |
-| `tests/load-smoke.mjs` | 装载冒烟：假 ctx 上调 `apply`，验注册 / 守门 / 开关路由 / 卸载 / 降级路径 |
-| `tests/schema-check.mjs` | 用**真** `defineTool` 编译器校验 25 个工具定义 |
-| `tests/switch-check.mjs` | 功能开关：开关语义 / 守门弃权 / 工具拒绝 / HTTP 路由（38 项） |
-| `tests/client-check.mjs` | 客户端半边：装载契约 / 挂载契约 / 按钮行为（桩 React，无浏览器，23 项） |
-| `tests/human-check.mjs` | **人工介入（单级路径）**：四步留痕 + 四类越权（用户只与主对话相连，44 项） |
-| `tests/writers-check.mjs` | **编写 1~3 席位 + 架构图角色**：count=1 退化 / count=3 全流程 / 五类反例 / 回执闸（39 项） |
-| `tests/ladder-check.mjs` | **两级升级梯**：直接裁定 / 升级 / L0 例外 / 防踢皮球 / 单向门（39 项） |
-| `tests/security-check.mjs` | **安全确认**：本地泄密 + 网络面扫描 / attestation 闸 / 工具自身脱敏（33 项） |
-| `tests/relay-check.mjs` | **上下文水位 + 席位继任**：防失忆 / 水位依据 / 编排自己继任 + 广播新联系人 / 六类反例（54 项） |
-| `tests/records-check.mjs` | **分权落档 + 留档 AI**：各写各的 / 带密钥提交 / 专人汇总 / 无来源与矛盾拒收 / **守门索引空窗期**（29 项） |
+**当前口径**：设了 `DSH_APP_ASAR` 时 **3477/3477 通过（107 套）**；不设时会有 3 条
+"读不到宿主安装"的预置校验判红（环境面，不是代码面）。单套清单与每套的判据写在
+`tests/run-all.mjs` 与 `tests/registry.mjs` 里（新增能力用新套 + registry 一行登记）。
+
+按能力分组（不逐一列 107 套）：
+
+| 分组 | 代表套件 | 内容 |
+|---|---|---|
+| 内核全流程 | `selftest.mjs` | 正例全流程 + 12 组反例 + 5 档分档验证（70 项） |
+| 装载/注册 | `load-smoke.mjs`、`schema-check.mjs` | 假 ctx 上调 `apply`，验注册 / 守门 / 开关路由 / 卸载 / 降级；工具定义计数（36 个） |
+| 通道 | `channel-check.mjs`、`dispatch-channel-check.mjs`、`team-transport-check.mjs` | 四条真实通道（session / team / subagent / manual）+ 选择点 + 官方 teammate 命名/复用/四槽证据/投递截断 |
+| 守门 | `shell-guard-check.mjs`、`intercept-check.mjs`、`silent-veto-*.mjs`、`team-guard-check.mjs` | 越权/跳步/旁路；官方新工具（team 协作 / 委派 / 插件管理 / 会话搜索）拒绝；`terminal_send` 的 `text` 按 shell 检查 |
+| 流程各站 | `human-check`、`writers-check`、`ladder-check`、`security-check`、`relay-check`、`records-check`、`plan-check`、`review-check`、`gate-states-check`… | 人工介入、编写席位、升级梯、安全确认、继任、分权落档、计划/审核/状态机 |
+| 任务板镜像 | `team-board-check.mjs` | 开单/派活/关单三处镜像 + revision CAS 重试 + best-effort 降级 |
+| 预设与真机 | `p11-presets-check.mjs`、`p12-*`、`e-route-check.mjs` | 16 个角色预设与 shipped/schema 对形；需要 `DSH_APP_ASAR` |
+| 回归专项 | `f1`–`f23`、`p1`–`p16`、`m1`–`m11` 等 | 每轮缺陷的判据化回归（一个缺陷一个套件） |
 
 报告落到 `tests/last-run.txt`。
 

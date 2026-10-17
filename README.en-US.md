@@ -17,7 +17,7 @@ out-of-scope calls, skipped steps, and closing a task without an OK are blocked 
 ├── plugin/
 │   └── active/                ← 插件源码（唯一一份）
 ├── dashboard/                 ← 本地只读控制面板（见 dashboard/README.md）
-└── docs/                      ← 实现报告、交付文档、架构图
+└── docs/                      ← developer docs (incl. the Agent Teams integration) + delivery docs, diagrams
 ```
 
 ---
@@ -43,6 +43,13 @@ while the original files remain as facades (exported names unchanged, so callers
 Line numbers such as `lib/store.js:2471` in the reports under `docs/` refer to the single file before the split;
 to find the current location, look up the corresponding code under `lib/` in the current source tree.
 
+Two newer subsystems are likewise split by function (not one large file):
+
+| Directory | Contents |
+|---|---|
+| `lib/transport/` | Transport interface and implementations: `session` (first-class session) / `team` (official Agent Teams) / `subagent` / `manual` / `simulated`; `createTransport()` is the only selection point |
+| `lib/team/` | Official Agent Teams adapter: naming, channel probing, role-persona injection, slot pinning, delivery, task-board mirroring |
+
 ### Tests
 
 ```bash
@@ -51,8 +58,8 @@ node tests/run-all.mjs            # 全套；结果写到 tests/last-run.txt
 node tests/<套件>.mjs             # 单跑一套
 ```
 
-- The full suite currently passes **1588/1588** (39 suites).
-- Another 3 suites require host packages (`@deepseek-ai/dsh-tools`, `@deepseek-ai/cordis`); when they are unavailable on this machine they are skipped and clearly marked, and are not counted in the pass rate.
+- The full suite currently passes **3477/3477** (107 suites).
+- A few suites need the **host installation** (`DSH_APP_ASAR=<DSH install>/resources/app.asar`) or host packages (`@deepseek-ai/dsh-tools`, `@deepseek-ai/cordis`); when unavailable they are clearly marked and not counted in the pass rate. On this machine: with `DSH_APP_ASAR` set, 3477/3477; without it, 3 preset checks report red (an environment fact, not a code defect).
 - `tests/seat-liveness-wake-check.mjs` is not registered in the full suite, and its content is outdated relative to the current liveness criteria, so running it on its own will fail.
 
 ### Installation
@@ -79,6 +86,7 @@ Developer-facing documents, one topic per file, live in [`docs/`](docs/README.md
 - [`docs/encoding-conventions.md`](docs/encoding-conventions.md) — `.ps1` must be UTF-8 BOM, everything else must not be, line endings LF
 - [`docs/sandbox-temp-root.md`](docs/sandbox-temp-root.md) — when `%TEMP%` falls inside the workspace, restricted shells all fail
 - [`docs/manifest.md`](docs/manifest.md) — how `MANIFEST.sha256` is verified and generated
+- [`docs/agent-teams.md`](docs/agent-teams.md) — official Agent Teams integration (`transport: 'team'`): capability limits, config, new guard lists, task-board mirroring, troubleshooting
 
 There are also artifacts left over from the delivery period: `产出交付文档-v3-20261014/` (including the architecture diagram `架构图-main-path-v2.html`).
 

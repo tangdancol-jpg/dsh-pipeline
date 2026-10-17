@@ -17,7 +17,7 @@
 ├── plugin/
 │   └── active/                ← 插件源码（唯一一份）
 ├── dashboard/                 ← 本地只读控制面板（见 dashboard/README.md）
-└── docs/                      ← 实现报告、交付文档、架构图
+└── docs/                      ← 开发者文档（含 Agent Teams 整合）+ 交付文档、架构图
 ```
 
 ---
@@ -43,6 +43,13 @@
 `docs/` 里报告写的 `lib/store.js:2471` 这类行号指的是拆分前的单文件，
 拆分前后对照文档已移除（见 git 历史）；现在的位置请按函数名到当前源码树的 `lib/` 下查。
 
+此后新增的两个子系统同样按功能拆（不是单文件）：
+
+| 目录 | 内容 |
+|---|---|
+| `lib/transport/` | 通道接口与实现：`session`（一等公民会话）/ `team`（官方 Agent Teams）/ `subagent` / `manual` / `simulated`；`createTransport()` 是唯一选择点 |
+| `lib/team/` | 官方 Agent Teams 适配：命名、通道探测、角色人格注入、四槽补钉、投递、任务板镜像 |
+
 ### 测试
 
 ```bash
@@ -51,8 +58,8 @@ node tests/run-all.mjs            # 全套；结果写到 tests/last-run.txt
 node tests/<套件>.mjs             # 单跑一套
 ```
 
-- 全套当前 **1588/1588** 通过（39 套）。
-- 另有 3 套需要宿主包（`@deepseek-ai/dsh-tools`、`@deepseek-ai/cordis`），本机找不到时会跳过并如实标注，不计入通过率。
+- 全套当前 **3477/3477** 通过（107 套）。
+- 有少数套件依赖**宿主安装**（`DSH_APP_ASAR=<DSH 安装>/resources/app.asar`）或宿主包（`@deepseek-ai/dsh-tools`、`@deepseek-ai/cordis`）；拿不到时如实标注、**不计入通过率**。本机口径：设了 `DSH_APP_ASAR` 后 3477/3477；不设时 3 条预置校验会红（环境面，不是代码面）。
 - `tests/seat-liveness-wake-check.mjs` 没有注册进全套，内容已落后于现在的失联判据，单跑会有失败。
 
 ### 安装
@@ -79,6 +86,7 @@ node tests/<套件>.mjs             # 单跑一套
 - [`docs/encoding-conventions.md`](docs/encoding-conventions.md) —— `.ps1` 要 UTF-8 BOM、其它不要、行尾 LF
 - [`docs/sandbox-temp-root.md`](docs/sandbox-temp-root.md) —— `%TEMP%` 落在 workspace 内导致受限 shell 全挂
 - [`docs/manifest.md`](docs/manifest.md) —— `MANIFEST.sha256` 的校验与生成口径
+- [`docs/agent-teams.md`](docs/agent-teams.md) —— 官方 Agent Teams 整合（`transport: 'team'`）：能力边界、配置、守门新名单、任务板镜像与排障
 
 此外还有交付期留下的产物：`产出交付文档-v3-20261014/`（含架构图 `架构图-main-path-v2.html`）。
 

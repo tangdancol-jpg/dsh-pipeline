@@ -17,7 +17,7 @@
 ├── plugin/
 │   └── active/                ← 插件源码（唯一一份）
 ├── dashboard/                 ← 本地只读控制面板（见 dashboard/README.md）
-└── docs/                      ← 实现报告、交付文档、架构图
+└── docs/                      ← 開発者向けドキュメント（Agent Teams 統合を含む）+ 納品ドキュメント、アーキテクチャ図
 ```
 
 ---
@@ -43,6 +43,13 @@
 `docs/` 内のレポートに書かれている `lib/store.js:2471` のような行番号は、分割前の単一ファイルを指しています。
 現在の位置は、現在のソースツリーの `lib/` 配下から該当するコードを探してください。
 
+その後追加された 2 つのサブシステムも機能ごとに分割されています（単一の大きなファイルではありません）：
+
+| ディレクトリ | 内容 |
+|---|---|
+| `lib/transport/` | チャネルのインターフェースと実装：`session`（一級市民のセッション）/ `team`（公式 Agent Teams）/ `subagent` / `manual` / `simulated`。`createTransport()` が唯一の選択点です |
+| `lib/team/` | 公式 Agent Teams のアダプター：命名、チャネル検査、ロール人格の注入、四スロットの固定、配信、タスクボードのミラーリング |
+
 ### テスト
 
 ```bash
@@ -51,8 +58,8 @@ node tests/run-all.mjs            # 全套；结果写到 tests/last-run.txt
 node tests/<套件>.mjs             # 单跑一套
 ```
 
-- フルスイートは現在 **1588/1588** が通過しています（39 スイート）。
-- 別に 3 スイートはホストパッケージ（`@deepseek-ai/dsh-tools`、`@deepseek-ai/cordis`）を必要とし、本機で見つからない場合はスキップされ、そのことが明示されます。通過率には計上しません。
+- フルスイートは現在 **3477/3477** が通過しています（107 スイート）。
+- 一部のスイートは**ホストのインストール**（`DSH_APP_ASAR=<DSH インストール>/resources/app.asar`）またはホストパッケージ（`@deepseek-ai/dsh-tools`、`@deepseek-ai/cordis`）を必要とし、本機で見つからない場合はそのことが明示され、通過率には計上しません。本機の口径：`DSH_APP_ASAR` を設定すると 3477/3477、設定しないとプリセット検証 3 件が赤になります（環境面でありコード面ではありません）。
 - `tests/seat-liveness-wake-check.mjs` はフルスイートに登録されておらず、内容も現在の失聯の判定基準より古くなっているため、単独で実行すると失敗します。
 
 ### インストール
@@ -79,6 +86,7 @@ node tests/<套件>.mjs             # 单跑一套
 - [`docs/encoding-conventions.md`](docs/encoding-conventions.md) — `.ps1` は UTF-8 BOM が必要、それ以外は不要、行末は LF
 - [`docs/sandbox-temp-root.md`](docs/sandbox-temp-root.md) — `%TEMP%` が workspace 内に落ちると、制限付きシェルがすべて機能しなくなる
 - [`docs/manifest.md`](docs/manifest.md) — `MANIFEST.sha256` の検証と生成の基準
+- [`docs/agent-teams.md`](docs/agent-teams.md) — 公式 Agent Teams 統合（`transport: 'team'`）：能力の境界、設定、新しいガードのリスト、タスクボードのミラーリング、トラブルシューティング
 
 このほか、納品期に残された成果物があります：`产出交付文档-v3-20261014/`（アーキテクチャ図 `架构图-main-path-v2.html` を含む）。
 
