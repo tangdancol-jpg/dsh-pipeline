@@ -1,0 +1,19 @@
+{
+  "_note": "安装副本的复制范围（唯一出处）：install.ps1 与 tools/sync.mjs、tools/sync-check.mjs 都读这一份。改这里就同时改了三处。",
+  "runtime": [
+    "index.js",
+    "lib",
+    "skills",
+    "tests",
+    "package.json",
+    "cordis.patch.yml",
+    "presets",
+    "README.md",
+    "ARCHITECTURE.md",
+    "install.ps1",
+    "rollback.ps1"
+  ],
+  "docs": ["examples", "REPORT.md", "tools"],
+  "excludeNames": ["last-run.txt", "_run.log", "_err.txt", "_out.txt", "_patch.mjs", "demo-project"],
+  "excludePatterns": ["*-last-run.txt", "*.bak", "*.bak-*", "*.jsonl"]
+}

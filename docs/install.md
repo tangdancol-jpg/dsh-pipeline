@@ -70,6 +70,22 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "<DSH 用户目录>\profiles
 powershell -NoProfile -ExecutionPolicy Bypass -File .\rollback.ps1 -Stamp <时间戳> -Profile desktop
 ```
 
+## 改完代码之后：同步与一致性校验
+
+DSH 加载的是安装副本（`profiles/<名字>/node_modules/dsh-pipeline`），不是仓库。改完 `plugin/active/**`
+不同步就重启，跑的仍是旧代码。复制范围只有一个出处：`plugin/active/tools/install-items.json`。
+
+```powershell
+# 只拷有差异的文件（字节原样、保 LF）；同步两次第二次零改动
+node plugin/active/tools/sync.mjs --repo plugin/active --installed <profile>\node_modules\dsh-pipeline
+
+# 只读校验：一致 ⇒ exit 0「OK: N/N 一致」；不一致 ⇒ 非零退出，逐条列出 missing / extra / changed
+node plugin/active/tools/sync-check.mjs --repo plugin/active --installed <profile>\node_modules\dsh-pipeline
+```
+
+永不拷贝、永不删除：`.bak*`、`*-last-run.txt`、运行期 `*.jsonl`。安装副本根目录上范围外的文件只报不删，加 `--prune` 才删。
+`install.ps1` 收尾会自动跑一次 `sync-check`；它自己写的时间戳备份每个文件只保留最新 3 份。
+
 ## 装完先做三件事
 
 1. 重启 DSH，在日志里找 `[pipeline] dsh-pipeline <版本> 已加载…`；

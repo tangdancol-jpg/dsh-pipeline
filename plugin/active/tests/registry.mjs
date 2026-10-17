@@ -203,4 +203,9 @@ export const EXTRA_SUITES = [
   //    这一套钉：端到端默认档派活成功且不调 selectModel / 哨兵不进 slots 但来源照记 /
   //    显式声明照旧下发 / 权限与模式的默认档照旧（只挡哨兵，不顺手放宽）。
   { file: './f14-model-sentinel-check.mjs', exportName: 'runF14ModelSentinelCheck', zh: '★ model 槽哨兵不下发（缺陷 ③：默认档派活不再撞 model_failed，显式声明与其它槽默认档照旧）' },
+  // ★★ 缺陷 ⑦（2026-10-17）：DSH 加载的是安装副本不是仓库；改前 install.ps1 只会覆盖式拷贝、堆 .bak-*，
+  //    没有一致性比对也没有幂等证明 ⇒ 修完重启仍跑旧码。这一套在临时目录里钉：一致 ⇒ exit 0 / 改一个字节 ⇒ 点名 changed /
+  //    多 ⇒ extra、少 ⇒ missing / 同步两次第二次零拷贝且 mtime 不变、字节原样 / 永不碰 .bak* · *-last-run.txt · *.jsonl /
+  //    install.ps1 的复制范围来自 tools/install-items.json（唯一出处）。
+  { file: './f15-install-sync-check.mjs', exportName: 'runF15InstallSyncCheck', zh: '★ 安装副本同步与一致性校验（缺陷 ⑦：sync-check 判一致 / sync 幂等保 LF / 永不碰备份与运行期数据）' },
 ]

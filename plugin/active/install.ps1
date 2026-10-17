@@ -195,27 +195,16 @@ $SkillTarget = Join-Path $SkillsRoot 'stop-ladder'
 #    `tests/selftest-core.mjs` —— "装完当场自检"是这个插件的核心卖点之一。
 #    但只装 .mjs 源文件，不装 last-run.txt / demo-project 之类的产物。
 #    `examples/` 与 `REPORT.md` 对运行没有贡献，只有 -WithDocs 才带。
-$RuntimeItems = @(
-  'index.js',
-  'lib',
-  'skills',
-  'tests',
-  'package.json',
-  'cordis.patch.yml',
-  # ★ 16 个角色专属 Agent 预设（源 + 生成物一起过去）。`package.json` 的
-  #   `dsh.bundle.patch` 第二条引用的正是 `presets/generated/pipeline-presets.patch.yml`
-  #   —— 少装这一项，那条 patch 就指向不存在的文件（整行不激活）。
-  #   含 `generated/`：产物就在它下面，必须一起同步（`presets/apply.js` 也按同样口径）。
-  'presets',
-  'README.md',
-  'ARCHITECTURE.md',
-  'install.ps1',
-  'rollback.ps1'
-)
-$DocItems = @('examples', 'REPORT.md', 'tools')
-
-# 复制目录时要排除的产物（跑自测/样例生成的，与运行无关）。
-$ExcludeNames = @('last-run.txt', '_run.log', '_err.txt', '_out.txt', '_patch.mjs', 'demo-project')
+# ★ 复制范围只有一个出处：tools/install-items.json（tools/sync.mjs 与 tools/sync-check.mjs 读同一份）。
+#   改前这里自己写死一份清单 —— 同步工具若再抄一份，两边迟早漂移（缺陷 ⑦）。
+$ItemsPath = Join-Path $PluginSrc 'tools\install-items.json'
+if (-not (Test-Path -LiteralPath $ItemsPath)) { Write-Host "[pipeline] 失败：缺少复制范围清单 $ItemsPath" -ForegroundColor Red; exit 1 }
+$Items = [System.IO.File]::ReadAllText($ItemsPath, [System.Text.Encoding]::UTF8) | ConvertFrom-Json
+$RuntimeItems = @($Items.runtime)
+$DocItems = @($Items.docs)
+# 复制目录时要排除的东西（自测产物、备份、运行期数据 —— 都不是运行代码）。
+$ExcludeNames = @($Items.excludeNames)
+$ExcludePatterns = @($Items.excludePatterns)
 
 function Info($m) { Write-Host "[pipeline] $m" }
 function Warn($m) { Write-Host "[pipeline] $m" -ForegroundColor Yellow }
@@ -398,6 +387,15 @@ if (-not $DryRun) {
   Copy-Item -LiteralPath $PkgPath -Destination $PkgBackup -Force
   Info "已备份：$PatchBackup"
   Info "已备份：$PkgBackup"
+  # ★ 只清**本脚本自己**写的时间戳备份（<名字>.bak-yyyyMMdd-HHmmss），每个文件保留最新 3 份；
+  #   手工起名的备份（.bak-scopeanchor-… 之类）一个不碰。改前每装一次就多两份、从不清理（缺陷 ⑦ / ⑧）。
+  foreach ($base in @($PatchPath, $PkgPath)) {
+    $leaf = Split-Path $base -Leaf
+    $own = @(Get-ChildItem -LiteralPath (Split-Path $base -Parent) -Filter "$leaf.bak-*" -File -ErrorAction SilentlyContinue |
+      Where-Object { $_.Name -match ('^' + [regex]::Escape($leaf) + '\.bak-\d{8}-\d{6}$') } |
+      Sort-Object Name -Descending)
+    foreach ($old in ($own | Select-Object -Skip 3)) { Remove-Item -LiteralPath $old.FullName -Force; Info "已清理旧备份：$($old.Name)" }
+  }
 } else {
   Info "[DryRun] 会备份：$PatchPath → $PatchBackup"
   Info "[DryRun] 会备份：$PkgPath → $PkgBackup"
@@ -453,6 +451,7 @@ function Copy-TreeFiltered($srcDir, $dstDir) {
   New-Item -ItemType Directory -Force -Path $dstDir | Out-Null
   foreach ($child in Get-ChildItem -LiteralPath $srcDir -Force) {
     if ($ExcludeNames -contains $child.Name) { continue }
+    if (@($ExcludePatterns | Where-Object { $child.Name -like $_ }).Count -gt 0) { continue }
     $dst = Join-Path $dstDir $child.Name
     if ($child.PSIsContainer) { Copy-TreeFiltered $child.FullName $dst }
     else { Copy-Item -LiteralPath $child.FullName -Destination $dst -Force }
@@ -555,6 +554,20 @@ if ($NoSkill) {
     Info "已装 Skill：$SkillTarget\SKILL.md"
   } else {
     Info "[DryRun] 会装 Skill 到：$SkillTarget\SKILL.md"
+  }
+}
+
+# ---------------------------------------------------------------------------
+# 5b) 收尾自检：仓库与安装副本逐文件一致吗（缺陷 ⑦：绝不静默加载旧码）
+# ---------------------------------------------------------------------------
+if (-not $DryRun) {
+  $SyncCheck = Join-Path $PluginSrc 'tools\sync-check.mjs'
+  $node = Get-Command node -ErrorAction SilentlyContinue
+  if ($null -eq $node) {
+    Warn "没找到 node，跳过一致性自检。装完可手动跑：node $SyncCheck --repo $PluginSrc --installed $TargetDir"
+  } else {
+    & $node.Source $SyncCheck --repo $PluginSrc --installed $TargetDir
+    if ($LASTEXITCODE -ne 0) { Warn "一致性自检不通过（见上）。先修好再重启 DSH，否则跑的不是这一版代码。" }
   }
 }
 
