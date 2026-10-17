@@ -259,4 +259,12 @@ export const EXTRA_SUITES = [
   //    pipeline 任务 ↔ 官方 Team 任务板镜像：开单 createTask / 派活 reassign / 关单 complete；
   //    best-effort（失败只审计，绝不改流水线 ok）。
   { file: './team-board-check.mjs', exportName: 'runTeamBoardCheck', zh: '★ 任务板镜像（开单 / 派活 / 关单 + revision CAS 重试 + best-effort 降级）' },
+  // ★★ 自建流水线面板 · **数据面**（`lib/panel/snapshot.js` + `GET /.dsh-pipeline/panel`）：
+  //    面板要显示的四件事在这里定判据 —— 任务列表（状态中文名 + 需求摘要）、
+  //    每个任务的席位（角色中文名 + 席位号 + 声明/已派出）、当前会话身份（`main` 那条）、
+  //    人工待办数。钉死的几条：**只读**（task.json 逐字节不变）/ **绝不含交接物正文** /
+  //    坏 JSON 只进 `warnings` 不抛 / 摘要截 80 码点 / `human_pending` 只数还没答复的 /
+  //    席位「声明 vs 已派出」按 (role, seat) 合并、通道字段决定 `kind` / 任务按 `updated_at` 倒序 /
+  //    `/state` 的 GET 行为一个字没变。★ 全程密闭：夹具自造临时目录，不读活体真单。
+  { file: './panel-check.mjs', exportName: 'runPanelCheck', zh: '★ 自建流水线面板数据面（只读快照 + 席位声明/已派出合并 + 待办计数 + 只读 `/panel` 路由；不含交接物正文）' },
 ]

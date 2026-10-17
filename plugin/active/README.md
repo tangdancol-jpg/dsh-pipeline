@@ -472,6 +472,17 @@ DSH 窗口右上角头部那一排里会出现一个**「多AI 协调」**按钮
 
 点一下即切，**立即生效，不需要重启**。
 
+### 「流水线」面板（开关右边）
+
+同一个标题栏槽位里，开关右边还有一个**「流水线 N」**按钮。点开是**只读面板**：
+
+- **任务**：每张流水线单一卡（`[pipeline] T-…` + 中文状态徽标 + 需求摘要前 80 字）；
+- **席位**：该单的每个席位一行，用**中文易懂名**（`主对话` / `主管` / `需求分析` / `计划` / `编写 · 1号席` / `测试` / `审核` …）+ 状态；
+- **当前对话高亮**：主对话那张卡带一圈高亮 + 「当前对话」标签；
+- **点名字打开对话**：点席位卡直接跳到该席位会话（team 通道的队员按具名 teammate 的 `continuable` 子会话打开）；
+- 数据来自 `GET /.dsh-pipeline/panel`（**只读**、5 秒轮询、页面隐藏时跳过）：只读 `<项目根>/.pipeline/*/task.json` 的**非敏感字段**（任务 id / 状态 / 需求摘要 / 席位 / 待办计数 / 任务板编号），**不含**交接物正文、补丁、代码；
+- `uiWorkspace` 服务拿不到时，面板只显示一行「打不开会话：…」的人话错误，**不影响**开关与其它功能。
+
 | 状态 | 编排（角色清单/顺序） | 守门（越权拦截） | 流水线写操作 | 查询/自检 |
 |---|---|---|---|---|
 | **开**（绿点） | 生效 | 生效 | 正常 | 正常 |
@@ -2161,15 +2172,15 @@ DSH 0.2.1 起官方带「智能体团队」：根会话是 Lead，可以 `spawn_
 ```powershell
 cd <插件目录>
 $env:DSH_APP_ASAR = '<DSH 安装>\resources\app.asar'   # 预设/宿主 schema 类判据要读宿主安装
-node tests\run-all.mjs            # 107 套一起跑（3477 项，含残留检查）
+node tests\run-all.mjs            # 108 套一起跑（3528 项，含残留检查）
 node tests\run-all.mjs --quiet    # 只打结论，不贴完整拒绝原文
 ```
 
-**当前口径**：设了 `DSH_APP_ASAR` 时 **3477/3477 通过（107 套）**；不设时会有 3 条
+**当前口径**：设了 `DSH_APP_ASAR` 时 **3528/3528 通过（108 套）**；不设时会有 3 条
 "读不到宿主安装"的预置校验判红（环境面，不是代码面）。单套清单与每套的判据写在
 `tests/run-all.mjs` 与 `tests/registry.mjs` 里（新增能力用新套 + registry 一行登记）。
 
-按能力分组（不逐一列 107 套）：
+按能力分组（不逐一列 108 套）：
 
 | 分组 | 代表套件 | 内容 |
 |---|---|---|
@@ -2179,6 +2190,7 @@ node tests\run-all.mjs --quiet    # 只打结论，不贴完整拒绝原文
 | 守门 | `shell-guard-check.mjs`、`intercept-check.mjs`、`silent-veto-*.mjs`、`team-guard-check.mjs` | 越权/跳步/旁路；官方新工具（team 协作 / 委派 / 插件管理 / 会话搜索）拒绝；`terminal_send` 的 `text` 按 shell 检查 |
 | 流程各站 | `human-check`、`writers-check`、`ladder-check`、`security-check`、`relay-check`、`records-check`、`plan-check`、`review-check`、`gate-states-check`… | 人工介入、编写席位、升级梯、安全确认、继任、分权落档、计划/审核/状态机 |
 | 任务板镜像 | `team-board-check.mjs` | 开单/派活/关单三处镜像 + revision CAS 重试 + best-effort 降级 |
+| 自建面板 | `panel-check.mjs` | 只读快照契约（任务/席位/待办/摘要截断）、坏 JSON 降级、`/panel` 路由与 `/state` 不回归 |
 | 预设与真机 | `p11-presets-check.mjs`、`p12-*`、`e-route-check.mjs` | 16 个角色预设与 shipped/schema 对形；需要 `DSH_APP_ASAR` |
 | 回归专项 | `f1`–`f23`、`p1`–`p16`、`m1`–`m11` 等 | 每轮缺陷的判据化回归（一个缺陷一个套件） |
 

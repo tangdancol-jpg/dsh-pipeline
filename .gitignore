@@ -31,6 +31,8 @@ last-run.txt
 *run-all.txt
 *run-all-after.txt
 *snapshot*
+# 例外：面板数据面是源码，不是快照产物
+!plugin/active/lib/panel/snapshot.js
 wake-ledger.jsonl
 *BACKUP-TAG.txt
 

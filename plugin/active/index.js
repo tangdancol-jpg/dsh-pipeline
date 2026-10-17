@@ -88,6 +88,10 @@ import { registerInterception } from './lib/intercept.js'
 import { fullTestCredential } from './lib/testscope.js'
 import { hashGateBlocksTests, hashGateEscalationPending } from './lib/hashgate.js'
 import { mountSwitchRoute, ROUTE_PREFIX, STATE_PATH } from './lib/switch-routes.js'
+// ★ 自建流水线面板的**数据面**（只读快照）：任务列表 / 席位 / 人工待办数。
+//   挂法见下面 `mountSwitchRouteWhenReady` 的 `panel` 那一条 —— 目录来自本文件已有的
+//   `projectRoot` 与 `config.artifactDirName`，**不另造第二份目录来源**。
+import { buildPanelSnapshot } from './lib/panel/snapshot.js'
 import { createTokenStore } from './lib/tokens.js'
 // ★★ E 路 ③：角色常量（"主对话不收紧工具面"这条口径要按**同一个**角色 id 判）。
 import { ROLE, ROLES, roleLabel } from './lib/roles.js'
@@ -986,6 +990,18 @@ export function apply(ctx, rawConfig) {
         sw,
         version: TOOL_VERSION,
         log: (m) => target.logger?.debug?.(`[pipeline] ${m}`),
+        /**
+         * ★★ 自建流水线面板的数据面（`GET /.dsh-pipeline/panel`）。
+         *
+         * 为什么是"传一个取数函数"而不是把目录递给路由层：路由层**不该猜 projectRoot**
+         * （那是本文件 §1 那套 `resolveDirs` 的职责）。这里用的是同一个 `projectRoot`
+         * 与同一个 `config.artifactDirName` —— 与 store / 守门 / 关单闸完全同源，
+         * 不会出现"面板看 A 目录、机制写 B 目录"那种分叉。
+         *
+         * 取数是**惰性**的：每次 HTTP 请求现读一次（`buildPanelSnapshot` 内部绝不写、
+         * 绝不抛），所以面板看到的永远是盘上的当前状态，而不是插件启动那一刻的缓存。
+         */
+        panel: () => buildPanelSnapshot({ projectRoot, artifactDirName: config.artifactDirName }),
       })
       if (mounted === null) return false
       target.effect(() => mounted.dispose, 'pipeline: switch route')

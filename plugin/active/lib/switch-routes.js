@@ -42,6 +42,18 @@ export const ROUTE_PREFIX = '/.dsh-pipeline'
 /** 状态路由的完整路径。 */
 export const STATE_PATH = `${ROUTE_PREFIX}/state`
 
+/**
+ * 面板路由的完整路径（**只读**）。
+ *
+ * 与 `STATE_PATH` 的区别刻意写清楚：
+ *   · `/state` 是开关位，**能写**（POST 改布尔）；
+ *   · `/panel` 是**自建流水线面板的数据面**，只有 GET：返回
+ *     `lib/panel/snapshot.js` 的 `buildPanelSnapshot()` 快照（任务 / 席位 / 待办数），
+ *     **不写任何任务数据**，也不含交接物正文 / 补丁 / 代码。
+ * 数据来源不在这里猜目录：由 `mountSwitchRoute` 的 `panel` 入参注入（见 `index.js` 的接线）。
+ */
+export const PANEL_PATH = `${ROUTE_PREFIX}/panel`
+
 /** 请求体上限（就一个布尔，给 4 KB 已经很宽容了）。 */
 const MAX_BODY_BYTES = 4096
 
@@ -127,11 +139,15 @@ export function readBody(req, limit = MAX_BODY_BYTES) {
  * @param {ReturnType<import('./switch.js').createSwitch>} deps.sw
  * @param {string} deps.version - 插件版本，回给 UI 用于展示
  * @param {(m:string)=>void} [deps.log]
+ * @param {() => object} [deps.panel] - 面板快照数据源（只读；缺省 ⇒ `/panel` 回 503）。
+ *   **本文件不猜 projectRoot** —— 目录从哪来是接线方（`index.js`）的事。
  * @returns {(req:any, res:any)=>Promise<void>}
  */
 export function createSwitchHandler(deps) {
   const { sw, version } = deps
   const log = typeof deps.log === 'function' ? deps.log : () => {}
+  /** 面板数据源：没有就如实说"没接线"，不拿空对象冒充一份快照。 */
+  const panel = typeof deps.panel === 'function' ? deps.panel : null
 
   return async function handleSwitchRoute(req, res) {
     try {
@@ -143,6 +159,30 @@ export function createSwitchHandler(deps) {
       const remote = req.socket?.remoteAddress ?? req.connection?.remoteAddress
       if (!isLoopback(remote)) {
         sendJson(res, 403, { ok: false, error: '多 AI 协调开关只对环回地址开放。' })
+        return
+      }
+
+      // --- 面板（★ 只读）---------------------------------------------------
+      //   刻意放在 `path !== STATE_PATH` 之前，且**不碰**下面任何一行 `/state` 的行为。
+      if (path === PANEL_PATH) {
+        if (method !== 'GET' && method !== 'HEAD') {
+          sendJson(res, 405, { ok: false, error: `面板是只读的，不支持 ${method}。` })
+          return
+        }
+        if (panel === null) {
+          sendJson(res, 503, { ok: false, error: '面板数据源未接线（mountSwitchRoute 没收到 panel 数据源）。' })
+          return
+        }
+        let snapshot = null
+        try {
+          snapshot = panel()
+        } catch (err) {
+          // 快照自己承诺不抛；真抛了也不让整个路由层炸，如实回一句。
+          log(`面板快照抛异常：${String(err?.stack ?? err)}`)
+          sendJson(res, 500, { ok: false, error: '面板快照构建失败。' })
+          return
+        }
+        sendJson(res, 200, snapshot)
         return
       }
 
@@ -230,6 +270,9 @@ export function createSwitchHandler(deps) {
  * 写进 inject 的话，没有 webServer 的形态（headless）下整个插件都不会激活 ——
  * 而守门与工具在 headless 下照样有用。拿不到 webServer 时本函数返回 null，
  * 调用方应当据此降级（开关仍然能用 `pipeline_switch` 工具翻）。
+ *
+ * ★ 面板数据面：`deps.panel` 原样递给 `createSwitchHandler`（本函数不看内容、不猜目录）。
+ *   同一个前缀下于是有两条路：`/state` 可读写开关位，`/panel` 只读快照。
  *
  * @returns {{ dispose:()=>void, handler:Function } | null}
  */

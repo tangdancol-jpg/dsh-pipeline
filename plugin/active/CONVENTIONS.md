@@ -69,7 +69,7 @@ plugin/active/
 > - **两个集中层**：`lib/model/`（领域对象：task / baseline / artifact / close-report / human-request / handoff-*）、
 >   `lib/errors/`（错误码 `codes.js` + 拒绝/提示文案 `text.js`）
 > - 已拆包的 7 个大文件：`boundaries/`、`orphan/`、`liveness/`、`states/`、`hashgate/`、`tiers/`、`patrol/`（原文件均为 barrel）
-> - 其余域：`guard/` `store/` `handoff/` `team/` `transport/` `memory/` `project/` `switch/` `intercept/` `wakeup/` `tools/` `design/` `roster/` `scope/` `intake/`
+> - 其余域：`guard/` `store/` `handoff/` `team/` `transport/` `memory/` `project/` `switch/` `intercept/` `wakeup/` `tools/` `panel/` `design/` `roster/` `scope/` `intake/`
 
 ## 2. 每个目录的职责（一句话，判归属时照这句问自己）
 
@@ -85,6 +85,7 @@ plugin/active/
 | `lib/handoff/schemas/` | 交接物**字段表**，一类型一文件 | 校验实现（委托给域目录） |
 | `lib/model/` | **领域对象**：task / handoff / baseline 等对象的**结构、默认值、字段清单、对象级纯函数**（"数据长什么样"） | 状态推进判据（`store/`）、校验实现（`handoff/`）、I/O |
 | `lib/errors/` | **错误码与拒绝/提示文案的唯一出处**（"怎么说不行"） | 判据本身（`guard/`）、状态迁移（`states/`）、工具参数表 |
+| `lib/panel/` | **自建面板的只读数据面**（`/.dsh-pipeline/panel` 快照：任务 / 席位 / 待办计数） | 写盘、判定、UI（UI 在 `lib/client.js`） |
 | `tests/` | 一测试一文件，**可直接 `node` 跑** | 测试框架、共享夹具库 |
 
 ## 3. 命名规则
