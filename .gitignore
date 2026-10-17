@@ -33,8 +33,13 @@ last-run.txt
 *snapshot*
 # 例外：面板数据面是源码，不是快照产物
 !plugin/active/lib/panel/snapshot.js
+!plugin/active/tests/panel-snapshot-check.mjs
 wake-ledger.jsonl
 *BACKUP-TAG.txt
+
+# 会话交接/部署日志（本机运行产物，不入库）
+HANDOFF*.md
+DEPLOY-REPORT.md
 
 # 流水线运行期数据（含会话/密钥信息，绝不入库）
 .pipeline/

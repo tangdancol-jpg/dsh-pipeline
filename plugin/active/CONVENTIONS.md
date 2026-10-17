@@ -85,7 +85,7 @@ plugin/active/
 | `lib/handoff/schemas/` | 交接物**字段表**，一类型一文件 | 校验实现（委托给域目录） |
 | `lib/model/` | **领域对象**：task / handoff / baseline 等对象的**结构、默认值、字段清单、对象级纯函数**（"数据长什么样"） | 状态推进判据（`store/`）、校验实现（`handoff/`）、I/O |
 | `lib/errors/` | **错误码与拒绝/提示文案的唯一出处**（"怎么说不行"） | 判据本身（`guard/`）、状态迁移（`states/`）、工具参数表 |
-| `lib/panel/` | **自建面板的只读数据面**（`/.dsh-pipeline/panel` 快照：任务 / 席位 / 待办计数） | 写盘、判定、UI（UI 在 `lib/client.js`） |
+| `lib/panel/` | **自建面板**：只读快照（`/.dsh-pipeline/panel`）+ 受控写动作（`/panel/action`：终止 / 恢复 / 归档 / 删单 / 置顶 / 恢复归档 / 永久删除）+ 归档视图与置顶落盘 | 状态机判据（复用 `states/`）、UI 渲染（在 `lib/client.panel-*.js`） |
 | `tests/` | 一测试一文件，**可直接 `node` 跑** | 测试框架、共享夹具库 |
 
 ## 3. 命名规则
@@ -149,6 +149,29 @@ plugin/active/
 - **实例（是"必要性"的实例，不是"长文件豁免"）**：`lib/model/handoff-schemas.js`（25 类交接物字段表）
   与 `lib/roles.js`（角色表）属于 ①（单一声明表），经评估不再切。★ 这一条**不得**被读成"长文件一律豁免"：
   长文件照样要逐条自证，自证不出来就该拆。
+- **客户端半边（按"装载边界"拆，不是"长文件豁免"）**：`lib/client.js` 是宿主按
+  `/plugins/<包>/client.js` 发布的**入口** —— ≤400 行（当前正好 400），只做三件事：注册模块、
+  「多AI 协调」开关、面板的 lazy wrapper；面板实现拆在 `lib/client.panel-<职责>.js` 共 14 个
+  （每个 ≤400 行）：`shell` / `view` / `atoms` / `data` / `seats` / `menu` / `batch` /
+  `batch-bar` / `card-actions` / `actions` / `preview` / `preview-data` / `preview-control` /
+  `preview-bubble`。
+- **宿主原生支持包内 chunk**，所以客户端拆得开：入口用 `require.async("./client.<name>.js")`
+  取同级 chunk，宿主按 `/plugins/<id>/client.<name>.js?rev=<入口 rev>` 提供并按 **immutable**
+  缓存（`rev` 变了才重取）；chunk 是**经典脚本**，用
+  `window.__ModuleLoader__.load({ id, chunk, factory })` 注册。协议只支持**自包含 chunk**
+  （入口与 chunk 不能同步 `require` 另一个相对 `client*.js` 产物），所以**组合只在入口做**。
+  因为协议就是"入口 + 同级文件"，手工 JS **不需要 tsdown、也不需要改 `package.json`** ——
+  文件放进去就能被取到（`tests/client-check.mjs` 钉住：入口列出的 chunk 与磁盘**一一对应**、
+  每个都匹配宿主的 chunk 名规则、每个都走 `load({ id, chunk, factory })`）。
+- **客户端侧的约束**：
+  - 入口已**顶格 400 行** —— 新增客户端逻辑**一律新开 chunk**，不要再往 `lib/client.js` 里塞；
+  - chunk 之间通过 shell 的**共享作用域**（`createPanel` 里的 `S`）或 `create(deps)` 的依赖组合，
+    **不要**互相同步 `require`（协议不支持，运行时也拿不到）；
+  - chunk 必须与入口**同目录**，文件名要匹配宿主的 chunk 名规则，否则宿主 404 / 拒收；
+  - 每个 chunk 仍受本节 ≤400 行的约束：`client-check.mjs` 会逐文件数行，超限当场红。
+- **证据出处**（可复核）：`@deepseek-ai/dsh-client-modules` 的 `README.zh.md`「浏览器加载什么」
+  与「惰性 CJS 模型」两段（本机在 `<DSH 安装>/resources/app.asar` 内的
+  `dsh/node_modules/@deepseek-ai/dsh-client-modules/README.zh.md`）。
 
 ## 5. 禁止往既有大文件堆叠
 

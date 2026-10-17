@@ -1,4 +1,4 @@
-// 自建面板数据面 · 只读快照：把 `.pipeline/*/task.json` 压成「任务 / 席位 / 待办数」三件事。
+// 面板快照 · 编排：扫描 `<项目根>/.pipeline/T-*/task.json`，压成面板快照（排序 / 置顶 / 降级）。
 /**
  * dsh-pipeline · 自建流水线面板 · **数据面**（宿主侧只读快照）
  * ============================================================================
@@ -10,6 +10,14 @@
  *
  * 排序：**置顶优先**，组内按 `updated_at` 倒序（见 `buildPanelSnapshot` 里那段比较器）。
  *
+ * ---- 三块的边界（本轮拆文件后的唯一口径）------------------------------------
+ *   · 席位怎么合 ⇒ `./seats.js`（`main` / 声明位 / 派活台账三层，含 `session_id` 兜底）；
+ *   · 每个字段怎么算 ⇒ `./task-fields.js`（摘要 / 待办数 / `team_board` / `tier` /
+ *     `allowed_actions` + 键序契约常量 + 共用标量工具）；
+ *   · 本文件只做**编排**：目录扫描、行装配、排序、置顶读取、降级。
+ *   本文件对上面两块**只 import、不反向依赖**，并由文件末尾的 barrel 保持
+ *   `lib/panel/snapshot.js` 原有 18 个导出一个不少（其它模块与测试照旧只从这里 import）。
+ *
  * ---- 硬边界 ----------------------------------------------------------------
  *   · **只读**：只 `readdirSync` / `readFileSync` / `statSync`，一个字节都不写任务数据
  *     （置顶表的**写**在 `pins.js`，本文件只读它）；
@@ -19,25 +27,6 @@
  *     都读不了才 `ok:false`（此时 `tasks` 为空、`error` 说清原因）；
  *   · **同步纯函数**：`now` 可注入，测试因此不靠 `sleep` 换秒。
  *
- * ---- 席位怎么合出来的（三层，顺序 = 面板显示顺序）--------------------------
- *   `main`       恒一条 `status:"current"`；`kind:"session"`（用户正在对话的那条就是它），
- *                `session_id` 记 `null` —— 快照是纯读的，**不猜**当前会话 id。
- *   `declared`   `roster.execution_roles` 的执行角色；`writer` 按
- *                `roster.writers.partitions[]`（`seat` / `role_id` / `layer`）一个分区一位。
- *   `dispatched` `task.dispatched[]` 里真派出去过的：同 (role, seat) **升级**成 `dispatched`
- *                并填 `session_id` / `member_name` / `kind`；名单没声明的（需求位 / 计划位）
- *                追加在后面 —— 它们是真会话，漏掉就等于面板上凭空少几行。
- *
- * ---- 两个字段形状（盘上逐字段核对过，**别靠想象写**）------------------------
- *   `task.dispatched[]` = `{ key, role, seat, agent_id, session_id, token, at, at_ms, via }`
- *     （`lib/liveness/seats.js` 的 `upsertDispatch`）。**没有** `memberName` 这一格 ⇒ 读
- *     `memberName ?? member_name`，取不到就是 `null`（不拿 `agent_id` 冒充名字）；通道字段是
- *     `via`（`team` / `subagent` / `manual`），`manual` 没建会话 ⇒ `kind:"unknown"`。
- *     ★ 真实台账里 `session_id` 常是 `null`、只有 `agent_id = "session-<uuid>"` ⇒ 显式
- *     `session_id` 优先，取不到才用 {@link sessionIdOfAgentId} 剥前缀兜底（面板要靠它开会话）。
- *   `task.human_requests[]` 的"答复过了"与 `lib/store/status.js:253`、`lib/store/human.js:429`
- *     同一套判据：`status === 'answered' | 'withdrawn'`（`pending → relayed → answered`，
- *     `relayed` 只是转告过了，**仍然算待办**）。
  * @module dsh-pipeline/lib/panel/snapshot
  */
 
@@ -45,61 +34,25 @@ import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { readPins } from './pins.js'
-import { ROLE, roleLabel } from '../roles.js'
-import { STATE_LABEL, TERMINAL_STATES, findTransition } from '../states.js'
+import { seatsOf } from './seats.js'
+import {
+  allowedActionsOf,
+  humanPendingCount,
+  isoOf,
+  msOf,
+  nullableText,
+  reasonOf,
+  snippetOf,
+  stateLabelOf,
+  taskTierOf,
+  teamBoardOf,
+  textOf,
+  updatedAtOf,
+} from './task-fields.js'
 import { pathKey } from '../util.js'
 
 /** 只认这个前缀的任务目录（`_memory` / `_trash` / 杂项一律不看）。 */
 export const PANEL_TASK_PREFIX = 'T-'
-/** 需求摘要上限（按**码点**算，CJK 与 emoji 都不会被劈成半个）。 */
-export const PANEL_SNIPPET_MAX = 80
-/** 任务板镜像文件名（与 `lib/team/board-state.js` 的 `BOARD_FILE_NAME` 同名）。 */
-export const TEAM_BOARD_FILE = 'team-board.json'
-/** 席位状态：当前会话 / 已派出 / 仅声明。 */
-export const SEAT_STATUS = Object.freeze({ CURRENT: 'current', DISPATCHED: 'dispatched', DECLARED: 'declared' })
-/** 席位挂在哪个通道上。 */
-export const SEAT_KIND = Object.freeze({ SESSION: 'session', TEAM: 'team', UNKNOWN: 'unknown' })
-/** 人工请求里"已经不需要人再答"的状态（与 store 侧逐字一致）。 */
-const HUMAN_CLOSED_STATUSES = ['answered', 'withdrawn']
-/**
- * 面板操作 id（顺序 = 契约顺序，**只出现可用的**）。
- *
- * ★ 与 `lib/panel/actions.js` 的 `PANEL_ACTION_IDS` **前四个是同一组名字**（后者是完整白名单）：
- *   本文件只回答"这个状态下**能**做哪几件"，能不能真做成由 `actions.run()` 判
- *   （开关、二次确认、终态闸、状态机全部在那一侧，本文件一个字节都不写盘）。
- *   顺序固定为 `cancel, restore, archive, delete` —— 客户端按这个顺序渲染按钮即可，
- *   不需要自己再排一遍。
- * ★ 后加的 `pin` / `unpin` / `unarchive` / `delete_archived` **不在这里**：
- *   它们跟状态机无关（置顶是展示偏好、归档两件只对归档视图的行成立），
- *   进了这个数组就会给一张在跑的单画出"恢复归档"按钮。
- */
-export const PANEL_ACTION_ORDER = Object.freeze(['cancel', 'restore', 'archive', 'delete'])
-
-/**
- * 任务行的**键序契约**（`allowed_actions` 固定在最后；`pinned` 紧挨在它前面，
- * `tier` 又紧挨在 `pinned` 前面）。
- *
- * ★ 为什么把键序写成一个导出常量而不是"靠写代码时的顺序"：客户端按固定键序渲染，
- *   而键序是**会被无意打乱**的（往中间插一格就变了）。测试拿它逐字比对，漂移当场被抓住。
- * ★ `tier` / `pinned` 的位置是刻意的：原有 8 个键一个都没动（老客户端读前 8 个键照旧），
- *   新键都插在 `allowed_actions` **之前** —— 而 `allowed_actions` 仍然**是最后一个键**。
- */
-export const PANEL_TASK_KEY_ORDER = Object.freeze([
-  'id',
-  'state',
-  'state_label',
-  'requirement_snippet',
-  'updated_at',
-  'human_pending',
-  'team_board',
-  'seats',
-  'tier',
-  'pinned',
-  'allowed_actions',
-])
-
-/** 只认这六档（大小写不敏感，输出统一大写）。 */
-const TIER_IDS = Object.freeze(['L0', 'L1', 'L2', 'L3', 'L4', 'L5'])
 
 /**
  * 构建面板快照（**同步 · 纯读 · 绝不抛**）。
@@ -122,7 +75,7 @@ export function buildPanelSnapshot(input = {}) {
   }
 
   try {
-    const dirName = nonEmptyText(opts.artifactDirName) ?? '.pipeline'
+    const dirName = nullableText(opts.artifactDirName) ?? '.pipeline'
     const pipelineDir = join(rootRaw, dirName)
     // ★ 置顶表是一次读出来的（不是每行再读一遍盘）：坏文件在 `pins.js` 里已经降级成空表。
     const pinnedIds = pinnedSetOf(rootRaw, dirName, warnings)
@@ -192,13 +145,13 @@ function buildTaskRow({ taskId, taskDir, nowMs, warnings, pinnedIds }) {
       team_board: teamBoardOf({ taskDir, taskId, warnings }),
       seats: seatsOf(task),
       // ★ `tier` 只从**结构化字段**读（`roster.tier` 优先于 `task.tier`），只认 `L0`–`L5`；
-      //   认不出就是 `null` —— **绝不**从需求文本里猜。判据见 {@link taskTierOf}。
+      //   认不出就是 `null` —— **绝不**从需求文本里猜。判据见 `task-fields.js#taskTierOf`。
       tier: taskTierOf(task),
       // ★ `pinned` / `allowed_actions` 仍然垫在最后两个位置（`tier` 插在它们之前）：
       //   既有 8 个键位置不动，`allowed_actions` 仍是最后一个键。
-      //   判据见 {@link PANEL_TASK_KEY_ORDER}（键序是契约，测试逐字钉住）。
+      //   判据见 `task-fields.js#PANEL_TASK_KEY_ORDER`（键序是契约，测试逐字钉住）。
       pinned: pinnedIds instanceof Set && pinnedIds.has(taskId),
-      // ★ 追加在最后（键名/顺序不动）：判据见 `allowedActionsOf()`，
+      // ★ 追加在最后（键名/顺序不动）：判据见 `task-fields.js#allowedActionsOf`，
       //   全部来自 `lib/states.js`，不手抄状态名单。
       allowed_actions: allowedActionsOf(task.state),
     },
@@ -223,266 +176,6 @@ function pinnedSetOf(root, dirName, warnings) {
   }
 }
 
-/** 状态中文名；认不出就原样返回 id（宁可显示得丑，也不要抛、不要吞）。 */
-export function stateLabelOf(state) {
-  const key = textOf(state)
-  if (key.length === 0) return ''
-  return Object.hasOwn(STATE_LABEL, key) ? STATE_LABEL[key] : key
-}
-
-/**
- * 当前状态下**面板可以发起**的操作（顺序固定：`cancel, restore, archive, delete`）。
- *
- * ★ 判据全部**复用状态机**，本文件不另抄一份状态名单：
- *   · `cancel`  —— 非终态 **且** `findTransition(state,'cancel')` 有边。
- *     为什么必须先挡终态：表里那条 `cancel` 是 `from:'*'`（任意非终态可取消），
- *     单看 `findTransition` 对 `closed` / `cancelled` 也会返回非 null —— 终态闸必须自己挡，
- *     而"什么是终态"读的是 `TERMINAL_STATES`（与 `lib/store/purge.js` 的 `isTerminalState` 同源）。
- *   · `restore` —— `blocked`（或状态机接受 `unblock`）。`unblock` 的边只有
- *     `from: ST.BLOCKED` 一条，所以这里直接问表，**不把 `'blocked'` 抄成字面量**。
- *   · `archive` / `delete` —— 仅终态（与 `purgeTask` 的硬约束同一份判据）。
- *
- * @param {string} state
- * @returns {string[]} 可能是空数组（未知/空状态：什么都不能做，也绝不抛）
- */
-export function allowedActionsOf(state) {
-  const key = textOf(state)
-  if (key.length === 0) return []
-  const terminal = TERMINAL_STATES.includes(key)
-  const out = []
-  if (!terminal && findTransition(key, 'cancel') !== null) out.push('cancel')
-  if (!terminal && findTransition(key, 'unblock') !== null) out.push('restore')
-  if (terminal) {
-    out.push('archive')
-    out.push('delete')
-  }
-  return out
-}
-
-/**
- * 任务档位（`L0`–`L5`）：**只从结构化字段读**，认不出就是 `null`。
- *
- * ★ 取值顺序：`task.roster.tier` → `task.tier` → `null`（第一个**非空**来源说了算）。
- *   第一个来源写了却认不出 ⇒ `null`，**不退回**去读下一个 —— 显式写错不该被旧字段悄悄掩盖，
- *   更**不**从 `requirement` 文本里猜（需求里出现 `L3` 不等于这张单的档位是 `L3`）。
- * ★ 大小写不敏感（`l2` ⇒ `L2`），输出统一大写；非字符串 / 空白 / `X9` / `L6` 一律 `null`。
- *
- * @param {object} [task]
- * @returns {string|null} `'L0'|'L1'|'L2'|'L3'|'L4'|'L5'|null`
- */
-export function taskTierOf(task) {
-  for (const raw of [task?.roster?.tier, task?.tier]) {
-    const text = nullableText(raw)
-    if (text === null) continue
-    const key = text.toUpperCase()
-    return TIER_IDS.includes(key) ? key : null
-  }
-  return null
-}
-
-/**
- * 需求摘要：压缩空白 → 截 {@link PANEL_SNIPPET_MAX} 个码点 → 超出加 `…`。
- * **只取 `task.requirement`** —— 这里绝不去读 handoff 正文。
- */
-export function snippetOf(requirement) {
-  const collapsed = String(requirement ?? '').replace(/\s+/g, ' ').trim()
-  if (collapsed.length === 0) return ''
-  const chars = Array.from(collapsed)
-  return chars.length > PANEL_SNIPPET_MAX ? `${chars.slice(0, PANEL_SNIPPET_MAX).join('')}…` : collapsed
-}
-
-/** 未答复的人工请求条数（判据同 store：`status` 不是 `answered` / `withdrawn` 就算待办）。 */
-export function humanPendingCount(task) {
-  const list = Array.isArray(task?.human_requests) ? task.human_requests : []
-  let n = 0
-  for (const raw of list) {
-    if (raw === null || typeof raw !== 'object') continue
-    if (HUMAN_CLOSED_STATUSES.includes(textOf(raw.status))) continue
-    n += 1
-  }
-  return n
-}
-
-/** `updated_at`：盘上合法就原样用（不重新格式化，免得与审计对不上）；否则退回文件 mtime。 */
-function updatedAtOf(task, mtimeMs, nowMs) {
-  const raw = textOf(task?.updated_at)
-  if (raw.length > 0 && msOf(raw) !== null) return raw
-  return isoOf(msOf(mtimeMs) ?? nowMs)
-}
-
-/** 同目录的 `team-board.json`：有就只读这两个字段，没有/读坏了 ⇒ `null`。 */
-function teamBoardOf({ taskDir, taskId, warnings }) {
-  const file = join(taskDir, TEAM_BOARD_FILE)
-  let text = null
-  try {
-    text = readFileSync(file, 'utf8')
-  } catch (err) {
-    // 没有镜像文件是常态（不是每个任务都接官方任务板），不出声。
-    if (err?.code !== 'ENOENT') warnings.push(`任务 ${taskId}：${TEAM_BOARD_FILE} 读不出来（${reasonOf(err)}）。`)
-    return null
-  }
-  let parsed = null
-  try {
-    parsed = JSON.parse(text)
-  } catch (err) {
-    warnings.push(`任务 ${taskId}：${TEAM_BOARD_FILE} 不是合法 JSON（${reasonOf(err)}）。`)
-    return null
-  }
-  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    warnings.push(`任务 ${taskId}：${TEAM_BOARD_FILE} 不是一个对象。`)
-    return null
-  }
-  return { team_task_id: nullableText(parsed.team_task_id), last_action: nullableText(parsed.last_action) }
-}
-
-/** 席位表：`main` + 声明位（按名单顺序，writer 按分区展开）+ 派出去过但没声明的位。 */
-export function seatsOf(task) {
-  const rows = [mainSeat()]
-  const byKey = new Map()
-  for (const decl of declaredSeatsOf(task?.roster)) {
-    // `main` 恒为"当前会话"那一条，声明表里就算写了也不算第二行。
-    if (decl.role === ROLE.MAIN) continue
-    const key = seatKeyOf(decl.role, decl.seat)
-    if (byKey.has(key)) continue
-    const row = {
-      role: decl.role, role_label: roleLabelOf(decl.role), seat: decl.seat, status: SEAT_STATUS.DECLARED,
-      kind: SEAT_KIND.UNKNOWN, session_id: null, parent_session_id: null, member_name: null, layer: decl.layer,
-    }
-    rows.push(row)
-    byKey.set(key, row)
-  }
-  for (const rec of dispatchedRecordsOf(task)) {
-    const role = textOf(rec?.role)
-    if (role.length === 0 || role === ROLE.MAIN) continue
-    const seat = nullableText(rec?.seat)
-    const key = seatKeyOf(role, seat)
-    const patch = {
-      status: SEAT_STATUS.DISPATCHED,
-      kind: kindOfChannel(rec),
-      // ★ 真实台账里 `session_id` 常是 `null`，只有 `agent_id = "session-<uuid>"`：
-      //   显式 `session_id` 永远优先，取不到才从 `agent_id` 剥前缀兜底（见 {@link sessionIdOfAgentId}）。
-      session_id: nullableText(rec?.session_id) ?? sessionIdOfAgentId(rec?.agent_id),
-      parent_session_id: nullableText(rec?.parent_session_id ?? rec?.parentSessionId),
-      member_name: nullableText(rec?.memberName ?? rec?.member_name),
-    }
-    const hit = byKey.get(key)
-    if (hit !== undefined) {
-      // 声明过 + 真派出去过 ⇒ **事实优先**（状态、通道、会话 id 全按台账）。
-      Object.assign(hit, patch)
-      continue
-    }
-    const row = { role, role_label: roleLabelOf(role), seat, ...patch, layer: null }
-    rows.push(row)
-    byKey.set(key, row)
-  }
-  return rows
-}
-
-/** `main` 那一条：用户正在对话的会话，`kind` 记 `session`，id 一律不猜。 */
-function mainSeat() {
-  return {
-    role: ROLE.MAIN, role_label: roleLabelOf(ROLE.MAIN), seat: null, status: SEAT_STATUS.CURRENT,
-    kind: SEAT_KIND.SESSION, session_id: null, parent_session_id: null, member_name: null, layer: null,
-  }
-}
-
-/**
- * 名单里的席位声明（**只看结构，不看谁在不在线**）。
- *
- * 顺序 = `execution_roles` 的顺序：遇到 `writer` 就把它的分区逐个展开（席位号 / 层从分区取），
- * 其余角色一位；分区里出现、而名单没提的角色补在后面（名单缺一条不该让人消失）。
- *
- * @returns {Array<{role:string, seat:string|null, layer:string|null}>}
- */
-export function declaredSeatsOf(roster) {
-  const out = []
-  const seen = new Set()
-  const push = (role, seat, layer) => {
-    const key = seatKeyOf(role, seat)
-    if (seen.has(key)) return
-    seen.add(key)
-    out.push({ role, seat, layer })
-  }
-  const roles = Array.isArray(roster?.execution_roles) ? roster.execution_roles : []
-  const byRole = new Map()
-  for (const part of Array.isArray(roster?.writers?.partitions) ? roster.writers.partitions : []) {
-    if (part === null || typeof part !== 'object') continue
-    const role = nonEmptyText(part.role_id) ?? ROLE.WRITER
-    const row = { seat: nullableText(part.seat), layer: nullableText(part.layer) }
-    const list = byRole.get(role)
-    if (list === undefined) byRole.set(role, [row])
-    else list.push(row)
-  }
-  for (const rawRole of roles) {
-    const role = textOf(rawRole)
-    if (role.length === 0) continue
-    const parts = byRole.get(role)
-    if (parts === undefined) {
-      push(role, null, null)
-      continue
-    }
-    byRole.delete(role)
-    for (const part of parts) push(role, part.seat, part.layer)
-  }
-  // 分区里出现、而名单没提的角色：按分区顺序补在后面。
-  for (const [role, parts] of byRole) for (const part of parts) push(role, part.seat, part.layer)
-  return out
-}
-
-/** 派活台账；不是数组就当没有（**不抛**）。 */
-function dispatchedRecordsOf(task) {
-  const list = task?.dispatched
-  return Array.isArray(list) ? list.filter((x) => x !== null && typeof x === 'object') : []
-}
-
-/**
- * `kind`：通道字段是 `via`（`lib/transport/*` 自报）。
- * `team` ⇒ team；`manual` ⇒ unknown（**没建会话**，只有可粘贴派活单，记成 session 是假话）；
- * 其余非空 ⇒ session；缺/空 ⇒ unknown。
- */
-export function kindOfChannel(record) {
-  const raw = textOf(record?.via ?? record?.channel ?? record?.transport)
-  if (raw.length === 0) return SEAT_KIND.UNKNOWN
-  const v = raw.toLowerCase()
-  if (v === 'team') return SEAT_KIND.TEAM
-  if (v === 'manual') return SEAT_KIND.UNKNOWN
-  return SEAT_KIND.SESSION
-}
-
-/** 派活台账里"真的建了会话"的 agent id 前缀。 */
-const SESSION_AGENT_PREFIX = 'session-'
-
-/**
- * 从派活台账的 `agent_id` 兜底出**会话 id**（`session_id` 为 `null` 时用）。
- *
- * ★ 为什么需要它：真实 `task.dispatched[]` 里 `session_id` 是 `null`，只有
- *   `agent_id = "session-<uuid>"`；而面板要拿 `session_id` 去拉会话预览 / 打开会话。
- *   不兜这一下，真实派出去的席位在面板上就是"没有会话"。
- * ★ 只认 `session-` 前缀且后面**非空**（`abc-123`）；其余（`member-2` / 普通 agent id /
- *   非字符串 / 空白）一律 `null`，**不抛** —— 猜错 id 比留空更糟。
- *
- * @param {unknown} agentId
- * @returns {string|null}
- */
-export function sessionIdOfAgentId(agentId) {
-  const raw = nullableText(agentId)
-  if (raw === null || !raw.startsWith(SESSION_AGENT_PREFIX)) return null
-  const id = raw.slice(SESSION_AGENT_PREFIX.length).trim()
-  return id.length === 0 ? null : id
-}
-
-/** 角色中文名；认不出原样返回 id（与 `lib/roles.js` 的 `roleLabel` 同一份判据）。 */
-function roleLabelOf(role) {
-  const id = textOf(role)
-  return id.length === 0 ? '' : roleLabel(id)
-}
-
-/** 席位键：`role` 或 `role@seat`（与 `lib/tiers.js` 的 `slotKeyOf` 同一个形状）。 */
-export function seatKeyOf(role, seat) {
-  const s = nullableText(seat)
-  return s === null ? textOf(role) : `${textOf(role)}@${s}`
-}
-
 /** 目录项排序（让扫描顺序确定；展示顺序由 `updated_at` 决定）。 */
 function sortDirents(entries) {
   const list = Array.isArray(entries) ? entries.slice() : []
@@ -500,46 +193,21 @@ function compareText(a, b) {
   return x < y ? -1 : 1
 }
 
-/** 非空字符串才算数（`null` / `''` / 纯空白 ⇒ `null`）。 */
-function nullableText(value) {
-  if (typeof value !== 'string') return null
-  const s = value.trim()
-  return s.length === 0 ? null : s
-}
+// ---------------------------------------------------------------------------
+// barrel：`lib/panel/snapshot.js` 拆分前的 18 个导出**一个不少**。
+// 其它模块（`index.js` / `lib/panel/archive.js`）与测试照旧只从本文件 import。
+// ---------------------------------------------------------------------------
 
-/** 宽松取文本：数字 / 字符串都收，其它给空串（状态、角色 id 这类**不该**是对象）。 */
-function textOf(value) {
-  if (typeof value === 'string') return value.trim()
-  if (typeof value === 'number' && Number.isFinite(value)) return String(value)
-  return ''
-}
-
-/** 非空文本或 `null`。 */
-function nonEmptyText(value) {
-  return nullableText(value)
-}
-
-/** 收敛成毫秒数；取不到 `null`（**不猜**）。 */
-function msOf(value) {
-  if (value instanceof Date) {
-    const t = value.getTime()
-    return Number.isFinite(t) ? t : null
-  }
-  if (typeof value === 'number' && Number.isFinite(value)) return value
-  if (typeof value === 'string' && value.trim().length > 0) {
-    const t = Date.parse(value)
-    return Number.isFinite(t) ? t : null
-  }
-  return null
-}
-
-/** ISO 字符串（去掉毫秒尾巴，与 `lib/util.js` 的 `nowIso` 同一个形状）。 */
-function isoOf(value) {
-  return new Date(msOf(value) ?? Date.now()).toISOString().replace(/\.\d{3}Z$/, 'Z')
-}
-
-/** 异常 → 一句人话（不带堆栈：`warnings` 是给人看的）。 */
-function reasonOf(err) {
-  const code = typeof err?.code === 'string' && err.code.length > 0 ? `${err.code} ` : ''
-  return `${code}${String(err?.message ?? err)}`
-}
+export { SEAT_KIND, SEAT_STATUS, declaredSeatsOf, kindOfChannel, seatKeyOf, sessionIdOfAgentId } from './seats.js'
+export {
+  PANEL_ACTION_ORDER,
+  PANEL_SNIPPET_MAX,
+  PANEL_TASK_KEY_ORDER,
+  TEAM_BOARD_FILE,
+  allowedActionsOf,
+  humanPendingCount,
+  snippetOf,
+  stateLabelOf,
+  taskTierOf,
+} from './task-fields.js'
+export { seatsOf }

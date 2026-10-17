@@ -266,5 +266,16 @@ export const EXTRA_SUITES = [
   //    坏 JSON 只进 `warnings` 不抛 / 摘要截 80 码点 / `human_pending` 只数还没答复的 /
   //    席位「声明 vs 已派出」按 (role, seat) 合并、通道字段决定 `kind` / 任务按 `updated_at` 倒序 /
   //    `/state` 的 GET 行为一个字没变。★ 全程密闭：夹具自造临时目录，不读活体真单。
-  { file: './panel-check.mjs', exportName: 'runPanelCheck', zh: '★ 自建流水线面板数据面（只读快照 + 席位声明/已派出合并 + 待办计数 + 只读 `/panel` 路由；不含交接物正文）' },
+  //    ★ 2026-10-18 **拆文件**：原先一条 `panel-check.mjs` 是 962 行，超出 `CONVENTIONS.md`
+  //      「单个测试文件 ≤ 400 行」—— 按语义拆成下面两条，**各测一件事**，断言总数一条不丢
+  //      （74 + 99 = 173）。两者共用的夹具在 `tests/panel-fixtures.mjs`（**不是测试**，
+  //      刻意不登记 —— 它没有断言；同一形状的先例见 `wake-no-main-fixtures.mjs`）。
+  { file: './panel-snapshot-check.mjs', exportName: 'runPanelSnapshotCheck', zh: '★ 自建面板 · 快照/契约（任务行 11 键与 tier、席位声明/已派出合并、排序/置顶、坏文件降级、`/panel` 与 `?view=archived` 只读路由）' },
+  { file: './panel-actions-check.mjs', exportName: 'runPanelActionsCheck', zh: '★ 自建面板 · 动作/执行器/归档（allowed_actions、参数透传与 confirm 闸、`_trash` 列表/恢复/删除、置顶写入、`POST /panel/action` 状态码）' },
+  // ★★ 面板**客户端交互**（真机报的：点头部「批量」/「归档 N」后面板整个消失）。
+  //    与上面两条的分工：那两条只验宿主侧数据/动作；本条验**客户端**那条链 ——
+  //    按钮 onClick → header opts → shell 每轮从共享作用域 S 取的回调 → setBatch / setView
+  //    → 重渲染后面板还在不在。用一套带 ref、useEffect 按依赖重跑的桩 React + 桩 document，
+  //    按真实浏览器顺序先派 pointerdown 再 click；并钉住「rootRef 为 null 时不许关面板」。
+  { file: './panel-ui-check.mjs', exportName: 'runPanelUiCheck', zh: '★ 自建面板 · 客户端交互（点「批量」/「归档 N」面板必须还在；pointerdown 判据缺失时不误关；头部按钮自己 stopPropagation）' },
 ]

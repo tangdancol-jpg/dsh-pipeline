@@ -19,7 +19,7 @@
  * @module dsh-pipeline/tests/client-check
  */
 
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
@@ -395,6 +395,117 @@ export async function runClientCheck() {
       `渲染出的文字：「${txt}」\n（拿不到状态时既不能说开也不能说关 —— 说错会误导用户）`,
     )
   }
+
+  // =========================================================================
+  // D. 拆分后的 package-local chunk 契约（入口 + 同目录 client.<name>.js）
+  // =========================================================================
+  //
+  // 依据（宿主源码，不是猜）：
+  //   · `dsh-client-modules/lib/index.js:170`  CLIENT_CHUNK = /^client\.[A-Za-z0-9][A-Za-z0-9._-]*\.js$/
+  //   · `:934-976` chunkRequest/chunkResponse：只认 `/plugins/<id>/client.<name>.js?rev=<入口 rev>`，
+  //     文件读自 `join(dirname(entry.clientPath), fileName)` —— 必须和 lib/client.js **同目录**
+  //   · `:843-878` require.async('./client.<name>.js') → importChunk → chunkId = ownerId + '/' + chunk
+  //   · `:703-715` register() 用 `registration.chunk` 认这个 chunk 属于哪个包
+  const LIB_DIR = join(HERE, '..', 'lib')
+  const CHUNK_RE = /^client\.[A-Za-z0-9][A-Za-z0-9._-]*\.js$/
+  const chunkFiles = readdirSync(LIB_DIR)
+    .filter((f) => f !== 'client.js' && CHUNK_RE.test(f))
+    .sort()
+  const entryChunks = [...new Set([...src.matchAll(/'(client\.[A-Za-z0-9][A-Za-z0-9._-]*\.js)'/g)].map((m) => m[1]))].sort()
+
+  add(
+    'D1 入口里**字面**调了 require.async(（包内 chunk 协议，不是自己拼 script）',
+    src.includes('require.async(') && /\.\/'\s*\+\s*CHUNKS\[/.test(src),
+    `require.async( 命中：${src.includes('require.async(')}\n拼 spec 的写法命中：${/\.\/'\s*\+\s*CHUNKS\[/.test(src)}`,
+  )
+  add(
+    'D2 入口列出的 chunk 与磁盘上的 chunk **一一对应**（不多不少，都真实存在）',
+    entryChunks.length > 0 &&
+      entryChunks.length === chunkFiles.length &&
+      entryChunks.every((f) => chunkFiles.includes(f)),
+    `入口列出 ${entryChunks.length} 个：${entryChunks.join(', ')}\n磁盘上 ${chunkFiles.length} 个：${chunkFiles.join(', ')}`,
+  )
+  add(
+    'D3 每个 chunk 文件名都匹配宿主的 CLIENT_CHUNK 正则（不匹配 = 宿主直接 404 或拒收）',
+    chunkFiles.length > 0 && chunkFiles.every((f) => CHUNK_RE.test(f)),
+    chunkFiles.map((f) => `${f} → ${CHUNK_RE.test(f)}`).join('\n'),
+  )
+
+  // 每个 chunk 当**经典脚本**跑一遍：必须走 window.__ModuleLoader__.load({ id, chunk, factory })
+  const chunkRuns = []
+  for (const file of chunkFiles) {
+    const chunkSrc = readFileSync(join(LIB_DIR, file), 'utf8')
+    const loads = []
+    const sandbox = {
+      console,
+      Symbol,
+      Object,
+      JSON,
+      window: { __ModuleLoader__: { load(d) { loads.push(d) } } },
+    }
+    sandbox.globalThis = sandbox
+    let threw = null
+    try {
+      vm.runInContext(chunkSrc, vm.createContext(sandbox), { filename: 'dsh-pipeline/lib/' + file })
+    } catch (err) {
+      threw = String(err && err.message ? err.message : err)
+    }
+    chunkRuns.push({ file, chunkSrc, loads, threw })
+  }
+
+  const classicOk = chunkRuns.filter(
+    (r) => !/^\s*import\s/m.test(r.chunkSrc) && !/^\s*export\s/m.test(r.chunkSrc) && !/^\s*await\s/m.test(r.chunkSrc),
+  )
+  add(
+    'D4 每个 chunk 也是**经典脚本**（无 import / export / 顶层 await）',
+    classicOk.length === chunkRuns.length,
+    chunkRuns
+      .filter((r) => !classicOk.includes(r))
+      .map((r) => `${r.file}：import=${/^\s*import\s/m.test(r.chunkSrc)} export=${/^\s*export\s/m.test(r.chunkSrc)} await=${/^\s*await\s/m.test(r.chunkSrc)}`)
+      .join('\n') || `${chunkRuns.length} 个 chunk 全部干净`,
+  )
+  const regOk = chunkRuns.every(
+    (r) =>
+      r.threw === null &&
+      r.loads.length === 1 &&
+      r.loads[0].id === pkg.name &&
+      r.loads[0].chunk === r.file &&
+      typeof r.loads[0].factory === 'function',
+  )
+  add(
+    'D5 每个 chunk 都在 window.__ModuleLoader__.load({ id, chunk, factory }) 里注册，且 chunk 与文件名逐字一致',
+    regOk,
+    chunkRuns
+      .map((r) => `${r.file}：load=${r.loads.length} id=${r.loads[0]?.id} chunk=${r.loads[0]?.chunk} factory=${typeof r.loads[0]?.factory}${r.threw ? ' 抛：' + r.threw : ''}`)
+      .join('\n'),
+  )
+
+  // factory 真的能跑：给出 react 替身，导出里必须有 create()
+  const factoryRuns = chunkRuns.map((r) => {
+    if (r.loads.length !== 1) return { file: r.file, ok: false, why: '没注册' }
+    try {
+      const exported = r.loads[0].factory(requireStub)
+      return { file: r.file, ok: typeof exported.create === 'function', why: `create=${typeof exported.create}` }
+    } catch (err) {
+      return { file: r.file, ok: false, why: String(err && err.message ? err.message : err) }
+    }
+  })
+  add(
+    'D6 每个 chunk 的 factory 跑得起来，并且导出 create()（入口就是靠它建模块实例）',
+    factoryRuns.every((r) => r.ok),
+    factoryRuns.map((r) => `${r.file}：${r.ok ? 'ok' : '✗ ' + r.why}`).join('\n'),
+  )
+
+  // 行数上限：拆分的意义就是每块都读得完
+  const lineCounts = [
+    { file: 'client.js', n: src.split('\n').length - 1 },
+    ...chunkRuns.map((r) => ({ file: r.file, n: r.chunkSrc.split('\n').length - 1 })),
+  ]
+  add(
+    'D7 入口与每个 chunk 都 ≤ 400 行（拆分的目的就是「每块读得完」）',
+    lineCounts.every((x) => x.n <= 400),
+    lineCounts.map((x) => `${String(x.n).padStart(4)}  ${x.file}`).join('\n') + `\n合计 ${lineCounts.reduce((a, b) => a + b.n, 0)} 行 / ${lineCounts.length} 个文件`,
+  )
 
   // =========================================================================
   const lines = []
