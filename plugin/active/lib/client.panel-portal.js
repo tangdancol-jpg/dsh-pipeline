@@ -1,4 +1,4 @@
-/* client.panel-portal.js —— 弹层的“出口”：挂到 document.body 的 portal（fixed 定位）+ 落点计算 + 滚动/改尺寸重算。宿主头部是窗口拖拽区、也有自己的层叠与命中区，弹层只要还长在它的 DOM 里，点击就可能被它吃掉；取不到 react-dom（自测桩 / 老环境）时一律回退成原样渲染。 */
+/* client.panel-portal.js —— 弹层的**容器与出口**：那张 `role=dialog` 的卡长什么样、挂到 document.body 的 portal（fixed 定位）、落点计算 + 滚动/改尺寸重算。宿主头部是窗口拖拽区、也有自己的层叠与命中区，弹层只要还长在它的 DOM 里，点击就可能被它吃掉；取不到 react-dom（自测桩 / 老环境）时一律回退成原样渲染。 */
 ;(function () {
   'use strict'
 
@@ -113,6 +113,73 @@
     }
 
     /**
+     * 弹层容器（`role=dialog` 那张卡）**与它的出口**：portal 模式按 `panelBoxFor` 的落点用
+     * `position:fixed` 挂到 `document.body`；非 portal 模式保留原来那层 absolute「缝」
+     * （`[data-pipeline-panel-frame]`，指针经过按钮与弹层之间的 6px 时仍算在弹层里）。
+     *
+     * ★ 为什么容器也在这个 chunk：落点（`panelBoxFor`）、出口（`createPortal`）与容器自己的
+     *   `position / right / top / width` 是同一件事 —— 拆开过一次，结果就是"落点算对了、容器没跟上"。
+     *
+     * @param {object} React
+     * @param {object} spec - { open, children, view, batchOn, portalOn, popoverBox,
+     *                          stopHostEvent, cancelHover, scheduleClose, padX, padBottom }
+     * @returns {*} 收起时 null；否则是 portal 出来的卡 / 包着卡的那层「缝」
+     */
+    function renderPopover(React, spec) {
+      if (spec.open !== true) return null
+      var portalOn = spec.portalOn === true
+      var box = spec.popoverBox
+      var card = React.createElement(
+        'div',
+        {
+          role: 'dialog',
+          'aria-label': '多AI协调团队',
+          'data-pipeline-panel': 'open',
+          'data-pipeline-panel-view': spec.view === 'archived' ? 'archived' : 'tasks',
+          'data-pipeline-panel-batch': spec.batchOn === true ? 'on' : 'off',
+          // 面板内部的指针事件一律截在这里（按钮自己的 onClick 先跑，再轮到这三个）：
+          // 宿主的会话头部也有自己的 pointerdown / click 语义，冒上去就会被它收走。
+          onPointerDown: spec.stopHostEvent,
+          onClick: spec.stopHostEvent,
+          onDoubleClick: spec.stopHostEvent,
+          // portal 之后弹层不在根节点里：指针从按钮横移过来会先触发根的 mouseleave，
+          // 所以弹层自己接住「进来就取消关、移出才慢关」（非 portal 模式由外层那道缝负责）。
+          onMouseEnter: portalOn ? spec.cancelHover : undefined,
+          onMouseLeave: portalOn ? spec.scheduleClose : undefined,
+          style: {
+            // portal 模式：挂到 document.body 上用 fixed 定位（right/top/宽高由本 chunk 现算）；
+            // 非 portal 模式：保持原来的 absolute 外层 + min(440px, 92vw)
+            position: portalOn ? 'fixed' : undefined,
+            right: portalOn ? box.right + 'px' : undefined,
+            top: portalOn ? box.top + 'px' : undefined,
+            zIndex: 2147483000,
+            width: portalOn ? box.width + 'px' : 'min(440px, 92vw)',
+            maxHeight: portalOn ? box.maxHeight + 'px' : 'min(70vh, 560px)',
+            overflowY: 'auto',
+            overscrollBehavior: 'contain',
+            boxSizing: 'border-box',
+            padding: '10px ' + spec.padX + 'px ' + spec.padBottom + 'px',
+            background: 'var(--dsw-specific-menu, #ffffff)',
+            color: 'var(--dsw-alias-label-primary, #1f2328)',
+            border: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.35))',
+            borderRadius: '12px',
+            boxShadow: 'var(--dsw-elevation-prominent, 0 12px 32px rgba(0,0,0,.28))',
+            font: 'inherit',
+            fontSize: '12px',
+            lineHeight: '1.45',
+            textAlign: 'left',
+            WebkitAppRegion: 'no-drag', // 头部是 Electron 拖拽区：弹层里要能选中/滚动
+          },
+        },
+        spec.children,
+      )
+      if (portalOn) return renderPortal(null, card)
+      // 非 portal 模式保留原来那层「缝」：指针经过按钮与弹层之间的 6px 时仍算在弹层里
+      var frameProps = { 'data-pipeline-panel-frame': 'true', style: { position: 'absolute', top: '100%', right: 0, paddingTop: '6px', WebkitAppRegion: 'no-drag' } }
+      return React.createElement('div', frameProps, card)
+    }
+
+    /**
      * 面板每轮渲染调一次（与其它 chunk 的 `setup(S)` 同形）：算出「挂哪 / 落在哪」，
      * 并在 portal 模式 + 面板开着时挂上「窗口滚动（capture）/ 改尺寸 ⇒ 100ms 节流重算」。
      *
@@ -164,6 +231,7 @@
       resolveReactDOM: resolveReactDOM,
       usable: usable,
       renderPortal: renderPortal,
+      renderPopover: renderPopover,
       panelBoxFor: panelBoxFor,
       setup: setup,
     }

@@ -34,7 +34,6 @@
       var refreshAfterWrite = S.refreshAfterWrite
       var readOnce = S.readOnce
       var currentRows = S.currentRows
-      var noteAction = S.noteAction
 
       /** 只改传入的键，其它字段原样保留。 */
       var patchBatch = function (patch) {
@@ -64,7 +63,6 @@
       }
       /** 头部「批量」：进 / 出批量模式（进去时先清空上一次的选择）。 */
       var toggleBatch = function () {
-        noteAction('batch')
         // 批量模式下不画「⋯」，残留的菜单状态要先收掉（否则退出批量后它会自己弹回来）
         setMenuKey('')
         if (batch.on) {
@@ -204,7 +202,6 @@
       var setView = S.setView
       var readOnce = S.readOnce
       var readArchivedOnce = S.readArchivedOnce
-      var noteAction = S.noteAction
 
       // =======================================================================
       // 归档视图的开关（分区：归档视图）
@@ -212,7 +209,6 @@
 
       /** 头部「归档 N」：进归档视图（顺手刷一次，保证数量与列表是新的）。 */
       var openArchivedView = function () {
-        noteAction('archive')
         exitBatch()
         setView('archived')
         readArchivedOnce(undefined)
@@ -220,7 +216,6 @@
 
       /** 头部「← 返回任务」：回主视图（顺手刷一次，刚恢复的单才会立刻出现）。 */
       var backToTasks = function () {
-        noteAction('back')
         exitBatch()
         setView('tasks')
         readOnce(undefined)

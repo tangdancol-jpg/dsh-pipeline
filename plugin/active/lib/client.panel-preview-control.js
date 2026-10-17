@@ -206,7 +206,7 @@
         lastSessionRef.current = sessionId
         cancelHover()
         setPinned(false)
-        setOpen(false, 'session-change')
+        setOpen(false)
         setOpenError('')
         // 预览 / 删单确认态 / 操作提示 / 批量选择 / 卡片菜单都是**上一个会话**那一屏的东西，一起撤掉。
         closePreview()

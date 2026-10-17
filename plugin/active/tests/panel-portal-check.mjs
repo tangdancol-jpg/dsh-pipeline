@@ -1,4 +1,4 @@
-// 弹层 **portal** 回归（P1–P4）：挂到 document.body、fixed 落点与收边、拿不到 react-dom 时回退、诊断目标路径。
+// 弹层 **portal** 回归（P1–P3）：挂到 document.body、fixed 落点与收边、拿不到 react-dom 时回退。
 /**
  * dsh-pipeline · 弹层 portal 回归（真机根因的修法：弹层不再长在宿主头部那份 DOM 里）
  * ============================================================================
@@ -13,11 +13,10 @@
  *   P2 `panelBoxFor`：right = 视口宽 - rect.right、top = rect.bottom + 6、width = min(440, 92vw)，
  *      以及右边 / 视口底部的收边；根节点还没挂上时给兜底落点
  *   P3 拿不到 createPortal（自测桩 / 老环境 / 连 require 都没有）⇒ 回退成原样渲染：不抛、原节点直接返回
- *   P4 诊断行里的目标描述带祖先路径（最多 3 层、总长 ≤80）—— 下一次排障不用再猜
  *
  * ★ 面板交互那半边（头部按钮 / 点外面关闭）在 `tests/panel-ui-check.mjs`；共享夹具在
  *   `tests/panel-ui-fixtures.mjs`（**不是测试**，刻意不登记）。拆文件的理由：
- *   `CONVENTIONS.md`「单个测试文件 ≤ 400 行」—— 这四条原先挂在 panel-ui-check 的 E15–E18，
+ *   `CONVENTIONS.md`「单个测试文件 ≤ 400 行」—— 这三条原先挂在 panel-ui-check 的 E15–E17，
  *   判据一个字没改，只换了编号。
  * ★ 只读仓库里的 `lib/client*.js`，不联网、不建会话、不碰任何活体数据。
  *
@@ -37,7 +36,6 @@ export async function runPanelPortalCheck() {
   const env = makeEnvironment()
   const React = env.React
   const portalChunk = env.chunkExports['./client.panel-portal.js']
-  const outsideChunk = env.chunkExports['./client.panel-outside.js']
 
   try {
     // ★ P1 有 react-dom ⇒ 弹层走 createPortal(children, document.body)
@@ -87,25 +85,6 @@ export async function runPanelPortalCheck() {
       '★ P3 拿不到 createPortal（自测桩 / 无 react-dom 环境）时回退成原样渲染：不抛、原节点直接返回',
       fallbackThrew === '' && noDom.usable() === false && fallbackNode === plainNode && bare.usable() === false,
       `usable=${noDom.usable()}　返回=${fallbackNode === plainNode ? '原节点 ✓' : '(不是原节点)'}　无 require 也 usable=${bare.usable()}${fallbackThrew === '' ? '' : '　抛：' + fallbackThrew}`,
-    )
-
-    // ★ P4 诊断行的目标描述升级为「祖先路径」（最多 3 层、总长 ≤80）
-    const outsideMod = outsideChunk.create({})
-    const deepTarget = {
-      tagName: 'SPAN',
-      attributes: [],
-      parentElement: {
-        tagName: 'BUTTON',
-        attributes: [{ name: 'data-pipeline-panel-trigger' }],
-        parentElement: { tagName: 'DIV', attributes: [{ name: 'data-pipeline-panel-root' }], parentElement: null },
-      },
-    }
-    const deepDesc = outsideMod.describeTarget(deepTarget)
-    const wantDesc = 'DIV[data-pipeline-panel-root] > BUTTON[data-pipeline-panel-trigger] > SPAN'
-    add(
-      '★ P4 诊断行里的目标描述带祖先路径（最多 3 层、总长 ≤80）：SPAN > BUTTON[data-pipeline-panel-trigger]',
-      deepDesc === wantDesc && deepDesc.length <= 80 && outsideMod.describeTarget({ tagName: 'SPAN', attributes: [], parentElement: null }) === 'SPAN',
-      `描述：${deepDesc}　（${deepDesc.length} 字符；单层目标 ⇒ ${outsideMod.describeTarget({ tagName: 'SPAN', attributes: [], parentElement: null })}）`,
     )
   } catch (err) {
     add('!! 执行异常（后面的断言不再可信）', false, err?.stack ?? err)

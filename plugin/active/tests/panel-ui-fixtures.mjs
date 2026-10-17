@@ -5,8 +5,8 @@
  * 为什么单独一个文件：`tests/panel-ui-check.mjs` 加了弹层 portal 那 4 条之后到了 553 行，
  * 超出 `CONVENTIONS.md`「单个测试文件 ≤ 400 行 ⇒ 拆成两个测试文件（各测一件事）」——
  * 于是按语义拆成两条，判据一条不丢：
- *   · 面板头部按钮与「点外面关闭」判据（E0–E14） ⇒ `tests/panel-ui-check.mjs`
- *   · 弹层 portal：挂到 document.body / fixed 落点 / 无 react-dom 回退 / 诊断路径（P1–P4）
+ *   · 面板头部按钮与「点外面关闭」判据（E0–E13） ⇒ `tests/panel-ui-check.mjs`
+ *   · 弹层 portal：挂到 document.body / fixed 落点 / 无 react-dom 回退（P1–P3）
  *     ⇒ `tests/panel-portal-check.mjs`
  * 两条共用的**桩 React**（每个组件实例一份 hook 槽、ref 挂到带 contains 的节点代理、
  * `useEffect` 按依赖重跑）、元素树查找、chunk 装载环境与挂载入口放这里，免得各抄一份
@@ -131,7 +131,7 @@ export const has = (node, key) => node !== null && node !== undefined && node.pr
 export const textOf = (node) => (node === null || node === undefined || node === false ? '' : typeof node === 'string' || typeof node === 'number' ? String(node) : Array.isArray(node) ? node.map(textOf).join('') : typeof node === 'object' && node.props !== undefined ? textOf(node.props.children) : '')
 
 // ---------------------------------------------------------------------------
-// 环境：入口 + 16 个真 chunk（按宿主同款 require.async 取）+ 桩 document/fetch/定时器
+// 环境：入口 + 18 个真 chunk（按宿主同款 require.async 取）+ 桩 document/fetch/定时器
 // ---------------------------------------------------------------------------
 
 export const TASKS = [{ id: 'T-1', state: 'running', state_label: '开发中', requirement_snippet: '把客户端拆成多个 chunk', seats: [], allowed_actions: ['cancel', 'archive'] }]

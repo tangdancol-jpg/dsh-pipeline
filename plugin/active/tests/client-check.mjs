@@ -418,12 +418,15 @@ export async function runClientCheck() {
     src.includes('require.async(') && /\.\/'\s*\+\s*CHUNKS\[/.test(src),
     `require.async( 命中：${src.includes('require.async(')}\n拼 spec 的写法命中：${/\.\/'\s*\+\s*CHUNKS\[/.test(src)}`,
   )
+  // 去掉临时诊断 chunk（`client.panel-diag.js`）之后是 **18 个**：入口 CHUNKS 与磁盘必须同时是这 18 个
+  // （数字写死，是为了让"某个 chunk 被悄悄删掉/漏登记"立刻红 —— 只靠两边相等会自洽地一起错）。
+  const EXPECTED_CHUNKS = 18
   add(
-    'D2 入口列出的 chunk 与磁盘上的 chunk **一一对应**（不多不少，都真实存在）',
-    entryChunks.length > 0 &&
-      entryChunks.length === chunkFiles.length &&
+    'D2 入口列出的 18 个 chunk 与磁盘上的 chunk **一一对应**（不多不少，都真实存在）',
+    entryChunks.length === EXPECTED_CHUNKS &&
+      chunkFiles.length === EXPECTED_CHUNKS &&
       entryChunks.every((f) => chunkFiles.includes(f)),
-    `入口列出 ${entryChunks.length} 个：${entryChunks.join(', ')}\n磁盘上 ${chunkFiles.length} 个：${chunkFiles.join(', ')}`,
+    `入口列出 ${entryChunks.length} 个（期望 ${EXPECTED_CHUNKS}）：${entryChunks.join(', ')}\n磁盘上 ${chunkFiles.length} 个（期望 ${EXPECTED_CHUNKS}）：${chunkFiles.join(', ')}`,
   )
   add(
     'D3 每个 chunk 文件名都匹配宿主的 CLIENT_CHUNK 正则（不匹配 = 宿主直接 404 或拒收）',
@@ -496,15 +499,21 @@ export async function runClientCheck() {
     factoryRuns.map((r) => `${r.file}：${r.ok ? 'ok' : '✗ ' + r.why}`).join('\n'),
   )
 
-  // 行数上限：拆分的意义就是每块都读得完
+  // 行数上限：拆分的意义就是每块都读得完；同时**不许"顶格凑数"** —— 390–400 那一档说明
+  // 这个文件不是按职责收住的，而是"删到最后刚好不超 400"（400/398 就是那么来的）。
   const lineCounts = [
     { file: 'client.js', n: src.split('\n').length - 1 },
     ...chunkRuns.map((r) => ({ file: r.file, n: r.chunkSrc.split('\n').length - 1 })),
   ]
+  const TIGHT_LO = 390
+  const TIGHT_HI = 400
+  const isTight = (n) => n >= TIGHT_LO && n <= TIGHT_HI
   add(
-    'D7 入口与每个 chunk 都 ≤ 400 行（拆分的目的就是「每块读得完」）',
-    lineCounts.every((x) => x.n <= 400),
-    lineCounts.map((x) => `${String(x.n).padStart(4)}  ${x.file}`).join('\n') + `\n合计 ${lineCounts.reduce((a, b) => a + b.n, 0)} 行 / ${lineCounts.length} 个文件`,
+    'D7 入口与每个 chunk 都 ≤ 400 行，且**没有文件落在 390–400 行区间**（拆分按职责，不留"顶格凑数"）',
+    lineCounts.every((x) => x.n <= TIGHT_HI && !isTight(x.n)),
+    lineCounts
+      .map((x) => `${String(x.n).padStart(4)}  ${x.file}${isTight(x.n) ? '  ← 落在 390–400（顶格凑数）' : ''}`)
+      .join('\n') + `\n合计 ${lineCounts.reduce((a, b) => a + b.n, 0)} 行 / ${lineCounts.length} 个文件（上限 400，且不许落在 390–400）`,
   )
 
   // =========================================================================

@@ -248,7 +248,8 @@
     <p class="lead">
       三层：<strong>DSH 宿主</strong>（webServer 路由 / 插件 loader / chunk 服务）→
       <strong>插件宿主侧</strong>（工具、守门、状态机与面板数据面）→
-      <strong>浏览器客户端</strong>（入口 client.js → require.async → 16 个 chunk → 面板 UI / 预览）。
+      <strong>浏览器客户端</strong>（入口 client.js 375 行 → require.async → 18 个 chunk / 合计 4743 行 →
+      面板 UI / 预览；弹层 portal 到 document.body）。
       只画面板这条主路径；守门判定与状态机全部迁移不在此图。
     </p>
   </div>
@@ -256,12 +257,13 @@
 </header>
 
 <figure>
-  <svg class="diagram" viewBox="0 0 1240 900" role="img" aria-labelledby="dg-title dg-desc">
+  <svg class="diagram" viewBox="0 0 1240 1100" role="img" aria-labelledby="dg-title dg-desc">
     <title id="dg-title">dsh-pipeline 面板主路径：宿主、插件宿主侧、浏览器三层</title>
     <desc id="dg-desc">
       上层是 DSH 宿主：webServer 路由注册、插件 loader、chunk 服务、sessions/agents。
       中层是插件宿主侧：lib/switch-routes.js、index.js 接线、lib/panel/ 数据面、lib/store/ 与 lib/states/。
-      下层是浏览器：lib/client.js 入口、require.async 取 16 个 chunk、面板 UI 与会话预览。
+      下层是浏览器：lib/client.js 入口（375 行）、require.async 取 18 个 chunk（19 个文件、4743 行）、
+      面板 UI 与会话预览；弹层经 ReactDOM.createPortal 挂到 document.body 并以 fixed 定位。
       实线箭头表示调用或请求，虚线箭头表示读取会话事件。
     </desc>
 
@@ -341,30 +343,66 @@
     <text class="b" x="1000" y="522">只有这一份</text>
 
     <!-- ================= ③ 浏览器 ================= -->
-    <rect class="bandC" x="40" y="660" width="1176" height="200" rx="16"></rect>
-    <text class="cap" x="1200" y="686" text-anchor="end">③ 浏览器客户端</text>
+    <rect class="bandC" x="40" y="640" width="1176" height="400" rx="16"></rect>
+    <text class="cap" x="1200" y="666" text-anchor="end">③ 浏览器客户端（19 个文件 / 4743 行）</text>
 
-    <rect class="boxC" x="70" y="716" width="250" height="112" rx="10"></rect>
-    <text class="t" x="86" y="746">lib/client.js（入口，400 行）</text>
-    <text class="b mono" x="86" y="772">window.__ModuleLoader__.load(…)</text>
-    <text class="b" x="86" y="794">「多AI 协调」开关（order 100）</text>
-    <text class="b" x="86" y="812">面板 lazy wrapper（order 110）</text>
+    <rect class="boxC" x="70" y="696" width="230" height="118" rx="10"></rect>
+    <text class="t" x="86" y="726">lib/client.js（入口，375 行）</text>
+    <text class="b mono" x="86" y="752">window.__ModuleLoader__.load(…)</text>
+    <text class="b" x="86" y="774">「多AI 协调」开关（order 100）</text>
+    <text class="b" x="86" y="796">面板 lazy wrapper（order 110）</text>
 
-    <rect class="boxC" x="354" y="716" width="290" height="112" rx="10"></rect>
-    <text class="t" x="370" y="746">require.async × 14</text>
-    <text class="b" x="370" y="772">Promise.all 取 client.panel-*.js</text>
-    <text class="b" x="370" y="794">shell.create(deps) 按依赖序组装</text>
-    <text class="b" x="370" y="812">首次渲染才下载；失败一行人话</text>
+    <rect class="boxC" x="330" y="696" width="260" height="118" rx="10"></rect>
+    <text class="t" x="346" y="726">require.async × 18</text>
+    <text class="b" x="346" y="752">Promise.all 逐个取 chunk</text>
+    <text class="b" x="346" y="774">shell.create(deps) 按依赖序</text>
+    <text class="b" x="346" y="796">首次渲染才下载；失败一行人话</text>
 
-    <rect class="boxC" x="678" y="716" width="494" height="112" rx="10"></rect>
-    <text class="t" x="694" y="746">面板 UI / 会话预览</text>
-    <text class="b" x="694" y="772">任务卡：L0–L5 · 团队人数 · ⋯ 菜单（终止 / 恢复 / 归档 / 删单）</text>
-    <text class="b" x="694" y="794">置顶 · 批量选择 · 归档视图（恢复 / 永久删除）</text>
-    <text class="b" x="694" y="812">悬停预览：最近 12 条，只显示真实用户 / AI，点气泡打开会话</text>
+    <rect class="boxC" x="620" y="696" width="580" height="168" rx="10"></rect>
+    <text class="t" x="636" y="726">18 个 chunk（合计 4743 行；每个 ≤400，无 390–400）</text>
+    <text class="b mono" x="636" y="752">view 388</text>
+    <text class="b mono" x="636" y="772">menu 335</text>
+    <text class="b mono" x="636" y="792">shell 320</text>
+    <text class="b mono" x="636" y="812">actions 297</text>
+    <text class="b mono" x="636" y="832">preview 296</text>
+    <text class="b mono" x="636" y="852">atoms 294</text>
+    <text class="b mono" x="826" y="752">preview-control 281</text>
+    <text class="b mono" x="826" y="772">portal 249</text>
+    <text class="b mono" x="826" y="792">batch 240</text>
+    <text class="b mono" x="826" y="812">interact 223</text>
+    <text class="b mono" x="826" y="832">batch-bar 206</text>
+    <text class="b mono" x="826" y="852">preview-bubble 201</text>
+    <text class="b mono" x="1016" y="752">seats 198</text>
+    <text class="b mono" x="1016" y="772">outside 196</text>
+    <text class="b mono" x="1016" y="792">preview-data 180</text>
+    <text class="b mono" x="1016" y="812">poll 168</text>
+    <text class="b mono" x="1016" y="832">card-actions 167</text>
+    <text class="b mono" x="1016" y="852">controls 129</text>
+
+    <rect class="boxC" x="70" y="900" width="550" height="120" rx="10"></rect>
+    <text class="t" x="86" y="930">面板 UI / 会话预览</text>
+    <text class="b" x="86" y="954">任务卡：L0–L5 · 团队人数 · ⋯（终止 / 恢复 / 归档 / 删单）</text>
+    <text class="b" x="86" y="976">置顶 · 批量选择 · 归档视图（恢复 / 永久删除）</text>
+    <text class="b" x="86" y="998">悬停 140ms 开 / 800ms 收，点一下钉住；预览 12 条</text>
+    <text class="b" x="86" y="1016">点气泡 openSession 打开会话；只显示真实用户 / AI</text>
+
+    <rect class="boxC" x="650" y="900" width="250" height="120" rx="10"></rect>
+    <text class="t" x="666" y="928">弹层 portal（fixed）</text>
+    <text class="b mono" x="666" y="950">createPortal(children,</text>
+    <text class="b mono" x="666" y="970">  document.body)</text>
+    <text class="b" x="666" y="992">滚动 / 改尺寸 100ms 重算</text>
+    <text class="b" x="666" y="1012">无 react-dom ⇒ 原样回退</text>
+
+    <rect class="boxC" x="950" y="900" width="250" height="120" rx="10"></rect>
+    <text class="t" x="966" y="928">document.body</text>
+    <text class="b" x="966" y="950">不落在宿主头部 DOM 里</text>
+    <text class="b" x="966" y="972">头部 = 拖拽 / 层叠 / 命中区</text>
+    <text class="b" x="966" y="994">挂进去点击会被吞掉</text>
+    <text class="b mono" x="966" y="1014">target.closest 复核</text>
 
     <!-- ================= 跨层箭头 ================= -->
     <!-- 浏览器 → 面板路由（经宿主 webServer） -->
-    <path class="arrow" d="M195 716 V560" marker-end="url(#arrow)"></path>
+    <path class="arrow" d="M195 696 V560" marker-end="url(#arrow)"></path>
     <text class="label-strong" x="212" y="604">GET /panel · POST /panel/action（经宿主 webServer）</text>
 
     <!-- 面板路由 → webServer（注册前缀） -->
@@ -375,20 +413,25 @@
     <path class="arrow" d="M479 224 V380" marker-end="url(#arrow)"></path>
     <text class="label" x="496" y="300">apply(ctx) 装载</text>
 
-    <!-- chunk 服务 → 浏览器 require.async -->
-    <path class="arrow" d="M638 165 H620 V712" marker-end="url(#arrow)"></path>
-    <text class="label-strong" x="634" y="604">require.async 取 16 个 chunk</text>
+    <!-- chunk 服务 → require.async（走宿主侧盒子的间隙，不压住其它盒子） -->
+    <path class="arrow" d="M760 224 V360 H620 V620 H460 V692" marker-end="url(#arrow)"></path>
+    <text class="label-strong" x="636" y="606">require.async 取 18 个 chunk</text>
 
-    <!-- sessions → 浏览器预览（只读取会话事件） -->
-    <path class="arrow-dash" d="M951 224 V712" marker-end="url(#arrow)"></path>
-    <text class="label" x="966" y="604">sessions.retain / openSession</text>
+    <!-- sessions → 预览 chunk（只读取会话事件；同样走间隙） -->
+    <path class="arrow-dash" d="M940 224 V620 H700 V692" marker-end="url(#arrow)"></path>
+    <text class="label" x="956" y="606">sessions.retain / openSession</text>
 
     <!-- 入口注入路由数据源 -->
     <path class="arrow" d="M354 470 H324" marker-end="url(#arrow)"></path>
 
-    <!-- 浏览器内部：入口 → chunk 加载 → 面板 UI -->
-    <path class="arrow" d="M320 772 H350" marker-end="url(#arrow)"></path>
-    <path class="arrow" d="M644 772 H674" marker-end="url(#arrow)"></path>
+    <!-- 浏览器内部：入口 → require.async → chunk → 面板 UI / 弹层 -->
+    <path class="arrow" d="M300 756 H326" marker-end="url(#arrow)"></path>
+    <path class="arrow" d="M590 756 H616" marker-end="url(#arrow)"></path>
+    <path class="arrow" d="M195 814 V896" marker-end="url(#arrow)"></path>
+    <text class="label" x="212" y="872">面板组件渲染</text>
+    <path class="arrow" d="M620 960 H646" marker-end="url(#arrow)"></path>
+    <path class="arrow" d="M904 960 H946" marker-end="url(#arrow)"></path>
+    <text class="label" x="908" y="890">createPortal</text>
   </svg>
 </figure>
 
@@ -451,11 +494,22 @@
       墓碑。
     </li>
     <li>
-      <strong>客户端加载：</strong>入口 <code>client.js</code> 由宿主按
+      <strong>客户端加载：</strong>入口 <code>client.js</code>（375 行）由宿主按
       <code>/plugins/dsh-pipeline/client.js?rev=…</code> 当经典脚本发布，注册后由面板的 lazy wrapper
-      在**首次渲染**时 <code>require.async</code> 取 14 个同级 chunk（宿主按 rev 缓存，immutable）；
+      在**首次渲染**时逐个 <code>require.async('./client.&lt;name&gt;.js')</code> 取 18 个同级 chunk
+      （入口 + chunk 共 19 个文件、4743 行；宿主按 rev 缓存，immutable）；
       chunk 之间不能同步 <code>require</code>，所以组合只在入口做 —— 交给 shell 的共享作用域与
       <code>create(deps)</code>。
+    </li>
+    <li>
+      <strong>弹层：</strong>⋯ 菜单与预览浮层经
+      <code>ReactDOM.createPortal(children, document.body)</code> 渲染，并配
+      <code>position:fixed</code> —— 宿主会话头部是窗口拖拽区、又有自己的层叠与命中区，弹层留在它的
+      DOM 里点击会被吞掉。落点按触发按钮的 <code>getBoundingClientRect()</code> 算
+      （<code>right = 视口宽 − rect.right</code>、<code>top = rect.bottom + 6</code>、
+      <code>min(440, 92vw)</code> × <code>min(560, 70vh)</code>、四周留 8px），滚动 / 改尺寸 100ms
+      节流重算；点外面用 <code>target.closest('[data-pipeline-panel]')</code> 等 DOM 属性复核，判不出来
+      不关（宁可漏关，不误关）；取不到 <code>react-dom</code> 时回退原样渲染。
     </li>
     <li>
       <strong>预览：</strong>悬停席位 chip 时，预览 chunk 用

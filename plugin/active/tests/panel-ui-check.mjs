@@ -1,4 +1,4 @@
-// 面板**头部按钮与「点外面关闭」**回归（E0–E14）：点「批量」/「归档 N」面板必须还在；判据缺失时不误关。
+// 面板**头部按钮与「点外面关闭」**回归（E0–E13）：点「批量」/「归档 N」面板必须还在；判据缺失时不误关。
 /**
  * dsh-pipeline · 面板头部按钮回归（点「批量」/「归档 N」后面板必须还在）
  * ============================================================================
@@ -18,9 +18,9 @@
  * E9 收尾仍开着 / E10 点真外面仍然照旧关（防御是窄的）/
  * ★E11 rootRef 脱手（被替换的节点 / null）时，target 明确在 `[data-pipeline-panel]` 里 ⇒ 不关（真机根因）/
  * ★E12 target 在 `[data-pipeline-panel-root]` 里（触发器）⇒ 不关（DOM 属性那一路判据）/
- * ★E13 `document.body` 这种真外部元素 ⇒ 仍然关 / ★E14 诊断行里能看到「上次点击：BUTTON[...]」。
+ * ★E13 `document.body` 这种真外部元素 ⇒ 仍然关。
  *
- * ★ 弹层 portal（挂到 document.body / fixed 落点 / 回退 / 诊断路径，P1–P4）在
+ * ★ 弹层 portal（挂到 document.body / fixed 落点 / 回退，P1–P3）在
  *   `tests/panel-portal-check.mjs`；共享夹具在 `tests/panel-ui-fixtures.mjs`（**不是测试**，
  *   刻意不登记）。拆文件的理由：`CONVENTIONS.md`「单个测试文件 ≤ 400 行」。
  * ★ 只读仓库里的 `lib/client*.js`，不联网、不建会话、不碰任何活体数据。
@@ -222,19 +222,6 @@ export async function runPanelUiCheck() {
       '★ E13 target 是真实文档里的外部元素（document.body）⇒ 仍然关面板（"点外面关闭"没被修坏）',
       panelOpen() === null,
       panelOpen() === null ? '已关闭 ✓' : '还在开着 ✗（该关的关不掉了）',
-    )
-
-    // --- E14 诊断行：记下"上次点击打在谁身上"，真机排障不用再猜 ---
-    await reopenPanel()
-    pointerDownAt(inPanelTarget()) // 点面板里那颗「批量」
-    tree = React.render(Panel, panelProps)
-    const diagLine = textOf(find(tree, (n) => has(n, 'data-pipeline-diagnostic')))
-    const clickAt = diagLine.indexOf('上次点击：')
-    const desc = clickAt === -1 ? '' : diagLine.slice(clickAt + '上次点击：'.length)
-    add(
-      '★ E14 诊断行里出现「上次点击：BUTTON[data-pipeline-batch-toggle]」（超长截断到 ~80 字符），面板仍在',
-      diagLine.includes('上次点击：BUTTON[data-pipeline-batch-toggle]') && desc.length <= 81 && panelOpen() !== null,
-      `诊断行：${diagLine}　（描述 ${desc.length} 字符）`,
     )
   } catch (err) {
     add('!! 执行异常（后面的断言不再可信）', false, err?.stack ?? err)

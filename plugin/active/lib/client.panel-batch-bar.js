@@ -4,8 +4,8 @@
 
   /** @param {object} deps 依赖（入口按依赖序传进来；chunk 之间不能同步 require 彼此） */
   function create(deps) {
-    var PANEL_PAD_X = deps.atoms.PANEL_PAD_X
-    var PANEL_PAD_BOTTOM = deps.atoms.PANEL_PAD_BOTTOM
+    var PANEL_PAD_X = deps.controls.PANEL_PAD_X
+    var PANEL_PAD_BOTTOM = deps.controls.PANEL_PAD_BOTTOM
     var BATCH_DELETE_CONFIRM_LABEL = deps.actions.BATCH_DELETE_CONFIRM_LABEL
 
 

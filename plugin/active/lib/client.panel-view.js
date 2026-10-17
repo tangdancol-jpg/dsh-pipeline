@@ -13,10 +13,10 @@
     var renderIdLabel = deps.atoms.renderIdLabel
     var renderSnippet = deps.atoms.renderSnippet
     var renderSelectableCard = deps.atoms.renderSelectableCard
-    var renderPinMark = deps.atoms.renderPinMark
-    var renderHeaderButton = deps.atoms.renderHeaderButton
+    var renderPinMark = deps.controls.renderPinMark
+    var renderHeaderButton = deps.controls.renderHeaderButton
     var renderSeatChip = deps.seats.renderSeatChip
-    var renderBatchCheckbox = deps.atoms.renderBatchCheckbox
+    var renderBatchCheckbox = deps.controls.renderBatchCheckbox
     var renderPinButton = deps.menu.renderPinButton
     var renderCardMenuTrigger = deps.menu.renderCardMenuTrigger
     var renderCardMenu = deps.menu.renderCardMenu

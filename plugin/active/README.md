@@ -474,7 +474,7 @@ DSH 窗口右上角头部那一排里会出现一个**「多AI 协调」**按钮
 
 ### 「多AI协调团队」面板（开关右边）
 
-同一个标题栏槽位里，开关右边还有一个**「多AI协调团队 N」**按钮。**悬停即展开、移开约 0.8 秒后才收起；点一下按钮可钉住（钉住后怎么移都不收，点外部/ESC 才收）**。点开是**面板**（快照只读；操作走写接口）：
+同一个标题栏槽位里，开关右边还有一个**「多AI协调团队 N」**按钮。**悬停 140ms 展开、移开 800ms 后收起；点一下按钮可钉住（钉住后怎么移都不收，点外部/ESC 才收）**。点开是**面板**（快照只读；操作走写接口）：
 
 - **任务**：每张流水线单一卡（最左侧 **L0–L5 等级徽标** + 团队 AI 人数、`[pipeline] T-…` + 中文状态徽标 + 需求摘要前 80 字）；
 - **席位**：该单的每个席位一行，用**中文易懂名**（`主对话` / `主管` / `需求分析` / `计划` / `编写 · 1号席` / `测试` / `审核` …）+ 状态；
@@ -488,15 +488,45 @@ DSH 窗口右上角头部那一排里会出现一个**「多AI 协调」**按钮
 - 数据来自 `GET /.dsh-pipeline/panel`（**快照只读**、5 秒轮询、页面隐藏时跳过）：只读 `<项目根>/.pipeline/*/task.json` 的**非敏感字段**（任务 id / 状态 / 需求摘要 / 席位 / 待办计数 / 任务板编号），**不含**交接物正文、补丁、代码；
 - `uiWorkspace` 服务拿不到时，面板只显示一行「打不开会话：…」的人话错误，**不影响**开关与其它功能。
 
-**客户端半边 = 入口 + 16 个 chunk。** 入口 `lib/client.js` 正好 400 行（顶格），面板实现拆在
-`lib/client.panel-<职责>.js` 共 14 个（每个 ≤400 行）。宿主按 `/plugins/dsh-pipeline/client.js?rev=…`
+**客户端半边 = 入口 375 行 + 18 个 chunk。** 入口 `lib/client.js` **375 行**，面板实现拆在
+`lib/client.panel-<职责>.js` 共 **18 个**；入口 + chunk 共 **19 个文件、合计 4743 行**，每个 ≤400 行，
+且**没有任何文件落在 390–400**（不靠"顶格凑数"）。宿主按 `/plugins/dsh-pipeline/client.js?rev=…`
 把入口当**经典脚本**加载，入口自己 `window.__ModuleLoader__.load({ id, factory })` 注册；面板
-**第一次被渲染**时才 `Promise.all(require.async('./client.panel-*.js'))` 把 16 个 chunk 取回来，
+**第一次被渲染**时才用 `Promise.all` 逐个 `require.async('./client.<name>.js')` 把 18 个 chunk 取回来，
 交给 `shell` 按依赖序 `create(deps)` 组装（没打开过面板就不下载）。chunk 由宿主按
 `/plugins/dsh-pipeline/<chunk>?rev=<入口 rev>` 提供并 **immutable 缓存**，必须与入口同目录、也是经典
 脚本、彼此**不能**同步 `require` —— 所以组合只在入口做。手工 JS 直接放同级文件即可，**不需要 tsdown**；
 新增客户端逻辑一律新开 chunk，理由与约束见 `CONVENTIONS.md` §4，设计取舍见
 [`design/panel/01-面板设计.md`](design/panel/01-面板设计.md)。
+
+| chunk | 行数 | 职责 |
+|---|---|---|
+| `client.panel-view.js` | 388 | 纯渲染：任务卡 / 归档卡 / 列表 / `[pipeline]` 标签，不取数、不持状态 |
+| `client.panel-menu.js` | 335 | ⋯ 菜单：触发器、菜单项、两击确认文案、卡片内下拉、置顶按钮 |
+| `client.panel-shell.js` | 320 | 组件骨架：共享作用域 `S`、按依赖序调 chunk 的 `create` / `setup`、把骨架串起来 |
+| `client.panel-actions.js` | 297 | 动作契约：三条路由、动作表与文案、两击确认判据、取数 / 提交写操作 |
+| `client.panel-preview.js` | 296 | 预览底料：尺寸 / 时机 / 过滤常量、`uiWorkspace` 与 `sessions` 服务、事件窗口 → 预览行 |
+| `client.panel-atoms.js` | 294 | 内容原子：状态 / 档位色板、等级徽标、团队人数、状态徽标、id、摘要、可选卡身 |
+| `client.panel-preview-control.js` | 281 | 预览状态机：悬停计时、30 秒缓存、在途序号防串台、点气泡开真实会话、卸载 / 切换时收层 |
+| `client.panel-portal.js` | 249 | 弹层容器与出口：`createPortal` → `document.body`、fixed 落点计算、滚动 / 改尺寸重算 |
+| `client.panel-batch.js` | 240 | 批量状态机：进 / 出批量、整卡选中、两击删除、串行执行与进度、归档视图切换 |
+| `client.panel-interact.js` | 223 | 交互 glue：开关 / 钉住与悬停慢关、卡片菜单、动作 UI、批量与预览状态槽、打开席位会话 |
+| `client.panel-batch-bar.js` | 206 | 底部批量栏：sticky 通栏、按视图给按钮、进度与两击确认 |
+| `client.panel-preview-bubble.js` | 201 | 预览浮层：定高圆角窗、标题行、最多 12 条气泡（用户靠右 / AI 靠左、空正文「正在思考…」） |
+| `client.panel-seats.js` | 198 | 席位格：角色中文名、席位号、状态圆点、chip 渲染与可点 / tooltip 判据 |
+| `client.panel-outside.js` | 196 | 点外面 / ESC 判据：`ref.contains` + `target.closest` 复核、document 捕获监听、挂摘 effect |
+| `client.panel-preview-data.js` | 180 | 预览取数与几何：`retain` 会话引用读事件窗口、贴着面板左边缘算浮层落点 |
+| `client.panel-poll.js` | 168 | 轮询 / 取数：5 秒轮询任务快照与归档列表、页面隐藏时跳过、失败保留上次数据 |
+| `client.panel-card-actions.js` | 167 | 卡片动作执行：⋯ 菜单开合、删单 / 永久删除两击确认、置顶、动作后刷新哪份数据 |
+| `client.panel-controls.js` | 129 | 可点小控件：头部按钮、批量圆勾、置顶标记，全部自带 no-drag 与宿主事件截断 |
+
+**弹层为什么经 portal 挂到 `document.body`**：宿主会话头部是窗口拖拽区，又自带层叠顺序与命中区 ——
+弹层（⋯ 菜单 / 预览浮层）只要还长在它的 DOM 里，点击就可能被吞掉。所以用
+`ReactDOM.createPortal(children, document.body)` + `position:fixed` 渲染：落点按触发按钮的
+`getBoundingClientRect()` 算（右缘对齐 `right = 视口宽 − rect.right`、`top = rect.bottom + 6`、
+`min(440, 92vw)` × `min(560, 70vh)`、四周至少留 8px），滚动 / 改尺寸后 100ms 节流重算；点外面用
+`target.closest('[data-pipeline-panel]')` 复核，判不出来就不关（宁可漏关一次，不误关正在用的面板）。
+取不到 `react-dom` 时回退成原样渲染，不把面板弄挂。
 
 | 状态 | 编排（角色清单/顺序） | 守门（越权拦截） | 流水线写操作 | 查询/自检 |
 |---|---|---|---|---|
@@ -2187,11 +2217,11 @@ DSH 0.2.1 起官方带「智能体团队」：根会话是 Lead，可以 `spawn_
 ```powershell
 cd <插件目录>
 $env:DSH_APP_ASAR = '<DSH 安装>\resources\app.asar'   # 预设/宿主 schema 类判据要读宿主安装
-node tests\run-all.mjs            # 111 套一起跑（3676 项，含残留检查）
+node tests\run-all.mjs            # 111 套一起跑（3674 项，含残留检查）
 node tests\run-all.mjs --quiet    # 只打结论，不贴完整拒绝原文
 ```
 
-**当前口径**：设了 `DSH_APP_ASAR` 时 **3676/3676 通过（111 套）**；不设时会有 3 条
+**当前口径**：设了 `DSH_APP_ASAR` 时 **3674/3674 通过（111 套）**；不设时会有 3 条
 "读不到宿主安装"的预置校验判红（环境面，不是代码面）。单套清单与每套的判据写在
 `tests/run-all.mjs` 与 `tests/registry.mjs` 里（新增能力用新套 + registry 一行登记）。
 
@@ -2205,7 +2235,7 @@ node tests\run-all.mjs --quiet    # 只打结论，不贴完整拒绝原文
 | 守门 | `shell-guard-check.mjs`、`intercept-check.mjs`、`silent-veto-*.mjs`、`team-guard-check.mjs` | 越权/跳步/旁路；官方新工具（team 协作 / 委派 / 插件管理 / 会话搜索）拒绝；`terminal_send` 的 `text` 按 shell 检查 |
 | 流程各站 | `human-check`、`writers-check`、`ladder-check`、`security-check`、`relay-check`、`records-check`、`plan-check`、`review-check`、`gate-states-check`… | 人工介入、编写席位、升级梯、安全确认、继任、分权落档、计划/审核/状态机 |
 | 任务板镜像 | `team-board-check.mjs` | 开单/派活/关单三处镜像 + revision CAS 重试 + best-effort 降级 |
-| 自建面板 | `panel-snapshot-check.mjs`、`panel-actions-check.mjs`、`panel-ui-check.mjs`、`panel-portal-check.mjs`、`client-check.mjs` | 只读快照契约（任务/席位/待办/摘要截断）、坏 JSON 降级、`/panel` 与 `?view=archived` 路由、`/state` 不回归；动作/执行器/归档（allowed_actions、参数透传与 confirm 闸、`_trash` 恢复/删除、pins 写）；客户端入口与 16 个 chunk 的装载契约（经典脚本、`require.async`、`load({id,chunk,factory})`、每个 ≤400 行）与桩 React 渲染/点击；面板头部「批量 / 归档」点击回归（`rootRef` 缺失不得关面板、按钮自身 stopPropagation，旧代码 8/11 → 现 11/11） |
+| 自建面板 | `panel-snapshot-check.mjs`、`panel-actions-check.mjs`、`panel-ui-check.mjs`、`panel-portal-check.mjs`、`client-check.mjs` | 只读快照契约（任务/席位/待办/摘要截断，74 项）、坏 JSON 降级、`/panel` 与 `?view=archived` 路由、`/state` 不回归；动作/执行器/归档（allowed_actions、参数透传与 confirm 闸、`_trash` 恢复/删除、pins 写，99 项）；客户端入口与 18 个 chunk 的装载契约（经典脚本、`require.async`、`load({id,chunk,factory})`、每个 ≤400 行且不落在 390–400）与桩 React 渲染/点击（30 项）；面板头部「批量 / 归档」点击回归（`rootRef` 缺失不得关面板、按钮自身 stopPropagation，旧代码 8/11 → 现 11/11，14 项）；弹层 portal 到 `document.body` + fixed 落点与回退（3 项） |
 | 预设与真机 | `p11-presets-check.mjs`、`p12-*`、`e-route-check.mjs` | 16 个角色预设与 shipped/schema 对形；需要 `DSH_APP_ASAR` |
 | 回归专项 | `f1`–`f23`、`p1`–`p16`、`m1`–`m11` 等 | 每轮缺陷的判据化回归（一个缺陷一个套件） |
 
@@ -2250,7 +2280,7 @@ node examples\run-example.mjs
    在"已安装形态"下实测过是 67/67。
 8. **右上角那个按钮没有在真实浏览器里验过。** 本机没有截图能力，所以只验到了：
    装载契约（经典脚本 + `__ModuleLoader__.load`）、挂载契约（挂到哪个槽、带什么 spec）、
-   入口与 14 个 `client.panel-*.js` chunk 的一一对应及「每个 ≤400 行」的拆分纪律，
+   入口与 18 个 `client.panel-*.js` chunk 的一一对应及「120–350 为宜、上限 400、不落在 390–400」的拆分纪律，
    以及用**桩 React** 跑出来的渲染与点击行为（`tests/client-check.mjs`，30 项）。
    **没验**：真实排版与像素位置、真实点击、与宿主主题的视觉协调。
    组件用纯内联样式、不读宿主 CSS 变量，所以「长得不好看」的风险大于「不显示」的风险。
