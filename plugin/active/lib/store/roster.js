@@ -11,6 +11,8 @@ import { buildHandoffRecord } from '../handoff.js'
 import { ST, STATE_LABEL } from '../states.js'
 import { ROLE } from '../roles.js'
 import { buildRoster, rosterSlotKeys, validateRoster } from '../tiers.js'
+// ★ 领域对象集中：任务卡（task_card）的形状在 `lib/model/task.js`。
+import { makeTaskCard } from '../model/task.js'
 import { toStringArray } from '../util.js'
 
 /**
@@ -184,19 +186,8 @@ export function rosterMethods(ctx) {
           task.role_boundaries = null
         }
       }
-      task.task_card = {
-        task_id: task.id,
-        requirement: task.requirement,
-        acceptance: toStringArray(input.acceptance),
-        test_points: toStringArray(input.testPoints),
-        boundaries: toStringArray(input.boundaries),
-        tier: roster.tier,
-        ai_count: roster.ai_count,
-        roles: roster.conversations.slice(),
-        sequence: roster.sequence.map((s) => s.role),
-        reason: roster.reason,
-        judged_by: roster.judged_by,
-      }
+      // 任务卡的形状集中在 `lib/model/task.js`（本文件只给上下文值）。
+      task.task_card = makeTaskCard({ task, roster, input })
       // 产出分配交接物，让"每次判断有理由记录、可追溯"落到盘上。
       // ★ 本轮起这份产物叫「分配结论」，产出者是**计划 AI**（分配权从 orchestrator 移过来）。
       if (input.judgedBy === 'planner') {

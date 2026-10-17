@@ -29,6 +29,16 @@ import { latestSnapshot } from '../project/snapshot-compare.js'
 import { createSnapshotDir, listSnapshotVersions } from '../project/snapshot-dir.js'
 import { nextSnapshotVersion } from '../project/snapshot-next.js'
 import { bindProject, readBinding } from '../project/id.js'
+// ★ 判据码 + 拒绝文案的**唯一出处**（`lib/errors/`）；本文件的判据与文案字面值未动。
+import {
+  AGENTS_MD_FAILED,
+  NO_ACTOR,
+  NO_TASK,
+  OK,
+  SCOPE_EMPTY,
+  TASK_NOT_FOUND,
+} from '../errors/codes.js'
+import { taskNotFound } from '../errors/text.js'
 
 /** 工具名（唯一出处）。 */
 export const PROJECT_INIT_TOOL_NAME = 'pipeline_project_init'
@@ -55,7 +65,7 @@ export const PROJECT_INIT_TOOL_NAME = 'pipeline_project_init'
 export async function projectInitCore(input = {}, ctx = {}) {
   const task = ctx.task ?? null
   if (task === null || typeof task !== 'object') {
-    return fail('NO_TASK', 'pipeline_project_init 需要一张任务卡（先开单）。')
+    return fail(NO_TASK, 'pipeline_project_init 需要一张任务卡（先开单）。')
   }
   const dryRun = input.dryRun === true
 
@@ -73,7 +83,7 @@ export async function projectInitCore(input = {}, ctx = {}) {
     // 边界：scope_paths 为空 ⇒ 不建目录、不报致命错，只记 project_id。
     return {
       ok: true,
-      code: 'SCOPE_EMPTY',
+      code: SCOPE_EMPTY,
       task_id: task.id,
       project_id: resolved.projectId,
       project_dir: '',
@@ -126,7 +136,7 @@ export async function projectInitCore(input = {}, ctx = {}) {
     // 先把 AGENTS.md 落盘（P2 注入），再 commit —— 顺序不能反（验收 A05 要求三样一次做完）。
     if (typeof ctx.ensureAgentsMd === 'function') {
       const md = await ctx.ensureAgentsMd({ projectDir, task, mode: 'git' })
-      if (!md.ok) return fail(md.code ?? 'AGENTS_MD_FAILED', md.message ?? 'AGENTS.md 落盘失败。')
+      if (!md.ok) return fail(md.code ?? AGENTS_MD_FAILED, md.message ?? 'AGENTS.md 落盘失败。')
       agentsMd = { written: md.written === true, path: md.path ?? '', action: md.action ?? 'unknown' }
     }
     const g = await gitInitProject({
@@ -175,7 +185,7 @@ export async function projectInitCore(input = {}, ctx = {}) {
 
   return {
     ok: true,
-    code: 'OK',
+    code: OK,
     task_id: task.id,
     project_id: resolved.projectId,
     project_dir: projectDir,
@@ -283,9 +293,9 @@ export function buildProjectTools(deps) {
     },
     async run(args, exec) {
       const actor = resolveActor(args, exec, deps)
-      if (actor.ok !== true) return fail('NO_ACTOR', actor.error)
+      if (actor.ok !== true) return fail(NO_ACTOR, actor.error)
       const task = await deps.store.get(String(args.task_id ?? ''))
-      if (task === null) return fail('TASK_NOT_FOUND', `找不到任务 ${args.task_id}。`)
+      if (task === null) return fail(TASK_NOT_FOUND, taskNotFound(args.task_id))
 
       const res = await projectInitCore(
         {

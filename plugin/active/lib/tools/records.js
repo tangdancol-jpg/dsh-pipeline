@@ -13,6 +13,8 @@ import { checkSuccessionActor } from '../context.js'
 import { lastRecallUsage } from '../memory/budget.js'
 import { isSpawnableRole } from '../transport/index.js'
 import { S, tool, resolveActor } from './kit.js'
+// ★ 拒绝文案的**唯一出处**（`lib/errors/text.js`）：本文件只换成引用，字面值未动。
+import { taskNotFound } from '../errors/text.js'
 
 /**
  * 分权落档、联系人、上下文水位、席位继任
@@ -155,7 +157,7 @@ export function buildRecordTools(ctx) {
     async run(args) {
       const fail = (msg) => ({ ok: false, summary: msg, planner_agent: '', planner_seat: '', orchestrator_agent: '', orchestrator_seat: '', retired: 0 })
       const task = await store.get(String(args.task_id ?? ''))
-      if (task === null) return fail(`找不到任务 ${String(args.task_id ?? '')}。`)
+      if (task === null) return fail(taskNotFound(String(args.task_id ?? '')))
       // ★ 兼容读：旧任务文件里这个键叫 `orchestrator`。
       const cur = task.contacts?.planner ?? task.contacts?.orchestrator ?? null
       const tok = cur === null ? null : tokens.findSeat(task.id, ROLE.PLANNER, null)

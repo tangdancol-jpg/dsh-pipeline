@@ -39,6 +39,8 @@ import { join } from 'node:path'
 import { ROLE } from '../roles.js'
 import { pathKey } from '../util.js'
 import { S, tool, resolveActor } from './kit.js'
+// ★ 拒绝文案的**唯一出处**（`lib/errors/text.js`）：本文件只换成引用，字面值未动。
+import { taskNotFound } from '../errors/text.js'
 import { CAPABILITY_ZH, GRANTABLE_CAPABILITIES, SCOPE_ANY, describeScope, isGrantable, normalizeScope } from '../guard/capability.js'
 import { GRANT_FILE, GRANT_STATE, appendGrant, grantFileOf, grantIdOf, readGrants } from '../guard/grant.js'
 import { taskSelfDirOf } from '../guard/seats.js'
@@ -109,7 +111,7 @@ export function buildCapabilityTools(ctx) {
         }
       }
       const task = await load(String(args.task_id ?? ''))
-      if (task === null) return { ok: false, ...empty, summary: `找不到任务 ${args.task_id}。` }
+      if (task === null) return { ok: false, ...empty, summary: taskNotFound(args.task_id) }
       const file = fileOfTask(task)
       if (file.length === 0) return { ok: false, ...empty, summary: `任务 ${task.id} 的项目根取不到 ⇒ 台账无处可落（拒，不静默）。` }
 

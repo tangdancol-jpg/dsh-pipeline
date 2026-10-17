@@ -26,6 +26,10 @@ import { ARGS_FILE_DOC } from './args-file.js'
 // ★★ 主管枢纽的**席位补派**（唤醒点要真的派人 + 缺位自愈）：判据与实现都在它里面。
 import { HUB_SEAT_RESPAWN_HEAD } from './hub-seats.js'
 import { S, tool, resolveActor } from './kit.js'
+// ★ 判据码的**唯一出处**（`lib/errors/`）：这里只**读**它做分流，产出方在 `store/review.js`。
+import { HANDOFF_STEP_SKIPPED } from '../errors/codes.js'
+// ★ 拒绝文案的**唯一出处**（`lib/errors/text.js`）：本文件只换成引用，字面值未动。
+import { taskNotFound } from '../errors/text.js'
 
 /**
  * ★ 哪几个主管动作**要顺带派人**（与"唤醒点"同源：到点了就得有人）。
@@ -114,7 +118,7 @@ export function buildFlowTools(ctx) {
          */
         let archived = null
         const waiting = ['awaiting_human', 'awaiting_clarification', 'blocked'].includes(String(res.task?.state ?? ''))
-        if (waiting || String(res.code ?? '') === 'HANDOFF_STEP_SKIPPED') {
+        if (waiting || String(res.code ?? '') === HANDOFF_STEP_SKIPPED) {
           try {
             archived = await store.archiveRejectedDelivery(String(args.task_id ?? ''), {
               kind,
@@ -469,7 +473,7 @@ export function buildFlowTools(ctx) {
         const station = REJECT_STATION_OF[action]
         const event = HUB_STATION_REJECT_EVENTS[station]
         const t0 = await load(taskId)
-        if (t0 === null) return { ok: false, summary: `找不到任务 ${taskId}。`, state: '', handoff_id: '' }
+        if (t0 === null) return { ok: false, summary: taskNotFound(taskId), state: '', handoff_id: '' }
         /** ★ 与 `confirm_station` 用**同一条**目标派生规则（不靠调用方自觉传对）。 */
         const lastOf = (kind) => {
           const hs = Array.isArray(t0.handoffs) ? t0.handoffs : []
@@ -552,7 +556,7 @@ export function buildFlowTools(ctx) {
       if (action === 'confirm_station') {
         const station = String(args.station ?? '')
         const t0 = await load(taskId)
-        if (t0 === null) return { ok: false, summary: `找不到任务 ${taskId}。`, state: '', handoff_id: '' }
+        if (t0 === null) return { ok: false, summary: taskNotFound(taskId), state: '', handoff_id: '' }
         /**
          * ★ 确认目标**按站点派生**（不靠调用方自觉传对）：
          *   第①②道绑"被确认的那份产物"（结论 / 图的交接物 id），第③④道绑**制品版本**。

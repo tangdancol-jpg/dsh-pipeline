@@ -21,6 +21,8 @@ import { dispatchSlotPlan, dispatchSlots } from './dispatch-slots.js'
 import { hubAuthorizedRoles } from './hub-seats.js'
 import { describeScopePaths } from '../scope/root-marker.js'
 import { S, tool, resolveActor, dispatchEventFor } from './kit.js'
+// ★ 拒绝文案的**唯一出处**（`lib/errors/text.js`）：本文件只换成引用，字面值未动。
+import { taskNotFound } from '../errors/text.js'
 
 /**
  * 派活与角色认领（pipeline_dispatch / pipeline_bind_role）
@@ -102,7 +104,7 @@ export function buildDispatchTools(ctx) {
       const actor = resolveActor(args, exec, deps)
       if (actor.ok !== true) return { ok: false, summary: actor.error, agent_id: '', role: '', token: '' }
       let task = await load(String(args.task_id ?? ''))
-      if (task === null) return { ok: false, summary: `找不到任务 ${args.task_id}。`, agent_id: '', role: '', token: '' }
+      if (task === null) return { ok: false, summary: taskNotFound(args.task_id), agent_id: '', role: '', token: '' }
       const role = String(args.role ?? '')
       if (!ROLES[role]) {
         return { ok: false, summary: `未知角色「${role}」；合法值：${Object.keys(ROLES).join(' / ')}`, agent_id: '', role: '', token: '' }

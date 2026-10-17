@@ -26,6 +26,13 @@
  */
 
 import { demoStateOf } from '../store/demo-rounds.js'
+// ★ 判据码的**唯一出处**（`lib/errors/`）；这里只取常量，判据与文案一个字没动。
+import {
+  DEMO_CONFIRM_NOT_ANSWERED,
+  DEMO_CONFIRM_REQUEST_NOT_FOUND,
+  DEMO_NOT_CONFIRMED,
+  DEMO_NOT_DELIVERED,
+} from '../errors/codes.js'
 
 /** 闸门在 `TRANSITIONS` 表里的名字（接线方要用**同一个**字符串）。 */
 export const DEMO_GATE_GUARD = 'demo_confirmed'
@@ -69,7 +76,7 @@ export function demoGate(task, findHumanRequest) {
 
   if (st.rounds.length === 0) {
     return deny(
-      'DEMO_NOT_DELIVERED',
+      DEMO_NOT_DELIVERED,
       `拒绝推进：任务 ${task?.id ?? '?'} 要进「待开发」，但它**一轮可操作 DEMO 都没交过**。\n` +
         '★ 用户口径：「复杂任务**先出可操作前端 DEMO** → **用户确认后**才继续后端」。\n' +
         '下一步：出第一轮 DEMO（`pipeline_demo { action: "round", ... }`），它会同时挂上一条人工请求。',
@@ -80,7 +87,7 @@ export function demoGate(task, findHumanRequest) {
   if (st.confirmed_at === null || st.confirm_request_id === null) {
     const last = st.rounds[st.rounds.length - 1]
     return deny(
-      'DEMO_NOT_CONFIRMED',
+      DEMO_NOT_CONFIRMED,
       `拒绝推进：任务 ${task?.id ?? '?'} 的 DEMO **还没获得用户确认**（已交 ${st.rounds.length} 轮，最新第 ${last.index} 轮）。\n` +
         '★ 验收 A17：未获用户确认时，向 `ready_dev` 的推进被拒。\n' +
         '下一步（二选一）：\n' +
@@ -93,7 +100,7 @@ export function demoGate(task, findHumanRequest) {
   const req = lookup(st.confirm_request_id)
   if (req === null || req === undefined) {
     return deny(
-      'DEMO_CONFIRM_REQUEST_NOT_FOUND',
+      DEMO_CONFIRM_REQUEST_NOT_FOUND,
       `拒绝推进：确认信指向的人工请求 \`${st.confirm_request_id}\` **在任务上找不到**。\n` +
         '★ 判据要求"用户**真的答复了**"，而那条请求记录是唯一的凭据 —— 凭据没了，确认就不成立。\n' +
         '下一步：重走一次确认（用户答复由主对话用 `pipeline_human_reply` 记回来）。',
@@ -101,7 +108,7 @@ export function demoGate(task, findHumanRequest) {
   }
   if (req.status !== 'answered') {
     return deny(
-      'DEMO_CONFIRM_NOT_ANSWERED',
+      DEMO_CONFIRM_NOT_ANSWERED,
       `拒绝推进：请求 \`${st.confirm_request_id}\` 当前状态是 \`${req.status}\`，**还不是已答复**。\n` +
         '★ 为什么这条要单独判：**转告 ≠ 答复**。请求发出去了只证明"话带到了"，' +
         '只有 `answered` 才证明"人回了"—— 只看前者的闸是纸做的。\n' +

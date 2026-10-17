@@ -22,6 +22,8 @@ import { autoInitProjectDir } from '../project/auto-init.js'
 // ★★ 长入参通道（`spec_path`）：字段说明的唯一出处在这儿，别在 schema 里另抄一份。
 import { ARGS_FILE_DOC } from './args-file.js'
 import { S, tool, resolveActor } from './kit.js'
+// ★ 拒绝文案的**唯一出处**（`lib/errors/text.js`）：本文件只换成引用，字面值未动。
+import { taskNotFound } from '../errors/text.js'
 
 /**
  * 开单与需求分析（pipeline_task_open / pipeline_orchestrate）
@@ -348,7 +350,7 @@ export function buildIntakeTools(ctx) {
       if (actor.ok !== true) return { ok: false, summary: actor.error, tier: '', ai_count: 0, roles: '', sequence: '', dry_run: args.dry_run === true }
 
       const task = await load(String(args.task_id ?? ''))
-      if (task === null) return { ok: false, summary: `找不到任务 ${args.task_id}。`, tier: '', ai_count: 0, roles: '', sequence: '', dry_run: false }
+      if (task === null) return { ok: false, summary: taskNotFound(args.task_id), tier: '', ai_count: 0, roles: '', sequence: '', dry_run: false }
 
       // --- 规则引擎先算一遍（永远算，dry_run 也用它回答）------------------
       const proposal = proposeTier({

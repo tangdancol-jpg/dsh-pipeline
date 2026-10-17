@@ -31,6 +31,10 @@
  * @module dsh-pipeline/lib/guard/page-exts
  */
 
+// ★ 「允许写的位置（唯一）：…」那一行的**唯一出处**（`lib/errors/text.js`）——
+//   与 `decide.js` 的"只能写自己那一片"拒绝文案共用同一句。
+import { ownPathLine } from '../errors/text.js'
+
 /** `own-dir` 允许的扩展名（测试产物 / 报告 / 日志 / **可执行用例**）。 */
 export const OWN_DIR_EXTS = Object.freeze(['log', 'jsonl', 'md', 'json', 'txt', 'mjs', 'cjs', 'js'])
 
@@ -58,7 +62,9 @@ export function extsOf(cls) {
 export function ownPathHint({ role, cls, dir, base = '' }) {
   const exts = extsOf(cls)
   const r = String(role ?? '')
-  const L = [`允许写的位置（唯一）：${dir}${r}[-后缀].${exts.join('|')}`]
+  // ★ 这一行的**唯一出处**是 `lib/errors/text.js` 的 `ownPathLine()`
+  //   （`decide.js` 的"只能写自己那一片"拒绝文案用的是同一句）。
+  const L = [ownPathLine(dir, r, exts.join('|'))]
   const ext = String(base).includes('.') ? String(base).slice(String(base).lastIndexOf('.') + 1).toLowerCase() : ''
   if (ext.length > 0 && !exts.includes(ext)) {
     L.push(

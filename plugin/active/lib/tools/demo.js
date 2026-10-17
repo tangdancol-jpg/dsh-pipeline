@@ -19,6 +19,9 @@
 import { S, tool, resolveActor } from './kit.js'
 import { DEMO_ROUND_CAP } from '../states/demo-phase.js'
 import { DEMO_SOFT_RULES, demoStateOf } from '../store/demo-rounds.js'
+// ★ 判据码 + 拒绝文案的**唯一出处**（`lib/errors/`）；本文件的判据与文案字面值未动。
+import { BAD_ACTION, NO_ACTOR, OK, TASK_NOT_FOUND } from '../errors/codes.js'
+import { taskNotFound } from '../errors/text.js'
 
 /** 工具名（唯一出处）。 */
 export const DEMO_TOOL_NAME = 'pipeline_demo'
@@ -90,13 +93,13 @@ export function buildDemoTools(ctx) {
     },
     async run(args, exec) {
       const actor = resolveActor(args, exec, deps)
-      if (actor.ok !== true) return fail('NO_ACTOR', actor.error)
+      if (actor.ok !== true) return fail(NO_ACTOR, actor.error)
       const action = String(args.action ?? '').trim()
       if (!DEMO_TOOL_ACTIONS.includes(action)) {
-        return fail('BAD_ACTION', `认不出的动作 \`${action}\`（只认 ${DEMO_TOOL_ACTIONS.join(' / ')}）。`)
+        return fail(BAD_ACTION, `认不出的动作 \`${action}\`（只认 ${DEMO_TOOL_ACTIONS.join(' / ')}）。`)
       }
       const task = await load(String(args.task_id ?? ''))
-      if (task === null) return fail('TASK_NOT_FOUND', `找不到任务 ${args.task_id}。`, { action })
+      if (task === null) return fail(TASK_NOT_FOUND, taskNotFound(args.task_id), { action })
 
       const base = { action, round_cap: DEMO_ROUND_CAP === null ? 'none' : String(DEMO_ROUND_CAP) }
 
@@ -106,7 +109,7 @@ export function buildDemoTools(ctx) {
         return {
           ...base,
           ok: true,
-          code: 'OK',
+          code: OK,
           tier: r.plan.tier,
           demo_action: r.plan.action,
           rounds: demoStateOf(r.task).rounds.length,
@@ -136,7 +139,7 @@ export function buildDemoTools(ctx) {
         return {
           ...base,
           ok: true,
-          code: 'OK',
+          code: OK,
           tier: demoStateOf(r.task).plan?.tier ?? '',
           demo_action: demoStateOf(r.task).plan?.action ?? '',
           rounds: demoStateOf(r.task).rounds.length,
@@ -160,7 +163,7 @@ export function buildDemoTools(ctx) {
         return {
           ...base,
           ok: true,
-          code: 'OK',
+          code: OK,
           tier: st.plan?.tier ?? '',
           demo_action: st.plan?.action ?? '',
           rounds: st.rounds.length,
@@ -178,7 +181,7 @@ export function buildDemoTools(ctx) {
       return {
         ...base,
         ok: true,
-        code: 'OK',
+        code: OK,
         tier: st.plan?.tier ?? '',
         demo_action: st.plan?.action ?? '',
         rounds: st.rounds.length,

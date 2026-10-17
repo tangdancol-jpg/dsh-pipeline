@@ -12,6 +12,8 @@ import { join, relative } from 'node:path'
 import { renderScanSummary, runSecurityScan } from '../security.js'
 import { fullHash, toStringArray } from '../util.js'
 import { S, tool, resolveActor } from './kit.js'
+// ★ 拒绝文案的**唯一出处**（`lib/errors/text.js`）：本文件只换成引用，字面值未动。
+import { TASK_ID_REQUIRED, taskNotFound } from '../errors/text.js'
 
 /**
  * 安全确认（pipeline_security_check）
@@ -60,9 +62,9 @@ export function buildSecurityTools(ctx) {
       const actor = resolveActor(args, exec, deps)
       if (actor.ok !== true) return { ok: false, summary: actor.error, finding_count: 0, checks_ref: '', attestation_hint: '', report_path: '' }
       const taskId = String(args.task_id ?? '')
-      if (taskId.length === 0) return { ok: false, summary: '必须给 task_id。', finding_count: 0, checks_ref: '', attestation_hint: '', report_path: '' }
+      if (taskId.length === 0) return { ok: false, summary: TASK_ID_REQUIRED, finding_count: 0, checks_ref: '', attestation_hint: '', report_path: '' }
       const task = await load(taskId)
-      if (task === null) return { ok: false, summary: `找不到任务 ${taskId}。`, finding_count: 0, checks_ref: '', attestation_hint: '', report_path: '' }
+      if (task === null) return { ok: false, summary: taskNotFound(taskId), finding_count: 0, checks_ref: '', attestation_hint: '', report_path: '' }
 
       const root = task.project_root
       const pipelineDir = join(root, config.artifactDirName)

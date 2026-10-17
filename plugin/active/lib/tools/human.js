@@ -12,6 +12,8 @@ import { ROLE, roleLabel } from '../roles.js'
 import { ROLES_CAN_ASK_CLARIFICATION, ROLES_CAN_RAISE_HUMAN, STATE_LABEL } from '../states.js'
 import { clip } from '../util.js'
 import { S, tool, resolveActor } from './kit.js'
+// ★ 拒绝文案的**唯一出处**（`lib/errors/text.js`）：本文件只换成引用，字面值未动。
+import { TASK_ID_REQUIRED, taskNotFound } from '../errors/text.js'
 
 /**
  * 澄清与人工介入
@@ -59,7 +61,7 @@ export function buildHumanTools(ctx) {
       const actor = resolveActor(args, exec, deps)
       if (actor.ok !== true) return { ok: false, summary: actor.error, request_id: '', state: '' }
       const task = await load(String(args.task_id ?? ''))
-      if (task === null) return { ok: false, summary: `找不到任务 ${args.task_id}。`, request_id: '', state: '' }
+      if (task === null) return { ok: false, summary: taskNotFound(args.task_id), request_id: '', state: '' }
       if (!ROLES_CAN_ASK_CLARIFICATION.includes(actor.role)) {
         return {
           ok: false,
@@ -138,9 +140,9 @@ export function buildHumanTools(ctx) {
       const actor = resolveActor(args, exec, deps)
       if (actor.ok !== true) return { ok: false, summary: actor.error, request_id: '', resumed_to: '' }
       const taskId = String(args.task_id ?? '')
-      if (taskId.length === 0) return { ok: false, summary: '必须给 task_id。', request_id: '', resumed_to: '' }
+      if (taskId.length === 0) return { ok: false, summary: TASK_ID_REQUIRED, request_id: '', resumed_to: '' }
       const task = await load(taskId)
-      if (task === null) return { ok: false, summary: `找不到任务 ${taskId}。`, request_id: '', resumed_to: '' }
+      if (task === null) return { ok: false, summary: taskNotFound(taskId), request_id: '', resumed_to: '' }
 
       if (typeof args.request_id !== 'string' || args.request_id.length === 0) {
         const list = await store.listClarifications({ taskId })
@@ -261,7 +263,7 @@ export function buildHumanTools(ctx) {
         }
       }
       const task = await load(String(args.task_id ?? ''))
-      if (task === null) return { ok: false, summary: `找不到任务 ${args.task_id}。`, request_id: '', state: '' }
+      if (task === null) return { ok: false, summary: taskNotFound(args.task_id), request_id: '', state: '' }
       if (!ROLES_CAN_RAISE_HUMAN.includes(actor.role)) {
         return {
           ok: false, request_id: '', state: '',
@@ -366,9 +368,9 @@ export function buildHumanTools(ctx) {
       const actor = resolveActor(args, exec, deps)
       if (actor.ok !== true) return { ok: false, summary: actor.error, request_id: '', status: '' }
       const taskId = String(args.task_id ?? '')
-      if (taskId.length === 0) return { ok: false, summary: '必须给 task_id。', request_id: '', status: '' }
+      if (taskId.length === 0) return { ok: false, summary: TASK_ID_REQUIRED, request_id: '', status: '' }
       const task = await load(taskId)
-      if (task === null) return { ok: false, summary: `找不到任务 ${taskId}。`, request_id: '', status: '' }
+      if (task === null) return { ok: false, summary: taskNotFound(taskId), request_id: '', status: '' }
 
       // 收件箱模式
       if (typeof args.request_id !== 'string' || args.request_id.length === 0) {

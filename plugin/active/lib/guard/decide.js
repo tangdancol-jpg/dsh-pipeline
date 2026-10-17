@@ -50,6 +50,10 @@ import {
   hubStandbyBlocksWrite,
   owningChangeScopeEntry,
 } from './seats.js'
+// ★ 判据码常量 + 「允许写的位置」那一行 —— **唯一出处** `lib/errors/`
+//   （与 `page-exts.js` 的 `ownPathHint()` 共用同一句，两边不会再各自润色）。
+import { HUB_STANDBY_NOT_WOKEN } from '../errors/codes.js'
+import { ownPathLine } from '../errors/text.js'
 
 /**
  * 守门的判据本体。**必须同步**（`guardReason` 是同步遍历），且**必须不抛**。
@@ -281,9 +285,8 @@ function decide(exec, deps) {
               `${TAG} 拒绝：角色「${roleZh(binding.role)}」只能写**自己那一片**。\n` +
               `工具：${name}\n${targetLine(t)}\n任务：${binding.taskId}\n` +
               `原因：${chk.why}\n` +
-              `允许写的位置（唯一）：${dir}${binding.role}[-后缀].` +
-              (cls === 'own-log' ? OWN_LOG_EXTS.join('|') : OWN_DIR_EXTS.join('|')) +
-              '\n★ 这条按**路径**判，不按角色卡里的措辞判 ——\n' +
+              `${ownPathLine(dir, binding.role, cls === 'own-log' ? OWN_LOG_EXTS.join('|') : OWN_DIR_EXTS.join('|'))}\n` +
+              '★ 这条按**路径**判，不按角色卡里的措辞判 ——\n' +
               '  谁能写哪由代码层的 `writes` 决定，文档只是把它写清楚。\n' +
               '  要交结论：用结构化交接物（pipeline_handoff）；要让别人看到东西：交给你该交给的那个角色。'
             )
@@ -306,7 +309,7 @@ function decide(exec, deps) {
               `工具：${name}\n${targetLine(t)}\n任务：${binding.taskId}\n` +
               `唤醒点：**${wp === 'need_agree' ? '主管同意需求结论' : '主管确认架构图满足要求'}**（${wp}）\n` +
               '★ 用户口径③：「待机」是**可见的「已登记未开工」** —— 而未到点不得开工是**产物面**的判据：\n' +
-              '  ① 交产物      ⇒ store 的交接物状态判据拒（HUB_STANDBY_NOT_WOKEN）；\n' +
+              `  ① 交产物      ⇒ store 的交接物状态判据拒（${HUB_STANDBY_NOT_WOKEN}）；\n` +
               '  ② 写自己目录  ⇒ **就是这一条**；\n' +
               '  ③ 跑测试      ⇒ 同文件里"编写交付之前不许开跑"那一条。\n' +
               '  三条同源、同一份数据（task.hub.standby）。\n' +

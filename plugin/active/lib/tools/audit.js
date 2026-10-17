@@ -11,6 +11,8 @@ import { ROLE, roleLabel } from '../roles.js'
 import { boundaryManifest, renderBoundaryManifest } from '../boundaries.js'
 import { fullTestCredential, nextFullTestStage } from '../testscope.js'
 import { describeStage, S, SNullable, tool, resolveActor } from './kit.js'
+// ★ 拒绝文案的**唯一出处**（`lib/errors/text.js`）：本文件只换成引用，字面值未动。
+import { taskNotFound } from '../errors/text.js'
 
 /**
  * 改动审计、边界清单、全量测试进度
@@ -68,7 +70,7 @@ export function buildAuditTools(ctx) {
       const actor = resolveActor(args, exec, deps)
       if (actor.ok !== true) return fail(actor.error)
       const task = await load(String(args.task_id ?? ''))
-      if (task === null) return fail(`找不到任务 ${args.task_id}。`)
+      if (task === null) return fail(taskNotFound(args.task_id))
 
       // --- take：重新记录基线（权限收在白名单里）---
       if (args.take === true) {
@@ -291,7 +293,7 @@ export function buildAuditTools(ctx) {
       void exec
       const empty = { ok: false, status: 'none', next_stage: '', credential: null }
       const task = await load(String(args.task_id ?? ''))
-      if (task === null) return { ...empty, summary: `找不到任务 ${args.task_id}。` }
+      if (task === null) return { ...empty, summary: taskNotFound(args.task_id) }
       const list = Array.isArray(task.full_test_approvals) ? task.full_test_approvals : []
       const cred = store.currentBaseline === undefined ? null : null
       void cred

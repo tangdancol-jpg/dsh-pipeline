@@ -11,9 +11,11 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { ST, STATE_LABEL, DIAGRAM_DELIVERY_STATES } from '../states.js'
 import { ROLE, roleLabel } from '../roles.js'
-import { fullHash, nowIso } from '../util.js'
 // ★ E3：关单是"语义上完整的时刻" —— 记忆域在这里把该任务的记忆综合进项目活文档（设计 04 §3.1）。
 import { refreshLiveDocForTask } from '../memory/live-doc-write.js'
+// ★ 领域对象集中：制品版本记录与关单报告的形状在 `lib/model/` 下。
+import { makeArtifactRecord } from '../model/artifact.js'
+import { makeCloseReport } from '../model/close-report.js'
 
 /**
  * 任务存储 · 交接物核对、打回、关单、制品
@@ -363,15 +365,8 @@ export function reviewMethods(ctx) {
       if (tr.ok !== true) return tr
 
       const ok = effectiveReviewOk(task)
-      task.close_report = {
-        closed_at: nowIso(now()),
-        closed_by: ROLE.MAIN,
-        artifact_version: currentArtifactVersion(task),
-        review_ok_handoff: ok?.handoff_id ?? null,
-        risk_notes: ok?.payload?.risk_notes ?? [],
-        final_delivery_note: ok?.payload?.final_delivery_note ?? '',
-        release_approved: ok?.payload?.release_approved === true,
-      }
+      // 关单报告的形状集中在 `lib/model/close-report.js`。
+      task.close_report = makeCloseReport({ task, reviewOk: ok, currentArtifactVersion, now })
       const entry = await audit(task.id, ROLE.MAIN, 'close', {
         artifact_version: task.close_report.artifact_version,
         review_ok: task.close_report.review_ok_handoff,
@@ -404,14 +399,8 @@ export function reviewMethods(ctx) {
       await mkdir(dir, { recursive: true })
       const file = join(dir, input.fileName ?? 'artifact.txt')
       await writeFile(file, content, 'utf8')
-      const rec = {
-        version,
-        file,
-        bytes: Buffer.byteLength(content, 'utf8'),
-        sha256: fullHash(content),
-        created_at: nowIso(now()),
-        note: typeof input.note === 'string' ? input.note : '',
-      }
+      // 制品版本记录的形状集中在 `lib/model/artifact.js`。
+      const rec = makeArtifactRecord({ version, file, content, note: input.note, now })
       task.artifacts.push(rec)
       const entry = await audit(task.id, ROLE.WRITER, 'artifact:register', { version, sha256: rec.sha256, bytes: rec.bytes, agent: input.actorAgentId })
       task.history.push(entry)

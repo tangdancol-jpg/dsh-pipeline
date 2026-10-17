@@ -10,7 +10,7 @@
 import { readFile, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { ROLE } from '../roles.js'
-import { fullHash, isInside, nowIso, resolveAgainstAnchor, shortHash } from '../util.js'
+import { fullHash, isInside, nowIso, resolveAgainstAnchor } from '../util.js'
 import {
   WRITE_LEDGER_FILE_NAME,
   WRITE_LEDGER_SOURCES,
@@ -19,6 +19,8 @@ import {
   resetHashGateOrigin,
 } from '../hashgate.js'
 import { writeJsonAtomic, appendJsonl } from './shared.js'
+// ★ 领域对象集中：改动基线记录的形状在 `lib/model/baseline.js`。
+import { makeBaselineRecord } from '../model/baseline.js'
 import { seatTouchedKeys, splitSelfTree } from '../hashgate/self-tree.js'
 
 /**
@@ -107,17 +109,8 @@ export function baselineMethods(ctx) {
       await walk(root, '')
 
       const digest = fullHash(JSON.stringify(Object.keys(files).sort().map((k) => `${k}|${files[k].sha256}`)))
-      const rec = {
-        baseline_id: `BL-${shortHash(`${task.id}|${(task.baselines ?? []).length}|${digest}`)}`,
-        taken_at: nowIso(now()),
-        taken_by: String(input.by ?? ROLE.PLANNER),
-        plan_handoff_id: typeof input.planHandoffId === 'string' ? input.planHandoffId : null,
-        note: typeof input.note === 'string' ? input.note : '',
-        file_count: Object.keys(files).length,
-        total_bytes: bytes,
-        digest,
-        files,
-      }
+      // 基线记录的形状集中在 `lib/model/baseline.js`（本文件只给上下文值）。
+      const rec = makeBaselineRecord({ task, digest, files, bytes, now, input })
       task.baselines = task.baselines ?? []
       task.baselines.push(rec)
       // ⚠️ 顺序：**先**按"新基线 id"清旧起点，**再**把基线指针指过去 ——

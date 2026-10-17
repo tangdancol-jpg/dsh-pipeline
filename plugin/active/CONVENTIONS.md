@@ -63,6 +63,14 @@ plugin/active/
     └── p8-scope-root-check.mjs
 ```
 
+> ⚠️ 上面这份是 **P1–P5 批次的历史切片**（只列当批新增的目录）。**当前结构以这条为准**：
+>
+> - 每个域都已拆成子模块：`lib/<域>/<职责>.js`；原 `lib/<域>.js` 只作 **barrel**（只 re-export，不写实现）
+> - **两个集中层**：`lib/model/`（领域对象：task / baseline / artifact / close-report / human-request / handoff-*）、
+>   `lib/errors/`（错误码 `codes.js` + 拒绝/提示文案 `text.js`）
+> - 已拆包的 7 个大文件：`boundaries/`、`orphan/`、`liveness/`、`states/`、`hashgate/`、`tiers/`、`patrol/`（原文件均为 barrel）
+> - 其余域：`guard/` `store/` `handoff/` `team/` `transport/` `memory/` `project/` `switch/` `intercept/` `wakeup/` `tools/` `design/` `roster/` `scope/` `intake/`
+
 ## 2. 每个目录的职责（一句话，判归属时照这句问自己）
 
 | 目录 | 负责什么 | **不**负责什么 |
@@ -75,13 +83,15 @@ plugin/active/
 | `lib/tiers/` | **档位规则**（纯策略，不读盘） | 档位存在哪、谁写它 |
 | `lib/tools/` | **工具面**：参数表、输出契约、人话摘要 | 判定与写盘（都委托出去） |
 | `lib/handoff/schemas/` | 交接物**字段表**，一类型一文件 | 校验实现（委托给域目录） |
+| `lib/model/` | **领域对象**：task / handoff / baseline 等对象的**结构、默认值、字段清单、对象级纯函数**（"数据长什么样"） | 状态推进判据（`store/`）、校验实现（`handoff/`）、I/O |
+| `lib/errors/` | **错误码与拒绝/提示文案的唯一出处**（"怎么说不行"） | 判据本身（`guard/`）、状态迁移（`states/`）、工具参数表 |
 | `tests/` | 一测试一文件，**可直接 `node` 跑** | 测试框架、共享夹具库 |
 
 ## 3. 命名规则
 
 ### 3.1 实现文件：`lib/<域>/<职责>.js`
 
-- **域**是上面那张表里的一级目录名（`project` / `design` / `states` / `store` / `guard` / `tiers` / `tools` / `handoff`）
+- **域**是上面那张表里的一级目录名（`project` / `design` / `states` / `store` / `guard` / `tiers` / `tools` / `handoff` / `model` / `errors`）
 - **职责**是**小写连字符**的名词短语，回答"这个文件负责哪一件事"：`snapshot-parse`、`catalog-schema`、`hub-required`
 - 一个文件**只放一件事**。判断标准：**它的改动原因是不是只有一个？**
   - 反例：`snapshot.js` 同时管"解析""进位""比大小""建目录" —— 四种改动原因，拆成四个文件
@@ -135,16 +145,17 @@ plugin/active/
   ```js
   // 快照版本号 · 解析与序数换算：把 `b.2026.10.15.A-01` 拆开并换成可比较的整数序数。
   ```
-- **实例（是"必要性"的实例，不是"长文件豁免"）**：本仓库确有一个约 **800 行**的单文件
-  **经评估不宜拆** —— 它属于 ①（一张声明表）。★ 这一条**不得**被读成"长文件一律豁免"：
+- **实例（是"必要性"的实例，不是"长文件豁免"）**：`lib/model/handoff-schemas.js`（25 类交接物字段表）
+  与 `lib/roles.js`（角色表）属于 ①（单一声明表），经评估不再切。★ 这一条**不得**被读成"长文件一律豁免"：
   长文件照样要逐条自证，自证不出来就该拆。
 
 ## 5. 禁止往既有大文件堆叠
 
 **这条是本规范的核心。**
 
-- **禁止**把新功能追加进既有的大文件（`lib/states.js` 871 行、`lib/tiers.js` 1302 行、
-  `lib/index.js` 1257 行、`lib/tools.js`、`lib/store/precondition.js` 839 行 …）
+- **禁止**把新功能追加进既有的大文件（曾经踩过的坑：`lib/states.js` 930 行、`lib/tiers.js` 990 行、
+  `lib/boundaries.js` 1064 行、`lib/orphan.js` 1163 行 —— 它们已按本条拆成 `states/`、`tiers/`、
+  `boundaries/`、`orphan/` 子目录，原文件只剩 barrel；今天再往 barrel 里堆就是违反本条）
 - 新状态、新闸门、新工具、新判据一律**新开文件**，既有文件只允许**接线**（import + 一行调用/展开）
 - 接线的那几行写进 `WIRING.md`（**落点、行号、具体那一行、为什么必须接、不接的后果**）
 - 改到既有 **> 500 行**的文件时，**先抽取再改**：把要动的那一块先搬进新文件、行为不变，
@@ -178,6 +189,10 @@ plugin/active/
   与写盘（`store/hub-require.js`、`design/doc.js`）分开，测试才不必造一个 store
 - **一个常量只有一个出处**：角色 id 从 `lib/roles.js` 取、状态 id 从对应的 `states/*.js` 取，
   不许手抄字符串（手抄一份就是漂移的入口）
+- **领域对象只从 `lib/model/` 取**：task / handoff / baseline 等对象的结构、默认值、字段清单
+  不许在 `store/` / `handoff/` / `tools/` 里另写一份；新增领域对象先落 `lib/model/`
+- **错误码与拒绝文案只从 `lib/errors/` 取**：错误码常量与拒绝/提示模板不许在调用点硬编码；
+  同一个码只出现一次（`lib/errors/codes.js`），文案字面值**不许改写**（测试按字面断言）
 - **拒绝要给"下一步"**：所有拒绝文案必须写清**为什么**与**怎么办** —— 只写"不行"的判词
   会让模型原地重试
 - **测试先红后绿**：每条新测试都要有"旧代码红 → 新代码绿"的运行记录，否则无法证明它测的是真东西

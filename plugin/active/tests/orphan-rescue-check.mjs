@@ -39,7 +39,7 @@
  * @module dsh-pipeline/tests/orphan-rescue-check
  */
 
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -1127,20 +1127,29 @@ export async function runOrphanRescueCheck() {
      *   `lib/orphan.js` 里**不许出现任何建会话的写法** —— 用户裁定「不要求自动补新席位」，
      *   "结构上做不到"必须能被一条 grep 式断言证明，而不是靠注释保证。
      */
-    const src = readFileSync(join(HERE, '..', 'lib', 'orphan.js'), 'utf8')
+    //   `lib/orphan.js` 与其实现子模块（`lib/orphan/*.js`）里**都不许出现任何建会话的写法**
+    //   —— 拆包后只扫 barrel 会漏掉实现，所以按目录全量扫。
+    const orphanBarrel = join(HERE, '..', 'lib', 'orphan.js')
+    const orphanDir = join(HERE, '..', 'lib', 'orphan')
+    const orphanSources = [
+      orphanBarrel,
+      ...readdirSync(orphanDir).filter((f) => f.endsWith('.js')).sort().map((f) => join(orphanDir, f)),
+    ]
     const offenders = []
-    src.split('\n').forEach((line, i) => {
-      const t = line.trim()
-      if (t.startsWith('*') || t.startsWith('//') || t.startsWith('/*')) return
-      for (const bad of ['spawnRole', 'startContinuable', 'recordDispatch(', 'createTaskStore']) {
-        if (line.includes(bad)) offenders.push(`${i + 1}: ${t.slice(0, 90)}`)
-      }
-    })
+    for (const file of orphanSources) {
+      readFileSync(file, 'utf8').split('\n').forEach((line, i) => {
+        const t = line.trim()
+        if (t.startsWith('*') || t.startsWith('//') || t.startsWith('/*')) return
+        for (const bad of ['spawnRole', 'startContinuable', 'recordDispatch(', 'createTaskStore']) {
+          if (line.includes(bad)) offenders.push(`${file.replace(/^.*[\\/]/, '')}:${i + 1}: ${t.slice(0, 90)}`)
+        }
+      })
+    }
     rec.add(
       'F 只读导出',
-      '★★ **静态扫描**：`lib/orphan.js` 里**不存在**任何"建会话 / 派活 / 建台账"的调用（`spawnRole` / `startContinuable` / `recordDispatch` / `createTaskStore` 一个都没有）',
+      '★★ **静态扫描**：`lib/orphan.js` 与其实现子模块里**不存在**任何"建会话 / 派活 / 建台账"的调用（`spawnRole` / `startContinuable` / `recordDispatch` / `createTaskStore` 一个都没有）',
       offenders.length === 0,
-      offenders.length === 0 ? '扫描 lib/orphan.js 全部非注释行：0 处 ✓（"不产生新席位"是结构性的）' : `发现：\n${offenders.join('\n')}`,
+      offenders.length === 0 ? '扫描 lib/orphan.js + lib/orphan/*.js 全部非注释行：0 处 ✓（"不产生新席位"是结构性的）' : `发现：\n${offenders.join('\n')}`,
     )
     rec.add(
       'F 只读导出',

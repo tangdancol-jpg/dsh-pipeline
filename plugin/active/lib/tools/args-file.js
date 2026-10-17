@@ -46,6 +46,8 @@ import { readFileSync, statSync } from 'node:fs'
 
 import { codeReadRefusal } from '../guard/rules.js'
 import { isInside, pathKey, resolveAgainstAnchor } from '../util.js'
+// ★ 「被拒路径：…」那一行的**唯一出处**（`lib/errors/text.js`）：本文件只换成引用，字面值未动。
+import { rejectedPath } from '../errors/text.js'
 
 /**
  * 参数文件**大小上限**（256 KiB）。
@@ -172,7 +174,7 @@ export async function resolveArgsFile({ field, args, exec, deps, role, allowedKe
       summary: refuse(
         field,
         `走文件通道时必须**内联**给 \`task_id\`（判据要先知道任务才判得了路径）。`,
-        `被拒路径：${given}`,
+        rejectedPath(given),
         [`实际内联的 task_id：${'（空）'}`],
       ),
     }
@@ -181,7 +183,7 @@ export async function resolveArgsFile({ field, args, exec, deps, role, allowedKe
   if (task === null || task === undefined) {
     return {
       ok: false,
-      summary: refuse(field, `找不到任务 ${taskId}，判不出项目根 ⇒ 按 fail-closed 拒绝。`, `被拒路径：${given}`),
+      summary: refuse(field, `找不到任务 ${taskId}，判不出项目根 ⇒ 按 fail-closed 拒绝。`, rejectedPath(given)),
     }
   }
 
@@ -191,14 +193,14 @@ export async function resolveArgsFile({ field, args, exec, deps, role, allowedKe
   if (projectRoot.length === 0) {
     return {
       ok: false,
-      summary: refuse(field, `任务 ${taskId} 没有 project_root，判不出项目根 ⇒ 按 fail-closed 拒绝。`, `被拒路径：${given}`),
+      summary: refuse(field, `任务 ${taskId} 没有 project_root，判不出项目根 ⇒ 按 fail-closed 拒绝。`, rejectedPath(given)),
     }
   }
 
   // ------------------------------------------------------ ② 解析成绝对路径 --
   const abs = resolveAgainstAnchor(projectRoot, given)
   if (abs.length === 0) {
-    return { ok: false, summary: refuse(field, '这不是一条路径。', `被拒路径：${given}`) }
+    return { ok: false, summary: refuse(field, '这不是一条路径。', rejectedPath(given)) }
   }
 
   // ------------------------------------------------------ ③ 必须在项目根之内 --
@@ -208,7 +210,7 @@ export async function resolveArgsFile({ field, args, exec, deps, role, allowedKe
       summary: refuse(
         field,
         '参数文件必须落在**本任务的项目根之内**。',
-        `被拒路径：${abs}`,
+        rejectedPath(abs),
         [
           `判据：项目根 = ${projectRoot}`,
           '允许的落点：`.pipeline/**`（首选）、任务目录、工作区里新建的规格文件。',
@@ -229,7 +231,7 @@ export async function resolveArgsFile({ field, args, exec, deps, role, allowedKe
       summary: refuse(
         field,
         '这个角色不得读取该路径的正文 —— 与 `read` 工具**同一条判据**。',
-        `被拒路径：${abs}`,
+        rejectedPath(abs),
         [
           `当前角色：${effRole}${typeof role === 'string' && role.length > 0 ? '' : '（判不出角色 ⇒ 按最严的一档处理）'}`,
           `判据：${readWhy}`,
@@ -248,7 +250,7 @@ export async function resolveArgsFile({ field, args, exec, deps, role, allowedKe
       summary: refuse(
         field,
         '参数文件不许落在**实现源码树**里 —— 这条对**任何角色**都生效。',
-        `被拒路径：${abs}`,
+        rejectedPath(abs),
         [
           `判据：ARGS_FILE_DENY_TOP = ${ARGS_FILE_DENY_TOP.join(' / ')}（项目根下的顶层目录名）`,
           `命中的顶层目录：${top}/`,
@@ -271,13 +273,13 @@ export async function resolveArgsFile({ field, args, exec, deps, role, allowedKe
       summary: refuse(
         field,
         '参数文件**不存在**（或读不到）。',
-        `被拒路径：${abs}`,
+        rejectedPath(abs),
         [`系统错误：${String(err?.code ?? err?.message ?? err)}`, '先把规格写到这个路径上，再把它传给 ' + field + '。'],
       ),
     }
   }
   if (!st.isFile()) {
-    return { ok: false, summary: refuse(field, '参数文件必须是一个**普通文件**（给的是目录或特殊文件）。', `被拒路径：${abs}`) }
+    return { ok: false, summary: refuse(field, '参数文件必须是一个**普通文件**（给的是目录或特殊文件）。', rejectedPath(abs)) }
   }
 
   // ------------------------------------------------------ ⑦ 大小上限（给上限） --
@@ -287,7 +289,7 @@ export async function resolveArgsFile({ field, args, exec, deps, role, allowedKe
       summary: refuse(
         field,
         '参数文件**过大**。',
-        `被拒路径：${abs}`,
+        rejectedPath(abs),
         [
           `实际大小：${st.size} B`,
           `上限：${ARGS_FILE_MAX_BYTES} B（${Math.round(ARGS_FILE_MAX_BYTES / 1024)} KiB）`,
@@ -301,14 +303,14 @@ export async function resolveArgsFile({ field, args, exec, deps, role, allowedKe
   if (isYamlName(abs)) {
     return {
       ok: false,
-      summary: refuse(field, '暂不支持 YAML。', `被拒路径：${abs}`, [`★ 本通道只支持 ${ARGS_FILE_FORMATS}。把规格改写成 .json 再来。`]),
+      summary: refuse(field, '暂不支持 YAML。', rejectedPath(abs), [`★ 本通道只支持 ${ARGS_FILE_FORMATS}。把规格改写成 .json 再来。`]),
     }
   }
   let text = ''
   try {
     text = readFileSync(abs, 'utf8')
   } catch (err) {
-    return { ok: false, summary: refuse(field, '参数文件读失败。', `被拒路径：${abs}`, [`系统错误：${String(err?.code ?? err?.message ?? err)}`]) }
+    return { ok: false, summary: refuse(field, '参数文件读失败。', rejectedPath(abs), [`系统错误：${String(err?.code ?? err?.message ?? err)}`]) }
   }
   if (text.charCodeAt(0) === 0xfeff) text = text.slice(1) // 去掉 BOM（JSON.parse 不认它）
 
@@ -322,7 +324,7 @@ export async function resolveArgsFile({ field, args, exec, deps, role, allowedKe
       summary: refuse(
         field,
         '参数文件**不是合法 JSON**。',
-        `被拒路径：${abs}`,
+        rejectedPath(abs),
         [
           `解析错误：${String(err?.message ?? err)}`,
           fc !== '' && fc !== '{' && fc !== '[' ? `★ 这份文件的第一个非空白字符是 \`${fc}\` —— 看着像 YAML。本通道只支持 ${ARGS_FILE_FORMATS}。` : '',
@@ -333,7 +335,7 @@ export async function resolveArgsFile({ field, args, exec, deps, role, allowedKe
     }
   }
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    return { ok: false, summary: refuse(field, '参数文件的顶层必须是**一个 JSON 对象**（`{...}`）。', `被拒路径：${abs}`, [`实际类型：${Array.isArray(parsed) ? 'array' : parsed === null ? 'null' : typeof parsed}`]) }
+    return { ok: false, summary: refuse(field, '参数文件的顶层必须是**一个 JSON 对象**（`{...}`）。', rejectedPath(abs), [`实际类型：${Array.isArray(parsed) ? 'array' : parsed === null ? 'null' : typeof parsed}`]) }
   }
 
   // ------------------------------------------------------ ⑨ 可选：整份包进 wrap --
@@ -354,7 +356,7 @@ export async function resolveArgsFile({ field, args, exec, deps, role, allowedKe
       summary: refuse(
         field,
         '参数文件里有**这个工具不认识的字段**（多半是拼错了）。',
-        `被拒路径：${abs}`,
+        rejectedPath(abs),
         [
           `不认识的字段：${unknown.join('、')}`,
           `本工具认识的字段：${[...allow].filter((k) => k !== field).join('、')}`,

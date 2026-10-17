@@ -57,7 +57,7 @@ export const RULING_KIND = 'ruling'
 export const RULING_TEXT_MAX = 200
 
 /**
- * ★ **候选 skills 根目录**（照 `lib/liveness.js:156-169` 的同一套写法：越具体越先试）。
+ * ★ **候选 skills 根目录**（照 `lib/liveness/activity.js` 的 `sessionsRootCandidates` 同一套写法：越具体越先试）。
  *
  * 优先级与 `dsh-skill-filesystem` 的发现根一致（`02` §2.3 的 `user-dsh` 400 那一档）：
  * `DSH_SKILLS_DIR` → `$DSH_HOME/skills` → `<profile 的上两级>/skills` → `~/.dsh/skills`。

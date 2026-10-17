@@ -16,6 +16,8 @@ import { toStringArray } from '../util.js'
 // ★★ 长入参通道（`spec_path`）：字段说明的唯一出处在这儿，别在 schema 里另抄一份。
 import { ARGS_FILE_DOC } from './args-file.js'
 import { S, tool, resolveActor } from './kit.js'
+// ★ 拒绝文案的**唯一出处**（`lib/errors/text.js`）：本文件只换成引用，字面值未动。
+import { taskNotFound } from '../errors/text.js'
 
 /**
  * 计划与授权面变更（pipeline_plan / pipeline_scope_amend）
@@ -111,7 +113,7 @@ export function buildPlanTools(ctx) {
       if (actor.ok !== true) return { ...empty, summary: actor.error }
 
       const task = await load(String(args.task_id ?? ''))
-      if (task === null) return { ...empty, summary: `找不到任务 ${args.task_id}。` }
+      if (task === null) return { ...empty, summary: taskNotFound(args.task_id) }
 
       // --- ① 交计划（含自检）------------------------------------------------
       const selfCheck = {

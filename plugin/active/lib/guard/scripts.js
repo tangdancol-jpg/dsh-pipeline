@@ -112,6 +112,8 @@ const SCRIPT_REF_BAD_CHARS = /['"`()=$!]/
  */
 /** `lib/guard/` 下的子模块（守门本体拆成这几份，同属"自己这一族"）。 */
 const GUARD_SUBMODULES = ['rules.js', 'seats.js', 'shell.js', 'scripts.js', 'decide.js']
+/** `lib/hashgate/` 下的子模块（哈希闸门拆成这几份，同样属于"自己这一族"）。 */
+const HASHGATE_SUBMODULES = ['ledger.js', 'verdict.js', 'streak.js']
 const GUARD_SELF_FILES = (() => {
   const set = new Set()
   try {
@@ -121,7 +123,13 @@ const GUARD_SELF_FILES = (() => {
     const guardDir = cut > 0 ? here.slice(0, cut) : ''
     const cut2 = guardDir.lastIndexOf('/')
     const dir = cut2 > 0 ? guardDir.slice(0, cut2) : ''
-    const own = ['guard.js', 'guard-factory.js', 'hashgate.js', ...GUARD_SUBMODULES.map((m) => `guard/${m}`)]
+    const own = [
+      'guard.js',
+      'guard-factory.js',
+      'hashgate.js',
+      ...HASHGATE_SUBMODULES.map((m) => `hashgate/${m}`),
+      ...GUARD_SUBMODULES.map((m) => `guard/${m}`),
+    ]
     for (const f of own) set.add(dir.length > 0 ? `${dir}/${f}` : f)
   } catch {
     /* 推不出自身位置 ⇒ 空集（上面那条退化口径） */

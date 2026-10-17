@@ -26,6 +26,8 @@
 
 import { ROLE } from '../roles.js'
 import { S, tool, resolveActor } from './kit.js'
+// ★ 拒绝文案的**唯一出处**（`lib/errors/text.js`）：本文件只换成引用，字面值未动。
+import { taskNotFound } from '../errors/text.js'
 import { PURGE_LOG_NAME, TRASH_DIR_NAME } from '../store/purge.js'
 
 /**
@@ -75,7 +77,7 @@ export function buildPurgeTools(ctx) {
         }
       }
       const task = await load(String(args.task_id ?? ''))
-      if (task === null) return { ok: false, ...empty, summary: `找不到任务 ${args.task_id}。` }
+      if (task === null) return { ok: false, ...empty, summary: taskNotFound(args.task_id) }
 
       const mode = args.mode === 'delete' ? 'delete' : 'trash'
       /**
