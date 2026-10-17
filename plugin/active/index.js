@@ -888,7 +888,7 @@ export function apply(ctx, rawConfig) {
            *   发出去只会是一条永远没人接的升级（A 路报告 §6.2 的已知边界）。
            */
           if (TERMINAL_STATES.includes(task.state)) continue
-          await wakeup.escalateUnconsumed(entry.id, { olderThanMs: config.wakeUnconsumedMs, limit: 2, reason: 'patrol:unconsumed' })
+          await wakeup.escalateUnconsumed(entry.id, { olderThanMs: config.wakeUnconsumedMs, limit: 2, reason: 'patrol:unconsumed', task })
         }
       },
     })

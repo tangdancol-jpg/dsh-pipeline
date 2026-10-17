@@ -26,6 +26,7 @@ import {
 import { eventIdentityFor } from './identity.js'
 import { LAST_RESORT_VIA } from './last-resort.js'
 import { progressAfter } from './progress.js'
+import { relayBlockedHint, relayBlockedRole } from './relay-hint.js'
 import { sleep, wakeMessage, probeTargetSession, deliverWake } from './deliver.js'
 
 /**
@@ -807,9 +808,23 @@ export function createWaker(deps) {
       //   取数口 pendingUnconsumed 默认已滤，这里不依赖它的默认参数（两路判据同源，不靠巧合对称）。
       const pending = this.pendingDeliveries(taskId, { olderThanMs: Number.isFinite(spec.olderThanMs) ? spec.olderThanMs : 0, limit: Number.isInteger(spec.limit) ? spec.limit : 3 })
         .filter((p) => !isMechanismNotice(p))
+      // ★ §9 噪声 ④：投递方按继任策略不可换班 ⇒ 不升级（升给主对话也消费不掉），结论里写明下一步。
+      let task = spec.task !== undefined ? spec.task : null
+      if (spec.task === undefined && getTask !== null) {
+        try {
+          task = await getTask(taskId)
+        } catch {
+          task = null // 取不到任务 ⇒ 不做这一判（照旧升级，宁可多报）
+        }
+      }
       let escalated = 0
       const lines = []
       for (const p of pending) {
+        const relayBlocked = relayBlockedRole(task, p)
+        if (relayBlocked !== null) {
+          lines.push(`  · 不升级：${p.key}\n${relayBlockedHint(relayBlocked)}`)
+          continue
+        }
         const escKey = `${p.key}#escalated`
         const res = await wake({
           taskId: String(p.task_id ?? taskId ?? ''),

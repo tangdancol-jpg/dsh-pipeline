@@ -240,4 +240,8 @@ export const EXTRA_SUITES = [
   //    这一套钉：投递后状态前进 / 新交接物 ⇒ 记为已接管（账上写依据、幂等）/ 什么都没发生照旧报与升 /
   //    冻结、等待态、投递之前的进展不算 / 巡检先结算再取清单。
   { file: './f22-unconsumed-progress-check.mjs', exportName: 'runF22UnconsumedProgressCheck', zh: '★ 状态已前进的投递不再算没人接管（§9 噪声 ①：按任务进展结算接管；什么都没发生照旧报与升）' },
+  // ★★ §9 噪声 ④（2026-10-17）：投递方角色不在 relayPolicy.allowedRoles ⇒ 主对话换不了这个席位，
+  //    巡检 / 升级链却全程不读 relayPolicy ⇒ 告警升了也消费不掉、一直挂着。
+  //    这一套钉：不可换班 ⇒ 正文给「不可换班 / 重下 relayPolicy / 走人工」且不升级；可换班 / 白名单为空 ⇒ 逐字不变。
+  { file: './f23-relay-blocked-notice-check.mjs', exportName: 'runF23RelayBlockedNoticeCheck', zh: '★ 不可换班的席位告警给出下一步（§9 噪声 ④：正文指引 + 不升级；可换班照旧）' },
 ]

@@ -69,6 +69,7 @@
 import { EXPECTED_ROLES_BY_STATE } from './liveness.js'
 import { STATE_LABEL, TERMINAL_STATES } from './states.js'
 import { DEFAULT_MAX_ESCALATION_DEPTH, escalationDepthOf, isMechanismNotice } from './wakeledger.js'
+import { relayBlockedHint, relayBlockedRole } from './wakeup/relay-hint.js'
 
 /** 巡检间隔默认值：5 分钟（够快发现，又不至于变成心跳刷屏源）。 */
 export const DEFAULT_PATROL_INTERVAL_MS = 5 * 60 * 1000
@@ -572,6 +573,8 @@ export function patrolFindings(spec = {}) {
         continue
       }
     }
+    // ★ §9 噪声 ④：投递方按继任策略不可换班 ⇒ 正文给出可执行的下一步（升级链那边不再升它）。
+    const relayBlocked = relayBlockedRole(task, e)
     candidates.push({
       id,
       kind: 'unconsumed-delivery',
@@ -581,7 +584,9 @@ export function patrolFindings(spec = {}) {
       detail:
         `一条投递**已送达但没人接管**：\`${key}\`（投给 ${String(e.target ?? '(未知)')}，` +
         `${Number.isFinite(e.age_ms) ? `${Math.round(e.age_ms / 1000)} 秒` : '时长未知'}前）` +
-        ' —— 送达不等于接管（A28）。',
+        ' —— 送达不等于接管（A28）。' +
+        (relayBlocked === null ? '' : `\n${relayBlockedHint(relayBlocked)}`),
+      ...(relayBlocked === null ? {} : { relay_blocked: relayBlocked.role }),
     })
   }
 
