@@ -1,6 +1,41 @@
-/* client.panel-data.js —— 面板的数据与状态：5s 轮询任务/归档快照、失败时保留上次数据、卡片菜单与悬停开合、以及「打开某个席位的对话」那条路。 */
+/* client.panel-data.js —— 面板的数据与状态：5s 轮询任务/归档快照、失败时保留上次数据、卡片菜单与悬停开合、以及「打开某个席位的对话」那条路。另含跨重挂载存活的诊断寄存器（★ 取证用，定位后移除）。 */
 ;(function () {
   'use strict'
+
+  // ---- 诊断寄存器（★ 取证用，定位后移除）----
+  // 放 module 作用域：组件重挂载会重新初始化 useState，只有这里跨重挂载活下来。
+  var DIAG = { mounts: 0, lastReason: '', lastAt: 0, lastAction: '' }
+  /** 跨重挂载持久化的开合 / 钉住状态。 */
+  var OPEN = { open: false, pinned: false }
+  /** 模块级实例计数：只数"组件包装器首次执行"，同一实例的后续渲染不算。 */
+  var INSTANCE = { count: 0 }
+
+  /** 记一次头部动作（取证用）：'batch' | 'archive' | 'back'。 */
+  function noteAction(action) {
+    DIAG.lastAction = action
+    DIAG.lastAt = Date.now()
+  }
+  /** 组件包装函数首次执行（= 这个面板实例开始初始化 useState）时调一次；StrictMode 双调不会重复记。 */
+  function beginMount() {
+    INSTANCE.count += 1
+    DIAG.mounts += 1
+    // 重挂载时上一实例把面板留着（OPEN.open === true）⇒ 这次恢复显示，并留下原因。
+    if (OPEN.open === true) {
+      DIAG.lastReason = 'remount'
+      DIAG.lastAt = Date.now()
+    }
+  }
+
+  /** open 的统一出口：React state 与模块级 OPEN 一起写；收起时留原因与时间。 */
+  function applyOpenState(v, reason) {
+    var next = v === true
+    OPEN.open = next
+    if (!next) {
+      DIAG.lastReason = reason || 'unknown'
+      DIAG.lastAt = Date.now()
+    }
+    return next
+  }
 
   /** @param {object} deps 依赖（入口按依赖序传进来；chunk 之间不能同步 require 彼此） */
   function create(deps) {
@@ -57,9 +92,14 @@
       var snap = snapHook[0]
       var setSnap = snapHook[1]
 
-      var openHook = React.useState(false)
+      // 用模块级 OPEN.open 初始化：若上一实例把面板留着，重挂载后会立刻恢复显示。
+      var openHook = React.useState(OPEN.open)
       var open = openHook[0]
-      var setOpen = openHook[1]
+      var rawSetOpen = openHook[1]
+      /** 所有 open 变更的**唯一出口**：同步模块级 OPEN，收起时记原因（取证用）。 */
+      var setOpen = function (v, reason) {
+        rawSetOpen(applyOpenState(v, reason))
+      }
 
       var openErrHook = React.useState('')
       var openError = openErrHook[0]
@@ -86,7 +126,12 @@
       var setBatch = batchHook[1]
 
       var aliveRef = React.useRef(true)
-      var pinnedRef = React.useRef(false) // 点击钉住后面板不因移开而收起
+      var pinnedRef = React.useRef(OPEN.pinned) // 点击钉住后面板不因移开而收起（跨重挂载持久化到 OPEN.pinned）
+      /** 钉住状态同样跨重挂载：ref 给定时器/回调读，OPEN.pinned 给下一个实例读。 */
+      var setPinned = function (v) {
+        pinnedRef.current = v === true
+        OPEN.pinned = pinnedRef.current
+      }
       var hoverTimerRef = React.useRef(null)
       var rootRef = React.useRef(null)
 
@@ -100,10 +145,8 @@
       var armTimerRef = React.useRef(null)
 
       // ---- 卡片「⋯」菜单（分区：卡片操作菜单）----
-      //   menuKey     '' = 全关；否则是**当前打开菜单**那张卡的键（任务 id / 归档目录名）
-      //   menuKeyRef  document 级"点外面 / ESC"处理器读它（处理器是面板打开那一刻注册的闭包，
-      //               直接读 state 会读到过期值）
-      //   menuRef / menuTriggerRef  判断"这次点击是不是落在菜单 / 「⋯」自己身上"
+      //   menuKey 当前打开的菜单键（'' = 全关）；menuKeyRef 给 document 级处理器读最新值；
+      //   menuRef / menuTriggerRef 判断点击是否落在菜单 / 「⋯」自己身上
       var menuHook = React.useState('')
       var menuKey = menuHook[0]
       var setMenuKey = menuHook[1]
@@ -116,9 +159,7 @@
         menuKeyRef.current = menuKey
       }, [menuKey])
 
-      // ---- 席位会话预览 ----
-      //   状态只给渲染用；"开没开 / 是哪个 key / 缓存 / 在途序号"都放 ref 里，
-      //   因为定时器与异步回包拿到的都是**旧渲染的闭包**，读 state 会读到过期值。
+      // ---- 席位会话预览：状态只给渲染用；"开没开 / key / 缓存 / 在途序号"都放 ref（旧闭包要读最新值）----
       var previewHook = React.useState(null)
       var preview = previewHook[0]
       var setPreview = previewHook[1]
@@ -180,11 +221,8 @@
           })
       }
       /**
-       * 写成功之后**立刻**把这几张卡从界面上撤掉。
-       *
-       * 宿主把目录挪走之后快照自然会少一张，但那要等下一次回包 —— 归档 / 删单这类
-       * "点完就该消失"的动作不能留着旧卡让人以为没生效。两份列表都按各自的键清一遍
-       * （任务 id 与归档目录名不会撞车，所以清两张表是安全的）。
+       * 写成功之后**立刻**把这几张卡从界面上撤掉 —— 归档 / 删单这类"点完就该消失"的动作
+       * 不能留着旧卡让人以为没生效。两份列表都按各自的键清一遍（两边的键不会撞车）。
        */
       var dropRows = function (ids) {
         if (!Array.isArray(ids) || ids.length === 0) return
@@ -243,22 +281,20 @@
         if (open) return
         hoverTimerRef.current = setTimeout(function () {
           hoverTimerRef.current = null
-          setOpen(true)
+          setOpen(true, 'hover-open')
         }, 140)
       }
 
       var scheduleClose = function () {
         cancelHover()
         if (!open || pinnedRef.current) return
-        // ★ 预览层开着时先不关面板：预览是 `position:fixed` 的独立浮层，指针从 chip 移到它
-        //   上面可能经过面板之外的一小段间隙 —— 那一下不该把面板连同预览一起收掉。
+        // ★ 预览层开着时先不关面板：指针从 chip 移到 `position:fixed` 的预览层可能经过面板外的间隙。
         //   预览收掉之后 `schedulePreviewHide` 会把这条"慢关"接回去。
         if (previewRef.current.open) return
-        // ★ 800ms 才关：从按钮移到面板要经过一小段间隙；官方也是"慢关"，
-        //   太快就会像"碰一下就关"。
+        // ★ 800ms 才关：从按钮移到面板要经过一小段间隙；官方也是"慢关"，太快就像"碰一下就关"。
         hoverTimerRef.current = setTimeout(function () {
           hoverTimerRef.current = null
-          setOpen(false)
+          setOpen(false, 'hover')
         }, 800)
       }
 
@@ -307,6 +343,10 @@
       S.setSnap = setSnap
       S.open = open
       S.setOpen = setOpen
+      S.setPinned = setPinned
+      S.noteAction = noteAction
+      // ★ 临时诊断行（取证用，定位后移除）。
+      S.diagText = '调试 · 挂载 ' + DIAG.mounts + ' 次 · 上次收起：' + (DIAG.lastReason || '—') + ' · 上次动作：' + (DIAG.lastAction || '—')
       S.openError = openError
       S.setOpenError = setOpenError
       S.view = view
@@ -345,7 +385,7 @@
       S.openSeat = openSeat
     }
 
-    return { setup: setup }
+    return { setup: setup, beginMount: beginMount }
   }
 
   window.__ModuleLoader__.load({

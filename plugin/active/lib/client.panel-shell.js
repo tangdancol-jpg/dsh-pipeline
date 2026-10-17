@@ -40,8 +40,15 @@
       deps.data = m.data.create({ actions: deps.actions, preview: deps.preview })
       deps.cardActions = m['card-actions'].create({ actions: deps.actions })
 
+      /** ★ 诊断用：这个组件包装器的首轮是否已经执行过（同一实例的后续渲染不再计挂载）。 */
+      var instanceStarted = false
       /** 右上角的「多AI协调团队」面板：看得到队员（任务 + 席位 + 状态），点名字打开对话。 */
       function PipelinePanel(props) {
+        // ★ 重挂载检测（取证用）：只有包装器首次执行才 +1；同一实例的后续渲染不会重复记（StrictMode 亦然）。
+        if (!instanceStarted) {
+          instanceStarted = true
+          deps.data.beginMount()
+        }
         // 每轮渲染新建：拆分前它是一个闭包，现在是一个对象 —— 语义一样，都是「这一轮的值」。
         var S = { React: React, ctx: ctx, props: props }
         deps.data.setup(S)
@@ -54,7 +61,7 @@
         var open = S.open, setOpen = S.setOpen, batch = S.batch, actionUi = S.actionUi
         var menuKey = S.menuKey, view = S.view, archived = S.archived, snap = S.snap
         var openError = S.openError, sessionId = S.sessionId, setOpenError = S.setOpenError
-        var pinnedRef = S.pinnedRef, rootRef = S.rootRef, menuKeyRef = S.menuKeyRef
+        var pinnedRef = S.pinnedRef, rootRef = S.rootRef, menuKeyRef = S.menuKeyRef, setPinned = S.setPinned
         var menuRef = S.menuRef, menuTriggerRef = S.menuTriggerRef
         var cancelHover = S.cancelHover, scheduleOpen = S.scheduleOpen, scheduleClose = S.scheduleClose
         var closePreview = S.closePreview, clearArmTimer = S.clearArmTimer, setMenuKey = S.setMenuKey
@@ -67,7 +74,7 @@
         var stopHostEvent = deps.atoms.stopHostEvent, messageOf = deps.actions.messageOf
         var PANEL_PAD_X = deps.atoms.PANEL_PAD_X, PANEL_PAD_BOTTOM = deps.atoms.PANEL_PAD_BOTTOM
         var renderPanelHeader = deps.view.renderPanelHeader, renderTaskList = deps.view.renderTaskList
-        var renderArchivedList = deps.view.renderArchivedList
+        var renderArchivedList = deps.view.renderArchivedList, diagText = S.diagText
         var renderBatchBar = deps.batchBar.renderBatchBar, batchActionsFor = deps.batchBar.batchActionsFor
 
       // ---- 打开时：立刻刷一次 + 点外部/ESC 关闭；收起时把预览/确认态/提示/批量/菜单一起撤掉 ----
@@ -107,8 +114,8 @@
             }
             return
           }
-          pinnedRef.current = false
-          setOpen(false)
+          setPinned(false)
+          setOpen(false, 'outside')
         }
         var onKeyDown = function (ev) {
           if (ev.key !== 'Escape') return
@@ -117,8 +124,8 @@
             closeCardMenu()
             return
           }
-          pinnedRef.current = false
-          setOpen(false)
+          setPinned(false)
+          setOpen(false, 'esc')
         }
         document.addEventListener('pointerdown', onPointerDown, true)
         document.addEventListener('keydown', onKeyDown)
@@ -146,8 +153,8 @@
             // 钉住后鼠标移开不会收起，再点一下面板才收。
             cancelHover()
             var next = !(open && pinnedRef.current)
-            pinnedRef.current = next
-            setOpen(next)
+            setPinned(next)
+            setOpen(next, next ? 'trigger-open' : 'trigger')
           },
           onPointerDown: stopHostEvent,
           onDoubleClick: stopHostEvent,
@@ -297,6 +304,10 @@
           onAction: onBatchAction,
           onCancel: exitBatch,
         }),
+      )
+      // ★ 临时诊断行（★ 取证用，定位后移除）：只回答"挂载几次 / 上次谁收起的 / 上次点了什么"。
+      children.push(
+        React.createElement('div', { key: 'diag', 'data-pipeline-diagnostic': 'true', style: { marginTop: '8px', fontSize: '10px', lineHeight: '1.4', color: '#8b949e', wordBreak: 'break-word' } }, diagText),
       )
       var popover = open
         ? React.createElement(

@@ -37,7 +37,7 @@
       var hoverTimerRef = S.hoverTimerRef
       var armTimerRef = S.armTimerRef
       var cancelHover = S.cancelHover
-      var pinnedRef = S.pinnedRef
+      var setPinned = S.setPinned
       var setOpen = S.setOpen
       var clearArmTimer = S.clearArmTimer
       var setMenuKey = S.setMenuKey
@@ -205,8 +205,8 @@
         if (lastSessionRef.current === sessionId) return
         lastSessionRef.current = sessionId
         cancelHover()
-        pinnedRef.current = false
-        setOpen(false)
+        setPinned(false)
+        setOpen(false, 'session-change')
         setOpenError('')
         // 预览 / 删单确认态 / 操作提示 / 批量选择 / 卡片菜单都是**上一个会话**那一屏的东西，一起撤掉。
         closePreview()

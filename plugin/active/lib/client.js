@@ -225,7 +225,7 @@
 
   // ---- 面板 chunk：入口只决定「什么时候去取」，不决定「怎么画」 ----
   //
-  // 宿主按 `/plugins/dsh-pipeline/client.<name>.js?rev=<入口 rev>` 提供它们
+  // 宿主按 `/plugins/dsh-pipeline/client.<name>.js?rev=<入口 rev>` 提供它们（rev 由入口 mtime/size 算，只改 chunk 时改一行入口注释即可让 immutable 缓存失效）
   // （`dsh-client-modules/lib/index.js:934-976`：文件读自 `join(dirname(entry.clientPath),
   // fileName)` —— 也就是**必须和本文件同目录**；响应 immutable；不存在就是 404）。
   //
