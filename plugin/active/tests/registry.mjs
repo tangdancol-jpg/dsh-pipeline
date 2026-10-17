@@ -214,4 +214,9 @@ export const EXTRA_SUITES = [
   //    席位写过的插件文件照常审计 / 授权面内的插件文件照常审计 / 普通项目根的同名配置照常审计 /
   //    profile 根上点名禁改的 cordis.patch.yml 不自动排除（文案点明重取基线）。
   { file: './f16-hashgate-self-tree-check.mjs', exportName: 'runF16HashgateSelfTreeCheck', zh: '★ 哈希闸门排除插件自身文件（缺陷 ⑧：安装树 / 备份残留 / orb-update.json 不计越界；项目文件、席位碰过的、授权面内的、禁改配置照常审计）' },
+  // ★★ 缺陷 ①（2026-10-17）：scope_anchor 为空时锚点退回插件包根 ⇒ 计划写 hello-dsh-pipeline/ 被解析成
+  //    插件包里的路径 ⇒ 编写写项目根下的文件三连拒「不在任何编写席位的分区里」。
+  //    这一套照 index.js 的真实装配钉（不用 harness：它会把锚点设成项目根、盖住缺陷）：
+  //    相对路径锚到项目根 / 三连拒消失且审计同一锚点 / 插件安装树与别的目录照旧拒 / 显式锚点照旧优先。
+  { file: './f17-scope-anchor-default-check.mjs', exportName: 'runF17ScopeAnchorDefaultCheck', zh: '★ 授权面锚点默认 = 项目根（缺陷 ①：现场三连拒消失，越界照旧拒，显式锚点照旧优先）' },
 ]

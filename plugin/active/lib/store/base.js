@@ -10,8 +10,9 @@
 import { existsSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 import { ROLE } from '../roles.js'
-import { isInside, nowIso, PACKAGE_ROOT, pathKey, resolveAgainstAnchor } from '../util.js'
+import { isInside, nowIso, pathKey } from '../util.js'
 import { resolveScopePath } from '../scope/root-marker.js'
+import { resolveScopeAnchor } from '../guard/seats.js'
 import { resetHashGateOrigin } from '../hashgate.js'
 import { DEFAULT_SEAT_SILENCE_MS } from '../liveness.js'
 import { writeJsonAtomic, appendJsonl, readJson, buildHumanRequestEntry } from './shared.js'
@@ -43,16 +44,13 @@ export function createStoreBase(ctx) {
   /**
    * ★ **授权面锚点**：`change_scope[].path` 里的**裸相对路径**按它解析。
    *
-   * 由 `config.changeScopeAnchor` 传进来（装配处见 `index.js`）；留空 = **插件包根**
-   * （`PACKAGE_ROOT`）。**必须与守门用同一个锚点** —— 否则同一份授权面
+   * 由 `config.changeScopeAnchor` 传进来（装配处见 `index.js`）；留空 = **本任务的项目根**
+   * （缺陷 ①）。**必须与守门用同一个锚点** —— 否则同一份授权面
    * 在「改动面审计」与「守门」两处会得出不同结论（一个说在授权面内、一个说越界）。
    *
    * 为什么不能拿 `project_root` 拼：见 `lib/config.js` 的 `changeScopeAnchor`（真单实测）。
    */
-  const scopeAnchor =
-    typeof opts.scopeAnchor === 'string' && opts.scopeAnchor.trim().length > 0
-      ? pathKey(resolveAgainstAnchor(PACKAGE_ROOT, opts.scopeAnchor))
-      : PACKAGE_ROOT
+  const scopeAnchor = typeof opts.scopeAnchor === 'string' ? opts.scopeAnchor.trim() : ''
   /**
    * ★ **某个任务的授权面锚点**：`task.scope_anchor`（元数据里显式写的包根，若有）
    *   > 配置/包根默认（`scopeAnchor`）。
@@ -61,8 +59,9 @@ export function createStoreBase(ctx) {
    * （守门那一侧同理，见 `lib/guard.js` 的 `makeTaskIndexEntry`）。
    */
   const anchorOf = (task) => {
+    // ★ 与守门同一个函数（缺陷 ①：没配锚点 ⇒ 项目根，不再是插件包根）
     const raw = typeof task?.scope_anchor === 'string' ? task.scope_anchor.trim() : ''
-    return raw.length > 0 ? pathKey(resolveAgainstAnchor(scopeAnchor, raw)) : scopeAnchor
+    return resolveScopeAnchor(raw.length > 0 ? raw : scopeAnchor, { projectRoot: task?.project_root ?? projectRoot })
   }
 
   /**

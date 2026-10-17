@@ -289,7 +289,7 @@ export function apply(ctx, rawConfig) {
     // ★ `scopeAnchor` 也必须进索引：授权面里的裸相对路径按它解析（见 lib/config.js
     //   的 `changeScopeAnchor`）。任务元数据里显式写了 `scope_anchor` 就优先用它 ——
     //   于是锚点是**按任务各一份**的，一个任务的锚点影响不到另一个任务。
-    taskIndex.set(taskId, makeTaskIndexEntry({ taskId, projectRoot: root, pipelineDir, scopeAnchor: task.scope_anchor ?? config.changeScopeAnchor, writers: task.roster?.writers ?? null, changeScope: task.change_scope ?? null, fullTest: fullTestCredential(task), hashGateBlocked: hashGateBlocksTests(task), hashGate: task.hash_gate ?? null, hashGateEscalated: hashGateEscalationPending(task),
+    taskIndex.set(taskId, makeTaskIndexEntry({ taskId, projectRoot: root, pipelineDir, scopeAnchor: typeof task.scope_anchor === 'string' && task.scope_anchor.trim().length > 0 ? task.scope_anchor : config.changeScopeAnchor, writers: task.roster?.writers ?? null, changeScope: task.change_scope ?? null, fullTest: fullTestCredential(task), hashGateBlocked: hashGateBlocksTests(task), hashGate: task.hash_gate ?? null, hashGateEscalated: hashGateEscalationPending(task),
       // ★★ T-20261011-56a37e（主管枢纽）：待机面与"编写交付了没有"必须进**同步**索引 ——
       //   守门要在文件工具与 shell 两层同步判它们，运行时读不到盘。
       //   数据源只有一个：`task.hub` 与 `task.handoffs`（派生，不另存一份）。

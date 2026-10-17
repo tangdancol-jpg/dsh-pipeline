@@ -34,16 +34,25 @@ export function agentIdOf(exec) {
  *   `package.json` / `cordis.patch.yml` 又会被**误放行**（越界清单点名禁改的那两份）。
  *
  * 取值优先级（**都是显式的，绝不从授权面自身推断**）：
- *   ① `task.scope_anchor`（任务元数据里显式写的包根，若有）；
- *   ② `config.changeScopeAnchor`（**显式的「包根」配置项**，见 `lib/config.js`）；
- *   ③ {@link PACKAGE_ROOT} —— 本插件自己的包根（从 `lib/util.js` 的位置推出）。
+ *   ① 显式锚点：`task.scope_anchor`，其次 `config.changeScopeAnchor`（调用方按这个顺序挑一个传进来）；
+ *      相对写法按**项目根**解析；
+ *   ② 没配锚点 ⇒ **本任务的项目根**（缺陷 ①，2026-10-17）；
+ *   ③ 连项目根都拿不到 ⇒ 才退回 {@link PACKAGE_ROOT}（最后手段）。
+ *
+ * ★ 缺陷 ① 之前，②③ 是反的：没配锚点就落到插件包根。现场 T-20261016-ff9ba7 的
+ *   `scope_anchor = ""`、计划写 `hello-dsh-pipeline/` ⇒ 被解析成插件包里的路径 ⇒ 编写三连拒。
+ *   "计划里写相对路径"是最自然的写法，每个新项目都会再踩一次；而"用流水线改插件自己"
+ *   （T-20261011-214043 那种）现在要**显式**配锚点（或把路径写全 `node_modules/dsh-pipeline/…`）。
  *
  * @param {string} raw - 显式给的锚点（可为空）
+ * @param {{projectRoot?:string|null}} [opts]
  * @returns {string} pathKey 形式的绝对锚点
  */
-export function resolveScopeAnchor(raw) {
+export function resolveScopeAnchor(raw, { projectRoot = null } = {}) {
   const s = String(raw ?? '').trim()
-  return s.length > 0 ? pathKey(resolveAgainstAnchor(PACKAGE_ROOT, s)) : PACKAGE_ROOT
+  const root = typeof projectRoot === 'string' && projectRoot.trim().length > 0 ? pathKey(projectRoot) : null
+  if (s.length > 0) return pathKey(resolveAgainstAnchor(root ?? PACKAGE_ROOT, s))
+  return root ?? PACKAGE_ROOT
 }
 
 /**
@@ -230,7 +239,7 @@ export function makeTaskIndexEntry({ taskId, projectRoot, pipelineDir, scopeAnch
      * 它必须进这张同步索引：守门在 `guardReason` 里**同步**判"这次写入有没有超出授权"，
      * 运行时读不到盘。**按任务各存一份**，所以一个任务的锚点不会影响另一个任务的判定。
      */
-    scopeAnchor: resolveScopeAnchor(scopeAnchor),
+    scopeAnchor: resolveScopeAnchor(scopeAnchor, { projectRoot }),
     writers: writers ?? null,
     /**
      * ★ 授权改动面（设计目的：最小改动）。
