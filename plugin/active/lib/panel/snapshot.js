@@ -33,6 +33,8 @@
  *     （`lib/liveness/seats.js` 的 `upsertDispatch`）。**没有** `memberName` 这一格 ⇒ 读
  *     `memberName ?? member_name`，取不到就是 `null`（不拿 `agent_id` 冒充名字）；通道字段是
  *     `via`（`team` / `subagent` / `manual`），`manual` 没建会话 ⇒ `kind:"unknown"`。
+ *     ★ 真实台账里 `session_id` 常是 `null`、只有 `agent_id = "session-<uuid>"` ⇒ 显式
+ *     `session_id` 优先，取不到才用 {@link sessionIdOfAgentId} 剥前缀兜底（面板要靠它开会话）。
  *   `task.human_requests[]` 的"答复过了"与 `lib/store/status.js:253`、`lib/store/human.js:429`
  *     同一套判据：`status === 'answered' | 'withdrawn'`（`pending → relayed → answered`，
  *     `relayed` 只是转告过了，**仍然算待办**）。
@@ -74,12 +76,13 @@ const HUMAN_CLOSED_STATUSES = ['answered', 'withdrawn']
 export const PANEL_ACTION_ORDER = Object.freeze(['cancel', 'restore', 'archive', 'delete'])
 
 /**
- * 任务行的**键序契约**（`allowed_actions` 固定在最后，`pinned` 紧挨在它前面）。
+ * 任务行的**键序契约**（`allowed_actions` 固定在最后；`pinned` 紧挨在它前面，
+ * `tier` 又紧挨在 `pinned` 前面）。
  *
  * ★ 为什么把键序写成一个导出常量而不是"靠写代码时的顺序"：客户端按固定键序渲染，
  *   而键序是**会被无意打乱**的（往中间插一格就变了）。测试拿它逐字比对，漂移当场被抓住。
- * ★ `pinned` 的位置是刻意的：原有 8 个键一个都没动（老客户端读前 8 个键照旧），
- *   新键插在 `allowed_actions` **之前** —— 而 `allowed_actions` 仍然**是最后一个键**。
+ * ★ `tier` / `pinned` 的位置是刻意的：原有 8 个键一个都没动（老客户端读前 8 个键照旧），
+ *   新键都插在 `allowed_actions` **之前** —— 而 `allowed_actions` 仍然**是最后一个键**。
  */
 export const PANEL_TASK_KEY_ORDER = Object.freeze([
   'id',
@@ -90,9 +93,13 @@ export const PANEL_TASK_KEY_ORDER = Object.freeze([
   'human_pending',
   'team_board',
   'seats',
+  'tier',
   'pinned',
   'allowed_actions',
 ])
+
+/** 只认这六档（大小写不敏感，输出统一大写）。 */
+const TIER_IDS = Object.freeze(['L0', 'L1', 'L2', 'L3', 'L4', 'L5'])
 
 /**
  * 构建面板快照（**同步 · 纯读 · 绝不抛**）。
@@ -184,7 +191,11 @@ function buildTaskRow({ taskId, taskDir, nowMs, warnings, pinnedIds }) {
       human_pending: humanPendingCount(task),
       team_board: teamBoardOf({ taskDir, taskId, warnings }),
       seats: seatsOf(task),
-      // ★ 新键插在 `allowed_actions` **之前**：既有 8 个键位置不动，`allowed_actions` 仍是最后一个。
+      // ★ `tier` 只从**结构化字段**读（`roster.tier` 优先于 `task.tier`），只认 `L0`–`L5`；
+      //   认不出就是 `null` —— **绝不**从需求文本里猜。判据见 {@link taskTierOf}。
+      tier: taskTierOf(task),
+      // ★ `pinned` / `allowed_actions` 仍然垫在最后两个位置（`tier` 插在它们之前）：
+      //   既有 8 个键位置不动，`allowed_actions` 仍是最后一个键。
       //   判据见 {@link PANEL_TASK_KEY_ORDER}（键序是契约，测试逐字钉住）。
       pinned: pinnedIds instanceof Set && pinnedIds.has(taskId),
       // ★ 追加在最后（键名/顺序不动）：判据见 `allowedActionsOf()`，
@@ -246,6 +257,27 @@ export function allowedActionsOf(state) {
     out.push('delete')
   }
   return out
+}
+
+/**
+ * 任务档位（`L0`–`L5`）：**只从结构化字段读**，认不出就是 `null`。
+ *
+ * ★ 取值顺序：`task.roster.tier` → `task.tier` → `null`（第一个**非空**来源说了算）。
+ *   第一个来源写了却认不出 ⇒ `null`，**不退回**去读下一个 —— 显式写错不该被旧字段悄悄掩盖，
+ *   更**不**从 `requirement` 文本里猜（需求里出现 `L3` 不等于这张单的档位是 `L3`）。
+ * ★ 大小写不敏感（`l2` ⇒ `L2`），输出统一大写；非字符串 / 空白 / `X9` / `L6` 一律 `null`。
+ *
+ * @param {object} [task]
+ * @returns {string|null} `'L0'|'L1'|'L2'|'L3'|'L4'|'L5'|null`
+ */
+export function taskTierOf(task) {
+  for (const raw of [task?.roster?.tier, task?.tier]) {
+    const text = nullableText(raw)
+    if (text === null) continue
+    const key = text.toUpperCase()
+    return TIER_IDS.includes(key) ? key : null
+  }
+  return null
 }
 
 /**
@@ -327,7 +359,9 @@ export function seatsOf(task) {
     const patch = {
       status: SEAT_STATUS.DISPATCHED,
       kind: kindOfChannel(rec),
-      session_id: nullableText(rec?.session_id),
+      // ★ 真实台账里 `session_id` 常是 `null`，只有 `agent_id = "session-<uuid>"`：
+      //   显式 `session_id` 永远优先，取不到才从 `agent_id` 剥前缀兜底（见 {@link sessionIdOfAgentId}）。
+      session_id: nullableText(rec?.session_id) ?? sessionIdOfAgentId(rec?.agent_id),
       parent_session_id: nullableText(rec?.parent_session_id ?? rec?.parentSessionId),
       member_name: nullableText(rec?.memberName ?? rec?.member_name),
     }
@@ -413,6 +447,28 @@ export function kindOfChannel(record) {
   if (v === 'team') return SEAT_KIND.TEAM
   if (v === 'manual') return SEAT_KIND.UNKNOWN
   return SEAT_KIND.SESSION
+}
+
+/** 派活台账里"真的建了会话"的 agent id 前缀。 */
+const SESSION_AGENT_PREFIX = 'session-'
+
+/**
+ * 从派活台账的 `agent_id` 兜底出**会话 id**（`session_id` 为 `null` 时用）。
+ *
+ * ★ 为什么需要它：真实 `task.dispatched[]` 里 `session_id` 是 `null`，只有
+ *   `agent_id = "session-<uuid>"`；而面板要拿 `session_id` 去拉会话预览 / 打开会话。
+ *   不兜这一下，真实派出去的席位在面板上就是"没有会话"。
+ * ★ 只认 `session-` 前缀且后面**非空**（`abc-123`）；其余（`member-2` / 普通 agent id /
+ *   非字符串 / 空白）一律 `null`，**不抛** —— 猜错 id 比留空更糟。
+ *
+ * @param {unknown} agentId
+ * @returns {string|null}
+ */
+export function sessionIdOfAgentId(agentId) {
+  const raw = nullableText(agentId)
+  if (raw === null || !raw.startsWith(SESSION_AGENT_PREFIX)) return null
+  const id = raw.slice(SESSION_AGENT_PREFIX.length).trim()
+  return id.length === 0 ? null : id
 }
 
 /** 角色中文名；认不出原样返回 id（与 `lib/roles.js` 的 `roleLabel` 同一份判据）。 */

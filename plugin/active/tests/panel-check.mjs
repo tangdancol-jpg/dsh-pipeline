@@ -5,12 +5,14 @@
  *
  * 钉住的是「面板能显示什么」这件事的**判据**，不是某段文案：
  *   A. 契约字段齐全（`id/state/state_label/requirement_snippet/updated_at/
- *      human_pending/team_board/seats` 一个不少、席位的九个字段也一个不少）；
+ *      human_pending/team_board/seats/tier` 一个不少、席位的九个字段也一个不少）；
+ *      `tier` 只认 `L0`–`L5`（大小写不敏感、输出大写），认不出就是 `null`；
  *   B. 中文名来自**唯一出处**（`STATE_LABEL` / `roleLabel`），认不出就原样返回、绝不抛；
  *   C. 需求摘要：压缩空白 → 截 80 个码点 → 超出加 `…`，且**绝不含交接物正文**；
  *   D. 坏 JSON / 读不出来 ⇒ **跳过 + 记 warnings**，不许把整张面板打成 500；
  *   E. 席位「声明 vs 已派出」的合并：同 (role, seat) 升级、名单里没有的追加、
  *      通道字段（`via`）决定 `kind`、`member_name` 取不到就是 `null`（不拿 id 冒充名字）；
+ *      `session_id` 缺省时从 `agent_id:"session-<id>"` 剥前缀兜底（显式 `session_id` 优先）；
  *   F. `human_pending` 只数**还没答复**的（`answered` / `withdrawn` 不算，`relayed` 还算）；
  *   G. 任务按 `updated_at` **倒序**；
  *   H. 路由：`GET /.dsh-pipeline/panel` 只读、带 `no-store`；`/state` 行为一个字没变。
@@ -51,8 +53,10 @@ import {
   declaredSeatsOf,
   humanPendingCount,
   seatsOf,
+  sessionIdOfAgentId,
   snippetOf,
   stateLabelOf,
+  taskTierOf,
 } from '../lib/panel/snapshot.js'
 import {
   DELETE_CONFIRM_ERROR,
@@ -362,9 +366,14 @@ export async function runPanelCheck() {
     rec.add(G_A, '`warnings` 是字符串数组', Array.isArray(snap?.warnings) && snap.warnings.every((w) => typeof w === 'string'), JSON.stringify(snap?.warnings))
 
     const task = (snap?.tasks ?? []).find((t) => t.id === NEWER) ?? null
-    const TASK_KEYS = ['id', 'state', 'state_label', 'requirement_snippet', 'updated_at', 'human_pending', 'team_board', 'seats', 'pinned', 'allowed_actions']
-    rec.add(G_A, '任务行字段与契约**逐个**对齐（10 个，`pinned` 插在 `allowed_actions` 之前）', task !== null && JSON.stringify(Object.keys(task)) === JSON.stringify(PANEL_TASK_KEY_ORDER) && JSON.stringify(PANEL_TASK_KEY_ORDER) === JSON.stringify(TASK_KEYS), `实际键=${JSON.stringify(Object.keys(task ?? {}))}`)
-    rec.add(G_A, '`allowed_actions` 仍是任务行**最后一个键**，原 8 个键的位置一个没动', task !== null && Object.keys(task).at(-1) === 'allowed_actions' && Object.keys(task).slice(0, 8).join(',') === 'id,state,state_label,requirement_snippet,updated_at,human_pending,team_board,seats' && Object.keys(task)[8] === 'pinned', `键序=${JSON.stringify(Object.keys(task ?? {}))}`)
+    const TASK_KEYS = ['id', 'state', 'state_label', 'requirement_snippet', 'updated_at', 'human_pending', 'team_board', 'seats', 'tier', 'pinned', 'allowed_actions']
+    rec.add(G_A, '任务行字段与契约**逐个**对齐（11 个，`tier` 插在 `pinned` 之前）', task !== null && JSON.stringify(Object.keys(task)) === JSON.stringify(PANEL_TASK_KEY_ORDER) && JSON.stringify(PANEL_TASK_KEY_ORDER) === JSON.stringify(TASK_KEYS), `实际键=${JSON.stringify(Object.keys(task ?? {}))}`)
+    rec.add(G_A, '`allowed_actions` 仍是任务行**最后一个键**，原 8 个键的位置一个没动', task !== null && Object.keys(task).at(-1) === 'allowed_actions' && Object.keys(task).slice(0, 8).join(',') === 'id,state,state_label,requirement_snippet,updated_at,human_pending,team_board,seats' && Object.keys(task)[8] === 'tier' && Object.keys(task)[9] === 'pinned', `键序=${JSON.stringify(Object.keys(task ?? {}))}`)
+    rec.add(G_A, '`tier` 接进任务行：主夹具 `roster.tier:"L3"` ⇒ `tier:"L3"`', task?.tier === 'L3', `tier=${String(task?.tier)}`)
+    rec.add(G_A, '`taskTierOf`：`roster.tier:"L5"` ⇒ `"L5"`；`"l2"` ⇒ `"L2"`（大小写不敏感，输出统一大写）', taskTierOf({ roster: { tier: 'L5' } }) === 'L5' && taskTierOf({ roster: { tier: 'l2' } }) === 'L2', JSON.stringify([taskTierOf({ roster: { tier: 'L5' } }), taskTierOf({ roster: { tier: 'l2' } })]))
+    rec.add(G_A, '`taskTierOf`：没有 tier ⇒ `null`（无 task / 空 roster / 空白都不抛）', taskTierOf(undefined) === null && taskTierOf({}) === null && taskTierOf({ roster: {} }) === null && taskTierOf({ roster: { tier: '   ' } }) === null, JSON.stringify([taskTierOf(undefined), taskTierOf({}), taskTierOf({ roster: { tier: '   ' } })]))
+    rec.add(G_A, '`taskTierOf`：认不出（`X9` / `L6` / 非字符串）⇒ `null`，**绝不**从需求文本里猜', taskTierOf({ roster: { tier: 'X9' }, requirement: '这是 L3 的单' }) === null && taskTierOf({ roster: { tier: 'L6' } }) === null && taskTierOf({ roster: { tier: 3 } }) === null, JSON.stringify([taskTierOf({ roster: { tier: 'X9' } }), taskTierOf({ roster: { tier: 'L6' } }), taskTierOf({ roster: { tier: 3 } })]))
+    rec.add(G_A, '`taskTierOf` 取值顺序：缺 `roster.tier` ⇒ 退回 `task.tier`；`roster.tier` 写了却认不出 ⇒ `null`（不拿旧字段悄悄顶上）', taskTierOf({ tier: 'L4' }) === 'L4' && taskTierOf({ roster: { tier: null }, tier: 'l0' }) === 'L0' && taskTierOf({ roster: { tier: 'X9' }, tier: 'L4' }) === null, JSON.stringify([taskTierOf({ tier: 'L4' }), taskTierOf({ roster: { tier: null }, tier: 'l0' }), taskTierOf({ roster: { tier: 'X9' }, tier: 'L4' })]))
     const SEAT_KEYS = ['kind', 'layer', 'member_name', 'parent_session_id', 'role', 'role_label', 'seat', 'session_id', 'status']
     const seatKeysOk = (task?.seats ?? []).every((s) => JSON.stringify(Object.keys(s).sort()) === JSON.stringify(SEAT_KEYS))
     rec.add(G_A, '席位行字段与契约**逐个**对齐（9 个）', seatKeysOk && (task?.seats ?? []).length > 0, `首个席位=${JSON.stringify(task?.seats?.[0] ?? null)}`)
@@ -419,6 +428,18 @@ export async function runPanelCheck() {
       { role: 'tester', seat: null, layer: null },
     ]), JSON.stringify(decl))
     rec.add(G_E, '`seatsOf` 对空任务也安全（只剩 main）', seatsOf(undefined)?.length === 1 && seatsOf({ roster: null })?.length === 1, '')
+    const fallbackSeats = seatsOf({
+      dispatched: [
+        { role: 'tester', seat: null, agent_id: 'session-abc-123', session_id: null, via: 'subagent' },
+        { role: 'reviewer', seat: null, agent_id: 'session-ffff', session_id: 'xyz', via: 'subagent' },
+        { role: 'docs', seat: null, agent_id: 'member-9', session_id: null, via: 'team' },
+      ],
+    })
+    const fbPick = (role) => fallbackSeats.find((s) => s.role === role) ?? null
+    rec.add(G_E, '③ `session_id:null` + `agent_id:"session-<id>"` ⇒ 席位 `session_id` 剥前缀兜底', fbPick('tester')?.session_id === 'abc-123', JSON.stringify(fbPick('tester')))
+    rec.add(G_E, '③ 显式 `session_id` **优先**于 `agent_id`（兜底不覆盖事实）', fbPick('reviewer')?.session_id === 'xyz', JSON.stringify(fbPick('reviewer')))
+    rec.add(G_E, '③ `agent_id` 不带 `session-` 前缀 ⇒ `session_id:null`（不拿 member/agent id 冒充会话）', fbPick('docs')?.session_id === null && fbPick('docs')?.member_name === null, JSON.stringify(fbPick('docs')))
+    rec.add(G_E, '`sessionIdOfAgentId`：仅 `session-` + 非空才返回，其余一律 `null` 且不抛', sessionIdOfAgentId('session-abc-123') === 'abc-123' && sessionIdOfAgentId('session-') === null && sessionIdOfAgentId('session-   ') === null && sessionIdOfAgentId('agent-x') === null && sessionIdOfAgentId(null) === null && sessionIdOfAgentId(undefined) === null, JSON.stringify([sessionIdOfAgentId('session-abc-123'), sessionIdOfAgentId('session-'), sessionIdOfAgentId('agent-x'), sessionIdOfAgentId(null)]))
 
     // === F 人工待办 ========================================================
     rec.add(G_F, '`human_pending` = 未答复数（pending + relayed = 2；answered / withdrawn 不算）', task?.human_pending === 2, `human_pending=${String(task?.human_pending)}`)
@@ -759,7 +780,7 @@ export async function runPanelCheck() {
     rec.add(G_P, '每个任务都有 `pinned: boolean`', (pinSnap.tasks ?? []).length === 3 && (pinSnap.tasks ?? []).every((t) => typeof t.pinned === 'boolean'), JSON.stringify((pinSnap.tasks ?? []).map((t) => `${t.id}:${String(t.pinned)}`)))
     rec.add(G_P, '**置顶优先**：置顶的旧单排到最新单前面', (pinSnap.tasks ?? [])[0]?.id === 'T-20261020-oldpinned' && pinSnap.tasks[0].pinned === true, JSON.stringify((pinSnap.tasks ?? []).map((t) => t.id)))
     rec.add(G_P, '置顶组内部仍按 `updated_at` 倒序；未置顶组同理', JSON.stringify((pinSnap.tasks ?? []).map((t) => t.id)) === JSON.stringify(['T-20261020-oldpinned', 'T-20261021-newplain', 'T-20261022-midplain']), JSON.stringify((pinSnap.tasks ?? []).map((t) => `${t.id}@${t.updated_at}`)))
-    rec.add(G_P, '任务行键序仍是契约那 10 个（`pinned` 在倒数第二）', (pinSnap.tasks ?? []).every((t) => JSON.stringify(Object.keys(t)) === JSON.stringify(PANEL_TASK_KEY_ORDER)), JSON.stringify(Object.keys((pinSnap.tasks ?? [])[0] ?? {})))
+    rec.add(G_P, '任务行键序仍是契约那 11 个（`tier` 倒数第三、`pinned` 倒数第二）', (pinSnap.tasks ?? []).every((t) => JSON.stringify(Object.keys(t)) === JSON.stringify(PANEL_TASK_KEY_ORDER)), JSON.stringify(Object.keys((pinSnap.tasks ?? [])[0] ?? {})))
     setPinned(pinSnapRoot, '.pipeline', 'T-20261020-oldpinned', false)
     const unpinnedSnap = buildPanelSnapshot({ projectRoot: pinSnapRoot })
     rec.add(G_P, '取消置顶后排序回到纯 `updated_at` 倒序', JSON.stringify((unpinnedSnap.tasks ?? []).map((t) => t.id)) === JSON.stringify(['T-20261021-newplain', 'T-20261022-midplain', 'T-20261020-oldpinned']), JSON.stringify((unpinnedSnap.tasks ?? []).map((t) => t.id)))

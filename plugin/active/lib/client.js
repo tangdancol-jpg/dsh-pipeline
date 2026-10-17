@@ -45,18 +45,20 @@
  *      带 ring 高亮与「当前对话」标签。数据来自 `GET /.dsh-pipeline/panel`（5s 轮询）。
  *
  * 面板里还有这几处交互（宿主侧只需要契约，代码全在本文件）：
- *   · 任务卡右下角的**操作按钮**（终止 / 恢复 / 归档 / 删单）：按钮来源是快照的
+ *   · 任务卡右上角的**「⋯」操作菜单**（终止 / 恢复 / 归档 / 删单）：菜单项来源是快照的
  *     `task.allowed_actions`，点击发 `POST /.dsh-pipeline/panel/action`。
  *     「删单」用**两次点击**确认（3 秒内再点），**不弹** `window.confirm`（Electron 里体验差
- *     且可能被拦）。
- *   · **置顶**（任务卡标题行右侧那颗钉子）：`pin` / `unpin`。宿主已经把置顶任务排在快照前面，
- *     客户端**不重排**，只在卡上显示 📌。
+ *     且可能被拦）。菜单是卡片内的绝对定位浮层：点菜单外 / ESC 关闭，动作成功后也关闭。
+ *   · **置顶**（任务卡标题行**左侧**、紧挨任务 id 的那颗钉子）：`pin` / `unpin`。宿主已经把
+ *     置顶任务排在快照前面，客户端**不重排**，只在卡上显示 📌。
  *   · **批量模式**（头部左侧「批量」）：每张卡左侧出现圆勾、**点整卡切换选中**，底部浮出批量
  *     操作栏；对选中项**串行** POST（一次一个，显示「处理中 i/N」），完成后清空选择并退出批量。
- *   · **归档视图**（头部右侧「归档 N」）：`GET /.dsh-pipeline/panel?view=archived`，每张归档卡
- *     可「恢复」/「永久删除」（后者同样两击确认）。★ 归档视图的 `task_id` 传的是**归档目录名
- *     `dir`**，不是任务 id。
- *   · 席位 chip **悬停 400ms** 弹一个会话预览浮层（最近 12 条，`overflowY:auto` 可滚轮翻）：
+ *   · **归档视图**（头部右侧「归档 N」）：`GET /.dsh-pipeline/panel?view=archived`，每张归档卡的
+ *     「⋯」菜单里可「恢复」/「永久删除」（后者同样两击确认）。★ 归档视图的 `task_id` 传的是
+ *     **归档目录名 `dir`**，不是任务 id。
+ *   · 席位 chip **悬停 400ms** 在面板**左侧**弹一个会话预览大聊天窗（宽 `min(520px, 42vw)`、
+ *     高 `min(520px, 64vh)`，只显示最近 12 条**真对话**，`overflowY:auto` 可滚轮翻；
+ *     点任意气泡用 `uiWorkspace.openSession` 打开真实会话）：
  *     取数走客户端 `sessions` 服务（`ctx.get('sessions')` → `retain(...)` →
  *     `binding.eventSource`），不是从面板快照里拿的。
  *
@@ -394,14 +396,30 @@
   /** 悬停多久才弹会话预览 —— 太短会在扫过一排 chip 时闪出一堆浮层。 */
   var PREVIEW_SHOW_MS = 400
 
-  /** 指针离开后多久收起 —— 留出"移进预览层"的时间（移入会取消这个计时）。 */
-  var PREVIEW_HIDE_MS = 250
+  /**
+   * 指针离开后多久收起 —— 留出"从 chip 横移到左侧大预览窗"的时间
+   * （预览窗在面板左侧，中间要跨过一段间隙；移入预览会取消这个计时）。
+   */
+  var PREVIEW_HIDE_MS = 600
 
-  /** 预览里最多显示几条消息（取最后这么多条）。 */
+  /** 预览里最多显示几条消息（**过滤掉注入/工具行之后**再取最后这么多条）。 */
   var PREVIEW_MAX_ROWS = 12
 
   /** 单条消息最多截多少字（空白先压成一个空格；超出加省略号）。 */
-  var PREVIEW_MAX_CHARS = 120
+  var PREVIEW_MAX_CHARS = 200
+
+  /** AI 回答正文为空时气泡里显示的文案（不渲染空气泡）。 */
+  var PREVIEW_THINKING_TEXT = '正在思考…'
+
+  /**
+   * 注入/系统类 user 消息的判据 —— 这些不是"真对话"，预览里一律跳过。
+   *
+   * 前三条是宿主注入的运行时上下文 / 采样时间 / 快照说明（正文以它们开头），
+   * `<system-reminder>` 与 `Your parent agent id is` 是**任意位置**命中即跳过，
+   * `【流水线` 是本插件自己注入给席位的提示词。全部按**压缩空白之后的正文**判断。
+   */
+  var PREVIEW_SKIP_PREFIXES = ['Current runtime context', 'Time sampled', 'This snapshot supersedes', '【流水线']
+  var PREVIEW_SKIP_PARTS = ['<system-reminder>', 'Your parent agent id is']
 
   /** 同一会话的预览快照缓存多久：30 秒内不重复 `retain`。 */
   var PREVIEW_CACHE_MS = 30000
@@ -412,16 +430,33 @@
   /** 会话历史读取的兜底超时：`ready` 迟迟不结算时不让预览层永远转圈。 */
   var PREVIEW_LOAD_TIMEOUT_MS = 6000
 
-  /** 预览层尺寸：小窗口看聊天（宽度自适应视口，宽一点才像聊天窗；高度上限 280px）。 */
-  var PREVIEW_MIN_WIDTH = 300
-  var PREVIEW_MAX_WIDTH = 420
-  var PREVIEW_MAX_HEIGHT = 280
+  /**
+   * 会话预览窗尺寸：**面板左侧的大聊天窗**，随视口自适应。
+   *   宽 = `min(520px, 42vw)`（下限 360）、高 = `min(520px, 64vh)`（下限 300）。
+   * 具体落点由 {@link previewBoxFor} 按面板根节点的 `getBoundingClientRect()` 算。
+   */
+  var PREVIEW_MIN_WIDTH = 360
+  var PREVIEW_MAX_WIDTH = 520
+  var PREVIEW_WIDTH_RATIO = 0.42
+  var PREVIEW_MIN_HEIGHT = 300
+  var PREVIEW_MAX_HEIGHT = 520
+  var PREVIEW_HEIGHT_RATIO = 0.64
 
-  /** 三种消息在预览里的标签与颜色（用户 / AI / 工具）。 */
+  /** 面板本体的估算宽度：弹层实际就是 `width: min(440px, 92vw)`（见下面面板 style）。 */
+  var PANEL_WIDTH_MAX = 440
+  var PANEL_WIDTH_RATIO = 0.92
+
+  /** 预览窗与面板左边缘的水平间隙 / 与面板底边的垂直间隙。 */
+  var PREVIEW_GAP_X = 12
+  var PREVIEW_GAP_Y = 8
+
+  /** 视口收边时至少留出的边距。 */
+  var PREVIEW_VIEWPORT_PAD = 8
+
+  /** 两种消息在预览里的标签与颜色（**只留真对话**：用户 / AI）。 */
   var PREVIEW_ROLE = {
     'user/message': { label: '用户', color: '#2f81f7' },
     'assistant/message': { label: 'AI', color: '#2ea043' },
-    'tool/result': { label: '工具', color: '#d29922' },
   }
 
   /**
@@ -456,6 +491,23 @@
 
   /** 认不出的状态时的兜底色（宁可显示"未知"，也不假装正常）。 */
   var SEAT_STATUS_UNKNOWN = { dot: '#d29922', label: '未知' }
+
+  /**
+   * 任务档位（`L0`–`L5`）的**本地展示表**：中文档位名 + 徽标配色。
+   *
+   * ★ 映射**不塞进快照数据**：宿主只回答"这张单几级"（`task.tier` = `'L0'`…`'L5'` / `null`），
+   *   档位叫法与颜色是**展示**，跟着 UI 走 —— 客户端这份表就是唯一来源。
+   * ★ 配色按"越往上越重"：灰 → 蓝 → 青 → 橙 → 紫 → 红。`fg` 是文字色，`bg` / `border`
+   *   用半透明色，深浅主题下都还读得出来（与 `stateTone` 同一套用法）。
+   */
+  var TIER_META = {
+    L0: { name: '极简脚本', fg: '#6e7781', border: 'rgba(110,119,129,.55)', bg: 'rgba(110,119,129,.16)' },
+    L1: { name: '普通功能', fg: '#2f81f7', border: 'rgba(47,129,247,.55)', bg: 'rgba(47,129,247,.14)' },
+    L2: { name: '中大型', fg: '#1b7c83', border: 'rgba(27,124,131,.55)', bg: 'rgba(27,124,131,.14)' },
+    L3: { name: '安全敏感', fg: '#bc4c00', border: 'rgba(188,76,0,.55)', bg: 'rgba(188,76,0,.14)' },
+    L4: { name: '生产上线', fg: '#8250df', border: 'rgba(130,80,223,.55)', bg: 'rgba(130,80,223,.14)' },
+    L5: { name: '特殊要求', fg: '#cf222e', border: 'rgba(207,34,46,.55)', bg: 'rgba(207,34,46,.14)' },
+  }
 
   /** 任务状态徽标的色调：完成=绿、阻塞/取消=黄、其余=蓝。认不出就当蓝。 */
   function stateTone(state) {
@@ -648,25 +700,56 @@
     return parts.join(' ')
   }
 
-  /** 压空白 + 截断：预览里一条消息只占一行，太长的正文只留开头。 */
+  /** 正文压空白（换行/多空格一律并成一个空格，首尾去掉）—— 过滤与截断共用这一步。 */
+  function flatPreviewText(raw) {
+    return typeof raw === 'string' ? raw.replace(/\s+/g, ' ').trim() : ''
+  }
+
+  /** 压空白 + 截断：预览里一条消息压成一段，太长的正文只留开头（末尾加省略号）。 */
   function previewText(raw) {
-    if (typeof raw !== 'string') return ''
-    var flat = raw.replace(/\s+/g, ' ').trim()
+    var flat = flatPreviewText(raw)
     if (flat === '') return ''
     if (flat.length <= PREVIEW_MAX_CHARS) return flat
     return flat.slice(0, PREVIEW_MAX_CHARS) + '…'
   }
 
   /**
-   * 事件窗口 → 预览行（取最后 {@link PREVIEW_MAX_ROWS} 条）。
+   * 这条 user 正文是不是**注入/系统类**消息（不是用户真说的话）。
+   *
+   * 任一命中即跳过：以 `Current runtime context` / `Time sampled` / `This snapshot supersedes`
+   * / `【流水线` 开头，或任意位置含 `<system-reminder>` / `Your parent agent id is`。
+   * 判断前先压空白 —— 注入正文常带换行，直接拿原文比前缀会漏。
+   */
+  function isInjectedPreviewText(raw) {
+    var flat = flatPreviewText(raw)
+    if (flat === '') return false
+    var i = 0
+    for (i = 0; i < PREVIEW_SKIP_PREFIXES.length; i++) {
+      if (flat.indexOf(PREVIEW_SKIP_PREFIXES[i]) === 0) return true
+    }
+    for (i = 0; i < PREVIEW_SKIP_PARTS.length; i++) {
+      if (flat.indexOf(PREVIEW_SKIP_PARTS[i]) !== -1) return true
+    }
+    return false
+  }
+
+  /**
+   * 事件窗口 → 预览行（**过滤之后**取最后 {@link PREVIEW_MAX_ROWS} 条）。
    *
    * 只认 `entry.type === 'event'`（`transient` 是流式过程中的临时行，不代表已入档内容），
-   * 事件类型限于 `user/message` / `assistant/message` / `tool/result`。
+   * 事件类型**只留** `user/message` / `assistant/message` —— 工具行、其它消息类型一律不进预览
+   * （那是"缩小视窗的聊天界面"，不是调试日志）。
+   *
+   * 过滤规则：
+   *   · user 侧的注入/系统消息（运行时上下文、system-reminder、`【流水线…` 等）不是真对话，
+   *     按正文判断命中即跳过（见 {@link isInjectedPreviewText}）；
+   *   · assistant 正文为空 / 只有空白 / 只有 thinking 块（`textOfContent` 只认 text 块）⇒
+   *     保留一行"正在思考"（`thinking: true`），由渲染侧显示斜体灰字，不渲染空气泡。
    *
    * ★ 正文在 `event.data` 里的位置**两种都有**（照真实 API 写，不靠猜：
    *   `@deepseek-ai/dsh-session/lib/types/surface.js` 的 `deriveEventMessage`）：
    *   · `user/message` 的 message 就是 `data` 本身（那里 `case 'user/message': return event.data`）；
-   *   · `assistant/message` / `tool/result` 是 `data.message`。
+   *   · `assistant/message` 是 `data.message`。
    *   所以先取 `data.message`，没有就退回 `data` —— 两种都能取到正文。
    */
   function previewRowsFromEntries(entries) {
@@ -682,14 +765,17 @@
       var data = event.data
       if (data === null || typeof data !== 'object') continue
       var message = data.message !== null && typeof data.message === 'object' ? data.message : data
-      var text = previewText(textOfContent(message.content, 0))
-      if (text === '') {
-        // 工具结果没正文也照样占一行（用户要看到"这里跑过一次工具"）；
-        // assistant 的空文本（max-tokens 截断那种）直接跳过。
-        if (event.type !== 'tool/result') continue
-        text = '[工具结果]'
+      var raw = textOfContent(message.content, 0)
+      if (event.type === 'user/message') {
+        if (isInjectedPreviewText(raw)) continue
+        var userText = previewText(raw)
+        // 压完空白就什么都不剩的 user 消息也不占一行（否则是个空气泡）
+        if (userText === '') continue
+        rows.push({ type: event.type, role: role.label, color: role.color, text: userText, thinking: false })
+        continue
       }
-      rows.push({ type: event.type, role: role.label, color: role.color, text: text })
+      var aiText = previewText(raw)
+      rows.push({ type: event.type, role: role.label, color: role.color, text: aiText, thinking: aiText === '' })
     }
     return rows.length > PREVIEW_MAX_ROWS ? rows.slice(rows.length - PREVIEW_MAX_ROWS) : rows
   }
@@ -793,35 +879,47 @@
   }
 
   /**
-   * 预览浮层的落点：按 chip 的 `getBoundingClientRect()` 算，视口内自动左右/上下收边。
+   * 预览窗的落点与尺寸：**贴在面板左侧的大聊天窗**（`position:fixed`，不盖住任务卡列表）。
    *
-   * 返回 `{ left, width, top? , bottom? }`：给 `top` 就是挂在 chip 下面，
-   * 给 `bottom` 就是翻到上面去（用 `bottom` 定位不必先知道自身高度）。
+   * 坐标口径（按需求给定，不另造）：
+   *   · 面板宽按 `min(440px, 92vw)` 估（弹层实际就是 `width: min(440px, 92vw)`，见面板 style）；
+   *   · `panelRight = rootRect.right`、`panelLeft = panelRight - panelWidth`；
+   *   · 预览**右边缘 = panelLeft - 12**，左边缘 = 右边缘 - 预览宽；
+   *   · `top = rootRect.bottom + 8`；越界在视口内收边（左边不小于 8、太靠下就整体上移）。
+   *
+   * 尺寸：宽 `min(520px, 42vw)`（下限 360）、高 `min(520px, 64vh)`（下限 300），随视口自适应。
+   *
+   * @param {Element|null} rootEl - 面板根节点（`rootRef.current`）
+   * @returns {{left:number, top:number, width:number, height:number}} 全部是 px 数字
    */
-  function previewBoxFor(el) {
+  function previewBoxFor(rootEl) {
     var vw =
       typeof window !== 'undefined' && typeof window.innerWidth === 'number' && window.innerWidth > 0 ? window.innerWidth : 1024
     var vh =
       typeof window !== 'undefined' && typeof window.innerHeight === 'number' && window.innerHeight > 0 ? window.innerHeight : 768
     var rect = null
     try {
-      rect = el !== null && el !== undefined && typeof el.getBoundingClientRect === 'function' ? el.getBoundingClientRect() : null
+      rect =
+        rootEl !== null && rootEl !== undefined && typeof rootEl.getBoundingClientRect === 'function'
+          ? rootEl.getBoundingClientRect()
+          : null
     } catch (err) {
       rect = null
     }
-    var anchorLeft = rect === null ? vw / 2 : rect.left + rect.width / 2
-    var anchorTop = rect === null ? vh / 2 : rect.top
-    var anchorBottom = rect === null ? vh / 2 : rect.bottom
-    var width = Math.max(PREVIEW_MIN_WIDTH, Math.min(PREVIEW_MAX_WIDTH, vw - 16))
-    var left = Math.round(anchorLeft - width / 2)
-    if (left + width > vw - 8) left = vw - 8 - width
-    if (left < 8) left = 8
-    var below = Math.round(anchorBottom + 6)
-    // 只用来判断"下面还放不放得下"：标题 + 内边距 + 内容上限。
-    var estimate = PREVIEW_MAX_HEIGHT + 46
-    var above = below + estimate > vh - 8 && anchorTop - 6 - estimate > 8
-    if (above) return { left: left, width: width, bottom: Math.round(vh - anchorTop + 6) }
-    return { left: left, width: width, top: below }
+    var width = Math.round(Math.min(PREVIEW_MAX_WIDTH, Math.max(PREVIEW_MIN_WIDTH, vw * PREVIEW_WIDTH_RATIO)))
+    var height = Math.round(Math.min(PREVIEW_MAX_HEIGHT, Math.max(PREVIEW_MIN_HEIGHT, vh * PREVIEW_HEIGHT_RATIO)))
+    if (width > vw - PREVIEW_VIEWPORT_PAD * 2) width = vw - PREVIEW_VIEWPORT_PAD * 2
+    if (height > vh - PREVIEW_VIEWPORT_PAD * 2) height = vh - PREVIEW_VIEWPORT_PAD * 2
+    var panelWidth = Math.min(PANEL_WIDTH_MAX, Math.round(vw * PANEL_WIDTH_RATIO))
+    var panelRight = rect === null ? vw : rect.right
+    var panelBottom = rect === null ? PREVIEW_VIEWPORT_PAD : rect.bottom
+    // 取整到 px：避免半像素边框让气泡文字发虚
+    var left = Math.round(panelRight - panelWidth - PREVIEW_GAP_X - width)
+    if (left < PREVIEW_VIEWPORT_PAD) left = PREVIEW_VIEWPORT_PAD
+    var top = Math.round(panelBottom + PREVIEW_GAP_Y)
+    if (top + height > vh - PREVIEW_VIEWPORT_PAD) top = vh - PREVIEW_VIEWPORT_PAD - height
+    if (top < PREVIEW_VIEWPORT_PAD) top = PREVIEW_VIEWPORT_PAD
+    return { left: left, top: top, width: width, height: height }
   }
 
   /**
@@ -1103,50 +1201,147 @@
     return { label: String(action), done: '已完成', tip: '' }
   }
 
+  // =========================================================================
+  // 分区 · 卡片操作菜单（右上角「⋯」）
+  // =========================================================================
+  //
+  // 一张卡的动作入口**只有一个**：右上角那颗 22px 的圆形「⋯」。点开是**卡片内**的
+  // 绝对定位菜单（zIndex 40 > 卡片），菜单项 = `allowed_actions` 对应的动作，
+  // 顺序与文案都不变。批量模式下不渲染（那时点整卡 = 选中，不能让菜单抢点击）。
+  //
+  // 菜单的**开关状态归面板**（一次只开一个）；这里只负责长相与点击 —— busy / 确认态
+  // 都由调用方算好传进来，所以可以被自测当成纯函数调用。
+
   /**
-   * 一个操作按钮（任务卡与归档卡**共用**）。
+   * 面板内部的**指针事件不要冒泡回宿主**。
    *
-   * busy / 确认态 / 危险红一律由调用方算好传进来 —— 这里只负责长相与点击，
-   * 所以可以被自测当成纯函数调用。
+   * 面板挂在 `conversation.session.header.utilities`（会话头部里），宿主的头部自己也有
+   * pointerdown / click 语义（展开、收起、切侧栏）。面板里的点击一旦冒上去，用户看到的
+   * 就是「点面板顶部那一行，按钮不响应，面板反倒被关了」。
+   *
+   * 只 stop，不 preventDefault：按钮的默认行为（focus / 键盘可达性）照旧。
    */
-  function renderActionButton(React, spec) {
+  function stopHostEvent(ev) {
+    if (ev !== null && ev !== undefined && typeof ev.stopPropagation === 'function') ev.stopPropagation()
+  }
+
+  /**
+   * 卡片右上角那颗「⋯」（22px 圆形小按钮）。
+   *
+   * data 钩子（自动化核对用）：
+   *   · `data-pipeline-card-menu-trigger` = `open` / `closed`
+   *   · `data-pipeline-card-menu-for`     = 这张卡的键（任务 id / 归档目录名）
+   */
+  function renderCardMenuTrigger(React, spec) {
+    if (typeof spec.onToggle !== 'function') return null
+    var open = spec.open === true
+    return React.createElement(
+      'button',
+      {
+        ref: spec.ref,
+        type: 'button',
+        'aria-haspopup': 'menu',
+        'aria-expanded': open,
+        'aria-label': '这张任务单的更多操作',
+        title:
+          typeof spec.title === 'string' && spec.title !== ''
+            ? spec.title
+            : '更多操作（终止 / 恢复 / 归档 / 删单）',
+        'data-pipeline-card-menu-trigger': open ? 'open' : 'closed',
+        'data-pipeline-card-menu-for': spec.cardKey,
+        onClick: function (ev) {
+          // 先把这次点击留在面板里，再开合菜单（宿主的头部处理器不该看见它）
+          stopHostEvent(ev)
+          spec.onToggle(spec.cardKey)
+        },
+        onPointerDown: stopHostEvent,
+        onDoubleClick: stopHostEvent,
+        style: {
+          flex: '0 0 auto',
+          width: '22px',
+          height: '22px',
+          padding: 0,
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          font: 'inherit',
+          fontSize: '14px',
+          lineHeight: '1',
+          color: 'inherit',
+          background: open ? 'rgba(127,127,127,.16)' : 'transparent',
+          border:
+            '1px solid ' + (open ? 'rgba(127,127,127,.55)' : 'var(--dsw-alias-border-l2, rgba(127,127,127,.35))'),
+          borderRadius: '50%',
+          cursor: 'pointer',
+          whiteSpace: 'nowrap',
+          userSelect: 'none',
+          // 卡片落在会话头部的窗口拖拽区里：显式退出拖拽，否则点击被当成拖窗口
+          WebkitAppRegion: 'no-drag',
+        },
+      },
+      '⋯',
+    )
+  }
+
+  /**
+   * 菜单里的一行（任务卡与归档卡共用）。
+   *
+   * data 钩子：
+   *   · `data-pipeline-card-menu-item`       = 动作 id（cancel / restore / archive / delete / …）
+   *   · `data-pipeline-card-menu-item-state` = `idle` / `armed`（等第二击）/ `busy`（等宿主回话）
+   */
+  function renderCardMenuItem(React, spec) {
     var busy = spec.busy === true
     var armed = spec.armed === true
     var danger = spec.danger === true
+    var disabled = busy || spec.disabled === true
     return React.createElement(
       'button',
       {
         key: spec.action,
         type: 'button',
-        disabled: busy,
+        role: 'menuitem',
+        disabled: disabled,
         'aria-busy': busy,
-        'data-pipeline-action': spec.action,
-        'data-pipeline-action-state': busy ? 'busy' : armed ? 'armed' : 'idle',
+        'data-pipeline-card-menu-item': spec.action,
+        'data-pipeline-card-menu-item-state': busy ? 'busy' : armed ? 'armed' : 'idle',
         title: busy ? '正在等宿主回话…' : armed ? spec.armedTip : spec.tip,
-        onClick: spec.onClick,
-        // 移开就连确认态一起复原（不必等满 3 秒）
-        onMouseLeave: armed && typeof spec.onBlur === 'function' ? spec.onBlur : undefined,
+        onClick: function (ev) {
+          stopHostEvent(ev)
+          if (disabled) return
+          if (typeof spec.onClick === 'function') spec.onClick()
+        },
+        onPointerDown: stopHostEvent,
+        onDoubleClick: stopHostEvent,
+        // 内联样式做不到 :hover，只能在这两个事件里改底色（armed / busy 时不改）
+        onMouseEnter: function (ev) {
+          if (armed || busy) return
+          if (ev !== null && ev !== undefined && ev.currentTarget !== null && ev.currentTarget !== undefined) {
+            ev.currentTarget.style.background = 'rgba(127,127,127,.14)'
+          }
+        },
+        onMouseLeave: function (ev) {
+          if (ev !== null && ev !== undefined && ev.currentTarget !== null && ev.currentTarget !== undefined) {
+            ev.currentTarget.style.background = armed ? '#d9534f' : 'transparent'
+          }
+        },
         style: {
-          height: '22px',
-          padding: '0 9px',
+          display: 'block',
+          width: '100%',
+          boxSizing: 'border-box',
+          padding: '6px 10px',
           font: 'inherit',
-          fontSize: '11px',
-          lineHeight: '1',
+          fontSize: '11.5px',
+          lineHeight: '1.5',
+          textAlign: 'left',
           color: armed ? '#ffffff' : danger ? '#d9534f' : 'inherit',
           background: armed ? '#d9534f' : 'transparent',
-          border:
-            '1px solid ' +
-            (danger
-              ? armed
-                ? '#d9534f'
-                : 'rgba(217,83,79,.45)'
-              : 'var(--dsw-alias-border-l2, rgba(127,127,127,.35))'),
-          borderRadius: '999px',
-          cursor: busy ? 'progress' : 'pointer',
+          border: 0,
+          borderRadius: '6px',
+          cursor: disabled ? 'progress' : 'pointer',
           opacity: busy ? 0.6 : 1,
           whiteSpace: 'nowrap',
           userSelect: 'none',
-          // 卡片也在头部拖拽区里（与 chip 同理）
           WebkitAppRegion: 'no-drag',
         },
       },
@@ -1155,67 +1350,127 @@
   }
 
   /**
-   * 任务卡底部那一行**操作按钮**（右对齐）。
+   * 卡片内的下拉菜单：绝对定位在卡片右上（「⋯」下面），zIndex 高于卡片。
    *
-   * 按钮完全由 `task.allowed_actions` 决定（快照是唯一判据，这里不猜状态）：
-   *   · 字段缺失 / 不是数组 / 空数组 ⇒ 一行都不渲染（老版本宿主没有这个字段）；
-   *   · 认不出的动作 ⇒ 跳过（宁可少一个按钮，也不给一个点了没反应的）；
-   *   · 可见顺序固定 `cancel → restore → archive → delete`；
-   *   · **批量模式下整行让位**（那时点整张卡 = 选中，两种点击不该打架）。
-   *
-   * busy / 删单确认态由面板统一持有后经 `opts` 传进来 —— 这里**不碰状态**，
-   * 所以可以被自测当成纯函数调用。
+   * data 钩子：
+   *   · `data-pipeline-card-menu` = 这张卡的键（任务 id / 归档目录名）
    */
-  function renderTaskActions(React, task, opts) {
-    if (opts.batch === true) return null
+  function renderCardMenu(React, spec) {
+    var items = Array.isArray(spec.items) ? spec.items : []
+    if (items.length === 0) return null
+    return React.createElement(
+      'div',
+      {
+        ref: spec.ref,
+        role: 'menu',
+        'data-pipeline-card-menu': spec.cardKey,
+        // 绝对定位：相对卡片（卡片自己 position:relative），落在标题行下面、与「⋯」右对齐
+        style: {
+          position: 'absolute',
+          top: '30px',
+          right: '6px',
+          zIndex: 40,
+          minWidth: '132px',
+          padding: '4px',
+          boxSizing: 'border-box',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '1px',
+          background: 'var(--dsw-specific-menu, #ffffff)',
+          color: 'var(--dsw-alias-label-primary, #1f2328)',
+          border: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.35))',
+          borderRadius: '8px',
+          boxShadow: 'var(--dsw-elevation-prominent, 0 12px 32px rgba(0,0,0,.28))',
+          // 菜单也落在会话头部的拖拽区里，同样要显式退出拖拽
+          WebkitAppRegion: 'no-drag',
+        },
+        // 菜单里的点击更不能冒出去（点菜单 = 只执行菜单里那件事）
+        onPointerDown: stopHostEvent,
+        onClick: stopHostEvent,
+        onDoubleClick: stopHostEvent,
+      },
+      items.map(function (item) {
+        return renderCardMenuItem(React, item)
+      }),
+    )
+  }
+
+  /**
+   * 任务卡的菜单项（顺序 = `PANEL_ACTION_ORDER`；只保留 `allowed_actions` 里的）。
+   *
+   *   · 字段缺失 / 不是数组 / 空数组 ⇒ 空数组（卡上连「⋯」都不画，老版本宿主没有这个字段）；
+   *   · 认不出的动作 ⇒ 跳过（宁可少一项，也不给一个点了没反应的）；
+   *   · 批量模式下返回空数组（整张卡让位给"选中"）。
+   */
+  function buildTaskMenuItems(task, opts) {
+    if (opts.batch === true) return []
     var taskId = typeof task.id === 'string' ? task.id : ''
-    if (taskId === '') return null
+    if (taskId === '') return []
     var allowed = Array.isArray(task.allowed_actions) ? task.allowed_actions : []
-    if (allowed.length === 0) return null
+    if (allowed.length === 0) return []
     var onAction = typeof opts.onAction === 'function' ? opts.onAction : null
-    if (onAction === null) return null
-    var onActionBlur = typeof opts.onActionBlur === 'function' ? opts.onActionBlur : function () {}
-    var clickOf = function (actionId) {
-      return function () {
-        onAction(taskId, actionId)
-      }
-    }
-    // 参数化再返回闭包（别让循环变量 `action` 被闭包按引用捕走）
-    var blurOf = function (actionId) {
-      return function () {
-        onActionBlur(taskId, actionId)
-      }
-    }
-    var buttons = []
+    if (onAction === null) return []
+    var items = []
     for (var i = 0; i < PANEL_ACTION_ORDER.length; i++) {
       var action = PANEL_ACTION_ORDER[i]
       if (allowed.indexOf(action) === -1) continue
       var meta = PANEL_ACTION_META[action]
       var key = actionKeyOf(taskId, action)
-      buttons.push(
-        renderActionButton(React, {
-          action: action,
-          label: meta.label,
-          tip: meta.tip,
-          armedLabel: DELETE_CONFIRM_LABEL,
-          armedTip: DELETE_ARMED_TIP,
-          danger: action === 'delete',
-          busy: opts.busyKey === key,
-          armed: opts.armedKey === key,
-          onClick: clickOf(action),
-          onBlur: blurOf(action),
-        }),
-      )
+      items.push({
+        action: action,
+        label: meta.label,
+        tip: meta.tip,
+        armedLabel: DELETE_CONFIRM_LABEL,
+        armedTip: DELETE_ARMED_TIP,
+        danger: action === 'delete',
+        busy: opts.busyKey === key,
+        armed: opts.armedKey === key,
+        // 一次只让一个动作在飞：别的项在执行期间也置灰（点了也只是被 onActionClick 忽略）
+        disabled: opts.actionBusy === true,
+        // 参数化再返回闭包（别让循环变量 `action` 被闭包按引用捕走）
+        onClick: (function (id) {
+          return function () {
+            onAction(taskId, id)
+          }
+        })(action),
+      })
     }
-    if (buttons.length === 0) return null
-    return React.createElement(
-      'div',
-      {
-        'data-pipeline-actions': taskId,
-        style: { display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '5px', marginTop: '7px', minWidth: 0 },
-      },
-      buttons,
-    )
+    return items
+  }
+
+  /**
+   * 归档卡的菜单项（恢复 / 永久删除）。
+   * 不看 `allowed_actions`：进了归档区就只剩终态单，两个动作都允许（与宿主契约一致）。
+   * `dir` 是归档目录名 —— 归档动作的 `task_id` 就是它。
+   */
+  function buildArchivedMenuItems(dir, opts) {
+    if (opts.batch === true) return []
+    if (typeof dir !== 'string' || dir === '') return []
+    var onAction = typeof opts.onAction === 'function' ? opts.onAction : null
+    if (onAction === null) return []
+    var items = []
+    for (var i = 0; i < ARCHIVED_ACTION_ORDER.length; i++) {
+      var action = ARCHIVED_ACTION_ORDER[i]
+      var meta = ARCHIVED_ACTION_META[action]
+      var key = actionKeyOf(dir, action)
+      items.push({
+        action: action,
+        label: meta.label,
+        tip: meta.tip,
+        armedLabel: DELETE_ARCHIVED_CONFIRM_LABEL,
+        armedTip: DELETE_ARCHIVED_ARMED_TIP,
+        danger: action === 'delete_archived',
+        busy: opts.busyKey === key,
+        armed: opts.armedKey === key,
+        disabled: opts.actionBusy === true,
+        onClick: (function (a) {
+          return function () {
+            onAction(dir, a)
+          }
+        })(action),
+      })
+    }
+    return items
   }
 
   // =========================================================================
@@ -1223,7 +1478,7 @@
   // =========================================================================
 
   /**
-   * 标题行右侧那颗**钉子**：点一下钉住 / 再点取消。
+   * 标题行**左侧**那颗**钉子**（紧挨任务 id）：点一下钉住 / 再点取消。
    * `task.pinned` 是宿主给的字段（缺失 / 非 true 一律当没置顶 —— 老版本宿主没有它）。
    * 批量模式下不渲染：那时点整卡是选中，钉子和勾选框会抢同一个点击。
    */
@@ -1247,10 +1502,12 @@
         'data-pipeline-pin': pinned ? 'pinned' : 'unpinned',
         title: busy ? '正在等宿主回话…' : meta.tip,
         onClick: function (ev) {
-          // 批量模式下整卡是"选中"，这里虽然不渲染，仍然挡住冒泡（防御性）
-          if (ev !== null && ev !== undefined && typeof ev.stopPropagation === 'function') ev.stopPropagation()
+          // 卡片上的点击不冒给宿主（也挡住批量模式下的"整卡选中"）
+          stopHostEvent(ev)
           onPin(taskId, pinned)
         },
+        onPointerDown: stopHostEvent,
+        onDoubleClick: stopHostEvent,
         style: {
           flex: '0 0 auto',
           height: '20px',
@@ -1448,6 +1705,8 @@
           background: 'var(--dsw-specific-menu, #ffffff)',
           borderTop: '1px solid var(--dsw-alias-border-l1, rgba(127,127,127,.26))',
           boxShadow: '0 -6px 12px -10px rgba(0,0,0,.35)',
+          // 批量栏整体也在会话头部的窗口拖拽区里（按钮自身已有，容器补上）
+          WebkitAppRegion: 'no-drag',
         },
       },
       React.createElement(
@@ -1487,6 +1746,102 @@
     )
   }
 
+  // -------------------------------------------------------------------------
+  // 等级徽标 + 团队规模（**只有任务卡用**：归档卡没有 roster / tier，见 renderArchivedCard）
+  // -------------------------------------------------------------------------
+
+  /**
+   * 认任务档位：只认 `'L0'`…`'L5'`（大小写不敏感），其余一律 `null`。
+   *
+   * ★ 老宿主没有 `task.tier` 这个字段 ⇒ `null`（**不画徽标**），也**不**从需求文本里猜档位。
+   *   判据与宿主 `lib/panel/snapshot.js` 的 `taskTierOf()` 对齐：非字符串 / 空白 /
+   *   认不出（`X9` / `L6` / 数字）都是 `null`。
+   *
+   * @param {object} task
+   * @returns {string|null} `'L0'`…`'L5'` 或 `null`
+   */
+  function tierIdOf(task) {
+    var raw = task !== null && typeof task === 'object' ? task.tier : null
+    if (typeof raw !== 'string') return null
+    var key = raw.trim().toUpperCase()
+    return Object.prototype.hasOwnProperty.call(TIER_META, key) ? key : null
+  }
+
+  /**
+   * 等级徽标：小圆角 pill，文字就是 `L0`…`L5`（不加前缀）。
+   *
+   * `title` 写「L5 · 特殊要求」—— 档位名来自本地 {@link TIER_META}，悬停就能知道
+   * 这一级意味着什么，不用翻文档。
+   * `data-pipeline-tier='L5'` 是给自动化核对的钩子（**只放档位 id，不放中文名**）。
+   *
+   * @param {string|null} tier - 已经 {@link tierIdOf} 归一过的档位
+   */
+  function renderTierBadge(React, tier) {
+    if (tier === null || !Object.prototype.hasOwnProperty.call(TIER_META, tier)) return null
+    var meta = TIER_META[tier]
+    return React.createElement(
+      'span',
+      {
+        key: 'tier',
+        'data-pipeline-tier': tier,
+        title: tier + ' · ' + meta.name,
+        'aria-label': '档位 ' + tier + '：' + meta.name,
+        style: {
+          flex: '0 0 auto',
+          fontSize: '9.5px',
+          lineHeight: '15px',
+          padding: '0 6px',
+          borderRadius: '999px',
+          fontWeight: 700,
+          letterSpacing: '0.02em',
+          fontVariantNumeric: 'tabular-nums',
+          color: meta.fg,
+          border: '1px solid ' + meta.border,
+          background: meta.bg,
+          whiteSpace: 'nowrap',
+          userSelect: 'none',
+        },
+      },
+      tier,
+    )
+  }
+
+  /**
+   * 团队规模：紧跟等级徽标，小号灰字「N 个 AI」（`N` = 席位表长度，**主对话也算一个**）。
+   *
+   * ★ 只数 `task.seats`（宿主已经按 roster 展开好的席位表），客户端**不**按档位推算
+   *   "应该有几个人"：实际派了几个才作数，没派的档位不该显示成已就位。
+   * ★ `seats` 缺失 / 空数组 ⇒ 返回 `null`（老宿主 / 还没派活的单，不显示「0 个 AI」）。
+   * ★ 有等级徽标时前缀一个 `· `，视觉上连成「L5 · 13 个 AI」；没有徽标时不留孤零零的点。
+   * `data-pipeline-team-size='13'` 是给自动化核对的钩子。
+   *
+   * @param {object} task
+   * @param {string|null} tier - 已经归一过的档位（决定要不要那个间隔号）
+   */
+  function renderTeamSize(React, task, tier) {
+    var seats = task !== null && typeof task === 'object' && Array.isArray(task.seats) ? task.seats : []
+    var count = seats.length
+    if (count === 0) return null
+    return React.createElement(
+      'span',
+      {
+        key: 'teamSize',
+        'data-pipeline-team-size': String(count),
+        title: '团队规模：' + count + ' 个 AI（主对话也算一个）',
+        style: {
+          flex: '0 0 auto',
+          fontSize: '10px',
+          lineHeight: '15px',
+          color: 'var(--dsw-alias-label-caption, rgba(127,127,127,.95))',
+          whiteSpace: 'nowrap',
+          fontVariantNumeric: 'tabular-nums',
+          userSelect: 'none',
+        },
+      },
+      (tier === null ? '' : '· ') + count + ' 个 AI',
+    )
+  }
+
   /** 状态徽标（颜色由 `stateTone` 定）。 */
   function renderStateBadge(React, state, label) {
     var tone = stateTone(state)
@@ -1519,7 +1874,9 @@
         key: 'id',
         title: tip,
         style: {
-          flex: '1 1 auto',
+          // ★ 不抢多余宽度：任务 id 必须**紧挨**在 [pipeline] 徽标与置顶钉子旁边，
+          //   多余空间留给标题行里的 spacer，把状态徽标与「⋯」顶到右侧。
+          flex: '0 1 auto',
           minWidth: 0,
           fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
           fontSize: '11.5px',
@@ -1572,6 +1929,8 @@
     var props = {
       key: opts.key,
       style: {
+        // 卡片右上角的「⋯」菜单要**相对这张卡**绝对定位，所以卡片自己得是定位祖先
+        position: 'relative',
         marginTop: '8px',
         padding: '8px 10px 9px',
         border: '1px solid ' + (selected ? 'rgba(47,129,247,.55)' : 'var(--dsw-alias-border-l1, rgba(127,127,127,.26))'),
@@ -1579,6 +1938,8 @@
         background: selected ? 'rgba(47,129,247,.10)' : 'var(--dsw-alias-bg-layer-2, rgba(127,127,127,.06))',
         cursor: batch ? 'pointer' : 'default',
         transition: 'background .12s ease, border-color .12s ease',
+        // 卡片整块落在会话头部的窗口拖拽区里：显式 no-drag，卡里的小按钮/菜单才点得动
+        WebkitAppRegion: 'no-drag',
       },
     }
     // 调用方给的 data-* 钩子（`data-pipeline-task` / `data-pipeline-archive-card` …）
@@ -1592,13 +1953,22 @@
       props.role = 'checkbox'
       props.tabIndex = 0
       props['aria-checked'] = selected
-      props.onClick = toggle
+      props.onClick = function (ev) {
+        // 先截住宿主，再切选中（别让"点卡选中"顺手关掉宿主头部）
+        stopHostEvent(ev)
+        toggle()
+      }
       props.onKeyDown = function (ev) {
         if (ev === null || ev === undefined) return
         if (ev.key !== ' ' && ev.key !== 'Enter') return
         if (typeof ev.preventDefault === 'function') ev.preventDefault()
         toggle()
       }
+    } else {
+      // 普通模式里卡上的点击（chip / 钉子 / ⋯）各自处理；卡本身不把事件漏给宿主
+      props.onClick = stopHostEvent
+      props.onPointerDown = stopHostEvent
+      props.onDoubleClick = stopHostEvent
     }
     return React.createElement(
       'article',
@@ -1608,11 +1978,16 @@
   }
 
   /**
-   * 一张任务卡：`[pipeline]` + 任务 id（置顶时挂 📌）+ 状态徽标 + 需求摘要（两行截断）+ 席位 chips。
+   * 一张任务卡：标题行左侧 `等级徽标 · 团队规模` + `[pipeline]` + 任务 id + 📌置顶，
+   * 右侧状态徽标 + 「⋯」，下面是需求摘要（两行截断）与席位 chips。
    *
    * 两种模式：
-   *   · 普通模式：标题行右侧是**置顶**按钮，右下角是单卡操作按钮；
-   *   · **批量模式**（`opts.batch`）：左侧多一个圆勾、点整卡 = 切换选中、单卡按钮全部让位。
+   *   · 普通模式：动作全收进右上角「⋯」菜单（卡片底部不再有一排按钮）；
+   *   · **批量模式**（`opts.batch`）：左侧多一个圆勾、点整卡 = 切换选中，
+   *     置顶钉子和「⋯」一起让位（那时两种点击不该打架）。
+   *
+   * ★ 等级徽标（`L0`–`L5`）与团队规模（`N 个 AI`）**只在任务卡**上出现：
+   *   归档视图没有 roster / tier，见 {@link renderArchivedCard}（那里保持原样）。
    */
   function renderTaskCard(React, task, opts) {
     var taskId = typeof task.id === 'string' && task.id !== '' ? task.id : '(无 id)'
@@ -1627,13 +2002,39 @@
     var snippet = typeof task.requirement_snippet === 'string' ? task.requirement_snippet : ''
     var seats = Array.isArray(task.seats) ? task.seats : []
 
+    // 菜单项只跟这张卡的 `allowed_actions` 有关；批量模式下构建器直接返回空（连「⋯」都不画）
+    var menuItems = buildTaskMenuItems(task, opts)
+    var menuOpen = menuItems.length > 0 && opts.menuKey === taskId
+
+    // 标题行：左侧一串（等级 + 人数 / 徽标 / id / 📌 / 置顶），再由 spacer 把状态徽标与「⋯」推到最右
     var head = []
     if (batch) head.push(renderBatchCheckbox(React, selected))
+    // ★ 等级徽标 + 团队规模放**最前**（用户说的"原来那个红点"的位置）：一眼看清这张单多重、
+    //   几个人在干。批量模式的圆勾属于"选择态"而不是卡面内容，所以仍留在它们前面 ——
+    //   点哪儿都是选中，顺序不打架。
+    var tier = tierIdOf(task)
+    var tierBadge = renderTierBadge(React, tier)
+    if (tierBadge !== null) head.push(tierBadge)
+    var teamSize = renderTeamSize(React, task, tier)
+    if (teamSize !== null) head.push(teamSize)
     head.push(renderPipelineTag(React))
     head.push(renderIdLabel(React, taskId))
     head.push(renderPinMark(React, task))
-    head.push(renderStateBadge(React, task.state, stateLabel))
     head.push(renderPinButton(React, task, opts)) // 批量模式下它自己返回 null
+    // 左侧一串到置顶为止；spacer 吃掉多余宽度，把状态徽标与「⋯」留在最右
+    head.push(React.createElement('span', { key: 'spacer', style: { flex: '1 1 auto', minWidth: 0 } }))
+    head.push(renderStateBadge(React, task.state, stateLabel))
+    if (menuItems.length > 0) {
+      head.push(
+        renderCardMenuTrigger(React, {
+          cardKey: taskId,
+          open: menuOpen,
+          onToggle: opts.onMenuToggle,
+          // 只有"当前打开菜单的那颗"才登记 ref：document 上的点外判断靠它认得自己
+          ref: menuOpen ? opts.menuTriggerRef : undefined,
+        }),
+      )
+    }
 
     var body = []
     body.push(React.createElement('div', { key: 'head', style: { display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 } }, head))
@@ -1656,8 +2057,8 @@
             }),
       ),
     )
-    // 右下角那行小按钮（`allowed_actions` 为空/缺失、或批量模式下返回 null，这一行整体不占位）
-    if (!batch) body.push(renderTaskActions(React, task, opts))
+    // 「⋯」的下拉菜单（绝对定位在卡片右上；没开 / 没动作时整块不占位）
+    if (menuOpen) body.push(renderCardMenu(React, { cardKey: taskId, items: menuItems, ref: opts.menuRef }))
 
     var attrs = { 'data-pipeline-task': taskId, 'data-pipeline-pinned': task.pinned === true ? 'true' : 'false' }
     if (batch) attrs['data-pipeline-batch-selected'] = selected ? 'true' : 'false'
@@ -1677,57 +2078,8 @@
   // =========================================================================
 
   /**
-   * 归档卡底部那行按钮：**恢复** / **永久删除**。
-   * 不看 `allowed_actions`：进了归档区就只剩终态单，两个动作都允许（与宿主契约一致）。
-   * `dir` 是归档目录名 —— 归档动作的 `task_id` 就是它。
-   */
-  function renderArchivedActions(React, dir, opts) {
-    if (opts.batch === true) return null
-    if (dir === '') return null
-    var onAction = typeof opts.onAction === 'function' ? opts.onAction : null
-    if (onAction === null) return null
-    var onActionBlur = typeof opts.onActionBlur === 'function' ? opts.onActionBlur : function () {}
-    var buttons = []
-    for (var i = 0; i < ARCHIVED_ACTION_ORDER.length; i++) {
-      var action = ARCHIVED_ACTION_ORDER[i]
-      var meta = ARCHIVED_ACTION_META[action]
-      var key = actionKeyOf(dir, action)
-      buttons.push(
-        renderActionButton(React, {
-          action: action,
-          label: meta.label,
-          tip: meta.tip,
-          armedLabel: DELETE_ARCHIVED_CONFIRM_LABEL,
-          armedTip: DELETE_ARCHIVED_ARMED_TIP,
-          danger: action === 'delete_archived',
-          busy: opts.busyKey === key,
-          armed: opts.armedKey === key,
-          // 参数化再返回闭包（别让循环变量 `action` 被闭包按引用捕走）
-          onClick: (function (a) {
-            return function () {
-              onAction(dir, a)
-            }
-          })(action),
-          onBlur: (function (a) {
-            return function () {
-              onActionBlur(dir, a)
-            }
-          })(action),
-        }),
-      )
-    }
-    return React.createElement(
-      'div',
-      {
-        'data-pipeline-archive-actions': dir,
-        style: { display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '5px', marginTop: '7px', minWidth: 0 },
-      },
-      buttons,
-    )
-  }
-
-  /**
-   * 一张**归档卡**：`[pipeline]` + 任务 id + 状态徽标 + 需求摘要 + 归档时间 + 「恢复 / 永久删除」。
+   * 一张**归档卡**：标题行 `[pipeline]` + 任务 id + 状态徽标 + 右上角「⋯」，
+   * 下面需求摘要 + 归档时间。动作（恢复 / 永久删除）全在「⋯」菜单里。
    *
    * ★ 归档区里的写操作 `task_id` 传的是**归档目录名 `dir`**（宿主契约），不是任务 id ——
    *   所以这张卡上所有回调拿到的都是 `dir`。
@@ -1748,11 +2100,28 @@
     var snippet = typeof task.requirement_snippet === 'string' ? task.requirement_snippet : ''
     var when = archivedAtText(task.archived_at)
 
+    // 归档卡的菜单项恒定两条（恢复 / 永久删除）；批量模式下构建器返回空 ⇒ 不画「⋯」
+    var menuItems = buildArchivedMenuItems(key, opts)
+    var menuOpen = menuItems.length > 0 && opts.menuKey === key
+
     var head = []
     if (batch) head.push(renderBatchCheckbox(React, selected))
     head.push(renderPipelineTag(React))
     head.push(renderIdLabel(React, shown, dir !== '' && dir !== shown ? shown + '\n归档目录：' + dir : shown))
+    // spacer 吃掉多余宽度：归档卡的状态徽标与「⋯」也要留在标题行最右
+    head.push(React.createElement('span', { key: 'spacer', style: { flex: '1 1 auto', minWidth: 0 } }))
     head.push(renderStateBadge(React, task.state, stateLabel))
+    if (menuItems.length > 0) {
+      head.push(
+        renderCardMenuTrigger(React, {
+          cardKey: key,
+          open: menuOpen,
+          onToggle: opts.onMenuToggle,
+          title: '更多操作（恢复 / 永久删除）',
+          ref: menuOpen ? opts.menuTriggerRef : undefined,
+        }),
+      )
+    }
 
     var body = []
     body.push(React.createElement('div', { key: 'head', style: { display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 } }, head))
@@ -1771,7 +2140,8 @@
         ),
       )
     }
-    if (!batch) body.push(renderArchivedActions(React, key, opts))
+    // 「⋯」的下拉菜单（与任务卡同一套长相；永久删除同样两击确认）
+    if (menuOpen) body.push(renderCardMenu(React, { cardKey: key, items: menuItems, ref: opts.menuRef }))
 
     var attrs = { 'data-pipeline-archive-card': key }
     if (batch) attrs['data-pipeline-batch-selected'] = selected ? 'true' : 'false'
@@ -1948,7 +2318,21 @@
     }
     return React.createElement(
       'div',
-      { 'data-pipeline-panel-head': 'true', style: { display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 } },
+      {
+        'data-pipeline-panel-head': 'true',
+        // 顶行（标题 / 批量 / 归档 N）整行截住宿主事件：按钮自身的 onClick 先跑，再轮到这三个
+        onPointerDown: stopHostEvent,
+        onClick: stopHostEvent,
+        onDoubleClick: stopHostEvent,
+        style: {
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px',
+          minWidth: 0,
+          // 顶行也在会话头部的窗口拖拽区里：整行显式 no-drag（按钮自身还有一层）
+          WebkitAppRegion: 'no-drag',
+        },
+      },
       children,
     )
   }
@@ -2008,6 +2392,23 @@
     var actionUi = actionHook[0]
     var setActionUi = actionHook[1]
     var armTimerRef = React.useRef(null)
+
+    // ---- 卡片「⋯」菜单（分区：卡片操作菜单）----
+    //   menuKey     '' = 全关；否则是**当前打开菜单**那张卡的键（任务 id / 归档目录名）
+    //   menuKeyRef  document 级"点外面 / ESC"处理器读它（处理器是面板打开那一刻注册的闭包，
+    //               直接读 state 会读到过期值）
+    //   menuRef / menuTriggerRef  判断"这次点击是不是落在菜单 / 「⋯」自己身上"
+    var menuHook = React.useState('')
+    var menuKey = menuHook[0]
+    var setMenuKey = menuHook[1]
+    var menuKeyRef = React.useRef('')
+    var menuRef = React.useRef(null)
+    var menuTriggerRef = React.useRef(null)
+
+    // 菜单开关同步到 ref：document 上的关闭处理器不跟着每次 render 重注册，只能靠它拿最新值。
+    React.useEffect(function () {
+      menuKeyRef.current = menuKey
+    }, [menuKey])
 
     // ---- 席位会话预览 ----
     //   状态只给渲染用；"开没开 / 是哪个 key / 缓存 / 在途序号"都放 ref 里，
@@ -2163,7 +2564,7 @@
     }
 
     // =======================================================================
-    // 任务卡操作按钮：终止 / 恢复 / 归档 / 删单（+ 归档视图的 恢复 / 永久删除）
+    // 卡片操作（右上角「⋯」菜单）：终止 / 恢复 / 归档 / 删单（+ 归档视图的 恢复 / 永久删除）
     // =======================================================================
 
     /** 只改传入的键，其它字段原样保留（busy / 确认态 / 提示互不覆盖）。 */
@@ -2183,6 +2584,30 @@
       armTimerRef.current = null
     }
 
+    /**
+     * 收起「⋯」菜单（幂等）。
+     * 菜单一关，"删单第二击"就不可能再来了 ⇒ 顺手把上膛态与计时器一起作废。
+     * 这里用**函数式**更新（不读 actionUi），所以旧闭包里调用也安全 ——
+     * document 上的"点外面 / ESC"处理器拿到的正是面板打开那一刻的闭包。
+     */
+    var closeCardMenu = function () {
+      setMenuKey('')
+      clearArmTimer()
+      patchActionUi({ armedKey: '' })
+    }
+
+    /** 「⋯」点击入口：开 / 合某张卡的菜单（一次只开一个；换菜单时把删单确认作废）。 */
+    var toggleCardMenu = function (cardKey) {
+      if (typeof cardKey !== 'string' || cardKey === '') return
+      if (menuKey === cardKey) {
+        closeCardMenu()
+        return
+      }
+      clearArmTimer()
+      if (actionUi.armedKey !== '') patchActionUi({ armedKey: '' })
+      setMenuKey(cardKey)
+    }
+
     /** 删单第一击：只进入确认态，3 秒后自己复原（超过就不认第二击）。 */
     var armDelete = function (key) {
       clearArmTimer()
@@ -2197,9 +2622,10 @@
     }
 
     /**
-     * 发一次动作：按钮转 busy → POST → 绿字/红字。
+     * 发一次动作：菜单项转 busy → POST → 绿字/红字。
      * 成功时**立刻**把卡从界面撤掉（归档 / 删单 / 恢复归档 / 永久删除）并刷新快照：
      * 按钮该消失还是该换，下一帧就看得见，不用等 5 秒轮询。
+     * 成功也顺手收起菜单；失败则留着（红字在上、菜单还开着，直接再点一次重试）。
      */
     var runAction = function (taskId, action) {
       var key = actionKeyOf(taskId, action)
@@ -2216,6 +2642,7 @@
                 text: typeof body.message === 'string' && body.message !== '' ? body.message : fallback,
               },
             })
+            setMenuKey('')
             if (isArchiveMutation(action)) {
               dropRows([taskId])
               refreshAfterWrite()
@@ -2236,7 +2663,7 @@
       )
     }
 
-    /** 按钮点击入口：删单 / 永久删除的两次点击判据就在这里（第一次只"上膛"）。 */
+    /** 菜单项点击入口：删单 / 永久删除的两次点击判据就在这里（第一次只"上膛"）。 */
     var onActionClick = function (taskId, action) {
       if (actionUi.busyKey !== '') return // 一次只让一个动作在飞
       if (isConfirmAction(action) && actionUi.armedKey !== actionKeyOf(taskId, action)) {
@@ -2245,14 +2672,6 @@
       }
       clearArmTimer()
       runAction(taskId, action)
-    }
-
-    /** 指针离开删单 / 永久删除按钮 ⇒ 立刻复原（不必等满 3 秒）。 */
-    var onActionBlur = function (taskId, action) {
-      if (!isConfirmAction(action)) return
-      if (actionUi.armedKey !== actionKeyOf(taskId, action)) return
-      clearArmTimer()
-      patchActionUi({ armedKey: '' })
     }
 
     /**
@@ -2292,11 +2711,14 @@
     /** 退出批量模式：清空选择、清掉进度与确认态（幂等）。 */
     var exitBatch = function () {
       clearArmTimer()
+      setMenuKey('')
       patchBatch({ on: false, selected: [], busy: false, done: 0, total: 0, armed: '' })
     }
 
     /** 头部「批量」：进 / 出批量模式（进去时先清空上一次的选择）。 */
     var toggleBatch = function () {
+      // 批量模式下不画「⋯」，残留的菜单状态要先收掉（否则退出批量后它会自己弹回来）
+      setMenuKey('')
       if (batch.on) {
         exitBatch()
         return
@@ -2506,8 +2928,11 @@
       )
     }
 
-    /** 悬停 400ms → 弹预览；换到另一格先撤掉上一个。 */
-    var schedulePreviewShow = function (seat, el) {
+    /**
+     * 悬停 400ms → 弹预览；换到另一格先撤掉上一个。
+     * 落点按**面板根节点**算（贴面板左侧），不跟 chip 走 —— chip 只负责触发。
+     */
+    var schedulePreviewShow = function (seat) {
       var safe = seat !== null && typeof seat === 'object' ? seat : {}
       var target = typeof safe.session_id === 'string' ? safe.session_id : ''
       if (target === '') return // 没有会话 id 的席位没得预览
@@ -2522,12 +2947,20 @@
         previewRef.current.open = true
         previewRef.current.key = key
         previewRef.current.seq += 1
-        setPreview({ key: key, name: name, sessionId: target, phase: 'loading', rows: null, box: previewBoxFor(el) })
+        // 左贴面板的大窗：宽高随视口，位置按面板根节点的 rect 推面板左边缘
+        setPreview({
+          key: key,
+          name: name,
+          sessionId: target,
+          phase: 'loading',
+          rows: null,
+          box: previewBoxFor(rootRef.current),
+        })
         loadPreview(key, target)
       }, PREVIEW_SHOW_MS)
     }
 
-    /** 指针离开 chip：先取消待弹出的计时；已经弹出的等 250ms（移进预览层会取消）。 */
+    /** 指针离开 chip：先取消待弹出的计时；已经弹出的等 600ms（移进左侧预览窗会取消）。 */
     var schedulePreviewHide = function () {
       clearPreviewTimer()
       if (!previewRef.current.open) return
@@ -2542,6 +2975,40 @@
     /** 指针移进预览层（或滚轮翻消息）时不关它。 */
     var keepPreview = function () {
       clearPreviewTimer()
+    }
+
+    /**
+     * 点预览里的**任意气泡**（或底部那行「点击气泡打开会话 →」）⇒ 打开真实会话。
+     *
+     * 与面板里点席位名字同一条路径：`resolveUiWorkspace(ctx)` + `openSession(sessionId)`。
+     * 预览只会是普通 session 会话，不走 team 的 continuable 形态。
+     * 没会话 id / 没有 uiWorkspace 服务 ⇒ 不动作、保持现状（不弹错误）。
+     * 点击先 `stopPropagation`：不冒到面板的"点外面关闭"，也不触发宿主头部的语义。
+     */
+    var openSessionFromPreview = function (ev) {
+      if (ev !== null && ev !== undefined && typeof ev.stopPropagation === 'function') ev.stopPropagation()
+      var target = preview !== null && typeof preview.sessionId === 'string' ? preview.sessionId : ''
+      if (target === '') return
+      var workspace = resolveUiWorkspace(ctx)
+      if (workspace === null) return
+      var out = null
+      try {
+        out = workspace.openSession(target)
+      } catch (err) {
+        if (aliveRef.current) setOpenError('打不开会话：' + messageOf(err))
+        return
+      }
+      // 打开后收起预览（先不管异步回包；失败再在面板里报一句人话）
+      if (aliveRef.current) setOpenError('')
+      closePreview()
+      if (out !== null && out !== undefined && typeof out.then === 'function') {
+        out.then(
+          function () {},
+          function (err) {
+            if (aliveRef.current) setOpenError('打不开会话：' + messageOf(err))
+          },
+        )
+      }
     }
 
     // 卸载时清掉所有定时器，并把还留着的会话引用一并释放（避免卸载后还 setState / 占着历史流）
@@ -2564,19 +3031,21 @@
       pinnedRef.current = false
       setOpen(false)
       setOpenError('')
-      // 预览 / 删单确认态 / 操作提示 / 批量选择都是**上一个会话**那一屏的东西，一起撤掉。
+      // 预览 / 删单确认态 / 操作提示 / 批量选择 / 卡片菜单都是**上一个会话**那一屏的东西，一起撤掉。
       closePreview()
       clearArmTimer()
+      setMenuKey('')
       if (actionUi.armedKey !== '' || actionUi.note !== null) patchActionUi({ armedKey: '', note: null })
       if (batch.on || batch.selected.length > 0) exitBatch()
     }, [sessionId])
 
-    // ---- 打开时：立刻刷一次 + 点外部/ESC 关闭；收起时把预览/确认态/提示/批量一起撤掉 ----
+    // ---- 打开时：立刻刷一次 + 点外部/ESC 关闭；收起时把预览/确认态/提示/批量/菜单一起撤掉 ----
     React.useEffect(function () {
       if (!open) {
-        // 面板收起 = 预览层、"删单等二次确认"、上一行提示、批量选择全部作废（滚出 / 卸载也走这条）
+        // 面板收起 = 预览层、"删单等二次确认"、上一行提示、批量选择、卡片菜单全部作废
         closePreview()
         clearArmTimer()
+        setMenuKey('')
         if (actionUi.armedKey !== '' || actionUi.note !== null) patchActionUi({ armedKey: '', note: null })
         if (batch.on || batch.selected.length > 0) exitBatch()
         return undefined
@@ -2587,12 +3056,32 @@
       if (typeof document === 'undefined') return undefined
       var onPointerDown = function (ev) {
         var root = rootRef.current
-        if (root !== null && typeof root.contains === 'function' && ev.target !== null && root.contains(ev.target)) return
+        var target = ev === null || ev === undefined ? null : ev.target
+        var insideRoot =
+          root !== null && typeof root.contains === 'function' && target !== null && root.contains(target)
+        if (insideRoot) {
+          // 面板内部的点击不关面板；但点在卡片菜单 / 那颗「⋯」之外 ⇒ 收起菜单。
+          // 菜单自己与触发器要放过，否则 pointerdown 先关、click 又开，等于点不动。
+          if (menuKeyRef.current !== '') {
+            var menu = menuRef.current
+            var trigger = menuTriggerRef.current
+            var inMenu = menu !== null && menu !== undefined && typeof menu.contains === 'function' && menu.contains(target)
+            var onTrigger =
+              trigger !== null && trigger !== undefined && typeof trigger.contains === 'function' && trigger.contains(target)
+            if (!inMenu && !onTrigger) closeCardMenu()
+          }
+          return
+        }
         pinnedRef.current = false
         setOpen(false)
       }
       var onKeyDown = function (ev) {
         if (ev.key !== 'Escape') return
+        // ESC 先关卡片菜单（菜单开着时不该顺手把整个面板也收掉）
+        if (menuKeyRef.current !== '') {
+          closeCardMenu()
+          return
+        }
         pinnedRef.current = false
         setOpen(false)
       }
@@ -2687,7 +3176,9 @@
         'aria-label': '多AI协调团队面板' + (tasks === null ? '' : '：' + tasks.length + ' 个任务'),
         'data-pipeline-panel-trigger': open ? 'open' : 'closed',
         onMouseEnter: scheduleOpen,
-        onClick: function () {
+        onClick: function (ev) {
+          // 先截住宿主的头部处理器（否则这一下点击会冒到宿主那儿，把面板连带收掉），再 toggle
+          stopHostEvent(ev)
           // 点击 = 钉住 / 取消钉住。悬停打开的算是"没钉住"，点一下才钉住；
           // 钉住后鼠标移开不会收起，再点一下面板才收。
           cancelHover()
@@ -2695,6 +3186,8 @@
           pinnedRef.current = next
           setOpen(next)
         },
+        onPointerDown: stopHostEvent,
+        onDoubleClick: stopHostEvent,
         style: {
           display: 'inline-flex',
           alignItems: 'center',
@@ -2783,11 +3276,17 @@
       onToggleSelect: toggleSelect,
       currentSessionId: sessionId,
       onOpen: openSeat,
-      // 单卡操作按钮（来源 = `allowed_actions`；归档卡固定 恢复 / 永久删除）
+      // 卡片右上角「⋯」菜单（来源 = `allowed_actions`；归档卡固定 恢复 / 永久删除）
       busyKey: actionUi.busyKey,
       armedKey: actionUi.armedKey,
+      actionBusy: actionUi.busyKey !== '',
       onAction: onActionClick,
-      onActionBlur: onActionBlur,
+      // 菜单开关（一次只开一个；'' = 都关）
+      menuKey: menuKey,
+      onMenuToggle: toggleCardMenu,
+      // "点菜单外 / ESC 关闭"要用：当前打开的那个菜单容器与「⋯」触发器
+      menuRef: menuRef,
+      menuTriggerRef: menuTriggerRef,
       // 置顶（📌）
       onPin: onPinClick,
       // 悬停预览
@@ -2901,6 +3400,11 @@
               'data-pipeline-panel': 'open',
               'data-pipeline-panel-view': view === 'archived' ? 'archived' : 'tasks',
               'data-pipeline-panel-batch': batch.on ? 'on' : 'off',
+              // 面板内部的指针事件一律截在这里（按钮自己的 onClick 先跑，再轮到这三个）：
+              // 宿主的会话头部也有自己的 pointerdown / click 语义，冒上去就会被它收走。
+              onPointerDown: stopHostEvent,
+              onClick: stopHostEvent,
+              onDoubleClick: stopHostEvent,
               style: {
                 zIndex: 2147483000,
                 width: 'min(440px, 92vw)',
@@ -2927,22 +3431,28 @@
         )
       : null
 
-    // ---- 席位会话预览浮层 ----
-    //   `position:fixed` + 按 chip 的 `getBoundingClientRect()` 落点（`previewBoxFor` 收边），
-    //   zIndex 比面板更高。挂在面板根节点里（DOM 上是子节点）有三个好处：
+    // ---- 席位会话预览浮层：贴在面板**左侧**的大聊天窗 ----
+    //   `position:fixed` + 按**面板根节点**的 `getBoundingClientRect()` 推面板左边缘落点
+    //   （`previewBoxFor` 收边），zIndex 比面板更高。挂在面板根节点里（DOM 上是子节点）有三个好处：
     //   ① 面板一收起它就跟着消失，不会留下孤儿浮层；
-    //   ② 从 chip 移到它上面不会被判成"离开面板"；
+    //   ② 从 chip 横移到左侧预览窗时不会被判成"离开面板"；
     //   ③ 点它不会被面板的"点外部关闭"误伤。
     var previewNode = null
     if (open && preview !== null) {
       var boxStyle = {
         position: 'fixed',
         left: preview.box.left + 'px',
+        top: preview.box.top + 'px',
         width: preview.box.width + 'px',
+        height: preview.box.height + 'px',
         // 面板是 2147483000，预览要在它上面
         zIndex: 2147483600,
+        // 标题 / 列表 / 底部提示三段纵向排；窗口定高，只有列表滚动
+        display: 'flex',
+        flexDirection: 'column',
         boxSizing: 'border-box',
         padding: '8px 10px 9px',
+        overflow: 'hidden',
         background: 'var(--dsw-specific-menu, #ffffff)',
         color: 'var(--dsw-alias-label-primary, #1f2328)',
         border: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.35))',
@@ -2955,50 +3465,57 @@
         // 头部是 Electron 的窗口拖拽区：浮层里要能选中/滚动，同样显式退出拖拽
         WebkitAppRegion: 'no-drag',
       }
-      if (typeof preview.box.bottom === 'number') boxStyle.bottom = preview.box.bottom + 'px'
-      else boxStyle.top = preview.box.top + 'px'
 
       var previewBody = null
       if (preview.phase === 'loading') {
-        previewBody = React.createElement('div', { style: { marginTop: '5px', fontSize: '11px', opacity: 0.75 } }, '正在读取会话…')
+        previewBody = React.createElement(
+          'div',
+          { style: { marginTop: '5px', flex: '1 1 auto', fontSize: '11px', opacity: 0.75 } },
+          '正在读取会话…',
+        )
       } else if (preview.phase !== 'ready' || !Array.isArray(preview.rows) || preview.rows.length === 0) {
         // 失败 / 没权限 / 还没上线：一行灰字，不假装有内容
         previewBody = React.createElement(
           'div',
-          { style: { marginTop: '5px', fontSize: '11px', color: 'rgba(127,127,127,.95)' } },
+          { style: { marginTop: '5px', flex: '1 1 auto', fontSize: '11px', color: 'rgba(127,127,127,.95)' } },
           '该会话暂无预览（未在线或不可读）',
         )
       } else {
         previewBody = React.createElement(
           'div',
           {
-            // ★ 最多 260px 高 + overflowY:auto ⇒ 原生滚轮就能往下翻
+            // 窗口定高：列表吃掉剩余高度 + overflowY:auto ⇒ 原生滚轮就能翻
             'data-pipeline-preview-list': 'true',
-            style: { marginTop: '5px', maxHeight: PREVIEW_MAX_HEIGHT + 'px', overflowY: 'auto', overscrollBehavior: 'contain' },
+            style: { marginTop: '5px', flex: '1 1 auto', minHeight: 0, overflowY: 'auto', overscrollBehavior: 'contain' },
           },
           preview.rows.map(function (row, i) {
-            // 工具结果：窄灰条居中，不占气泡（和聊天界面的工具行观感一致）
-            if (row.role === '工具') {
-              return React.createElement(
-                'div',
-                {
-                  key: 'row' + i,
-                  title: row.text,
-                  style: {
-                    marginTop: i === 0 ? 0 : '4px',
-                    textAlign: 'center',
-                    fontSize: '10.5px',
-                    color: 'rgba(127,127,127,.95)',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  },
-                },
-                '工具结果：' + row.text,
-              )
+            // 用户靠右、AI 靠左 —— “缩小视窗的聊天界面”：字体不缩放，只是窗口大、可滚轮翻。
+            var isUser = row.type === 'user/message'
+            var thinking = row.thinking === true
+            var bubbleProps = {
+              // 点气泡 = 打开真实会话（处理器里先 stopPropagation，不触发面板的"点外面关闭"）
+              title: '打开会话',
+              onClick: openSessionFromPreview,
+              style: {
+                maxWidth: '86%',
+                boxSizing: 'border-box',
+                padding: '5px 9px',
+                borderRadius: isUser ? '10px 10px 2px 10px' : '10px 10px 10px 2px',
+                fontSize: '12px',
+                lineHeight: '1.45',
+                background: isUser
+                  ? 'var(--dsw-alias-bubble-user, rgba(47,129,247,.16))'
+                  : 'var(--dsw-alias-bubble-assistant, rgba(127,127,127,.14))',
+                // AI 还没吐正文：斜体灰字"正在思考…"，不渲染空气泡
+                color: thinking ? 'rgba(127,127,127,.95)' : 'var(--dsw-alias-label-primary, #1f2328)',
+                fontStyle: thinking ? 'italic' : 'normal',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+                overflowWrap: 'anywhere',
+                cursor: 'pointer',
+              },
             }
-            // 用户靠右、AI 靠左 —— “缩小视窗的聊天界面”：字体不缩放，只是窗口小、可滚轮翻。
-            var isUser = row.role === '用户'
+            if (thinking) bubbleProps['data-pipeline-preview-thinking'] = 'true'
             return React.createElement(
               'div',
               {
@@ -3009,28 +3526,7 @@
                   marginTop: i === 0 ? 0 : '6px',
                 },
               },
-              React.createElement(
-                'div',
-                {
-                  title: row.text,
-                  style: {
-                    maxWidth: '86%',
-                    boxSizing: 'border-box',
-                    padding: '5px 9px',
-                    borderRadius: isUser ? '10px 10px 2px 10px' : '10px 10px 10px 2px',
-                    fontSize: '12px',
-                    lineHeight: '1.45',
-                    background: isUser
-                      ? 'var(--dsw-alias-bubble-user, rgba(47,129,247,.16))'
-                      : 'var(--dsw-alias-bubble-assistant, rgba(127,127,127,.14))',
-                    color: 'var(--dsw-alias-label-primary, #1f2328)',
-                    whiteSpace: 'pre-wrap',
-                    wordBreak: 'break-word',
-                    overflowWrap: 'anywhere',
-                  },
-                },
-                row.text,
-              ),
+              React.createElement('div', bubbleProps, thinking ? PREVIEW_THINKING_TEXT : row.text),
             )
           }),
         )
@@ -3044,7 +3540,7 @@
           role: 'dialog',
           'aria-label': '会话预览 · ' + preview.name,
           'data-pipeline-seat-preview': preview.key,
-          // 鼠标移进来就取消"离开即关"的计时（要能滚轮翻那 12 条）
+          // 鼠标移进来就取消"离开即关"的计时（要能从 chip 横移进来、滚轮翻那 12 条）
           onMouseEnter: keepPreview,
           onMouseLeave: schedulePreviewHide,
           // 预览层自己的点击不要冒泡出去（chip 的"打开对话"只认 chip 上的点击）
@@ -3057,7 +3553,15 @@
           'div',
           {
             title: preview.sessionId !== '' ? '会话 id：' + preview.sessionId : '',
-            style: { display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11.5px', fontWeight: 600, minWidth: 0 },
+            style: {
+              display: 'flex',
+              alignItems: 'center',
+              gap: '5px',
+              flex: '0 0 auto',
+              fontSize: '11.5px',
+              fontWeight: 600,
+              minWidth: 0,
+            },
           },
           React.createElement(
             'span',
@@ -3066,6 +3570,25 @@
           ),
         ),
         previewBody,
+        // 底部那一行也是"打开会话"的入口（与点气泡同一条路径）
+        React.createElement(
+          'div',
+          {
+            'data-pipeline-preview-open': 'true',
+            title: '打开会话',
+            onClick: openSessionFromPreview,
+            style: {
+              flex: '0 0 auto',
+              marginTop: '6px',
+              fontSize: '10.5px',
+              color: 'rgba(127,127,127,.95)',
+              textAlign: 'right',
+              cursor: 'pointer',
+              userSelect: 'none',
+            },
+          },
+          '点击气泡打开会话 →',
+        ),
       )
     }
 
@@ -3076,6 +3599,12 @@
         'data-pipeline-panel-root': 'true',
         onMouseEnter: cancelHover,
         onMouseLeave: scheduleClose,
+        // 面板根节点是"边界"：里面的 pointerdown / click / dblclick 一律不再交给宿主。
+        // 宿主的会话头部是窗口拖拽区，也在监听这些事件；不截住的话，点面板顶部那一行
+        // 会冒到宿主（表现就是按钮不响应、面板反倒被关掉）。
+        onPointerDown: stopHostEvent,
+        onClick: stopHostEvent,
+        onDoubleClick: stopHostEvent,
         style: { position: 'relative', display: 'inline-flex', alignItems: 'center', WebkitAppRegion: 'no-drag' },
       },
       trigger,
@@ -3185,10 +3714,17 @@
         seatNumberOf: seatNumberOf,
         renderTaskCard: renderTaskCard,
         renderSeatChip: renderSeatChip,
-        renderTaskActions: renderTaskActions,
+        // 卡片右上角「⋯」菜单（自测可以直接拿它们验"哪张卡 → 哪几个动作"）
+        renderCardMenuTrigger: renderCardMenuTrigger,
+        renderCardMenuItem: renderCardMenuItem,
+        renderCardMenu: renderCardMenu,
+        buildTaskMenuItems: buildTaskMenuItems,
+        buildArchivedMenuItems: buildArchivedMenuItems,
+        // 兼容旧导出名：卡片底部那一行按钮已经取消，现在这两个名字都指向菜单项构建器
+        renderTaskActions: buildTaskMenuItems,
         // 归档视图 / 批量管理（自测可以直接拿它们验"列表项 → 该发哪个 id"）
         renderArchivedCard: renderArchivedCard,
-        renderArchivedActions: renderArchivedActions,
+        renderArchivedActions: buildArchivedMenuItems,
         renderArchivedList: renderArchivedList,
         renderTaskList: renderTaskList,
         renderPanelHeader: renderPanelHeader,
@@ -3210,6 +3746,7 @@
         releaseSessionRef: releaseSessionRef,
         previewRowsFromEntries: previewRowsFromEntries,
         previewText: previewText,
+        isInjectedPreviewText: isInjectedPreviewText,
         previewBoxFor: previewBoxFor,
         loadSessionPreviewRows: loadSessionPreviewRows,
         SLOT: SLOT,
