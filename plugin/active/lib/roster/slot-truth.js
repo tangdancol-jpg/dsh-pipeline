@@ -61,6 +61,25 @@ export function rosterSlotEntry(roster, role, seat) {
   return withSeat ?? bare ?? null
 }
 
+/**
+ * 名单里"未声明"的 model / reasoning 槽落的占位哨兵（与 `lib/tiers/roster-slots.js` 的
+ * `ROSTER_ENV_DEFAULT` 同值；这里写字面量保持零依赖，两边相等由 `tests/f14-model-sentinel-check.mjs` 钉住）。
+ */
+export const SLOT_ENV_DEFAULT_SENTINEL = 'environment-default'
+
+/**
+ * 这一槽是不是**占位哨兵**（`origin=default` 且值是 {@link SLOT_ENV_DEFAULT_SENTINEL}）。
+ *
+ * 缺陷 ③：哨兵不是模型名，下发给宿主必被拒（「Select an available model …」）⇒ 默认档派活全挂。
+ * 它的本义是"交给环境默认档"，所以**不产出这个键**，让通道走"未指定 ⇒ 不调用 selectModel"那一支。
+ * 只认哨兵、不认别的 `origin=default`：权限 / 模式的默认档是**真值**（最小档 / 默认模式），照旧下发。
+ */
+function isSentinelPlaceholder(entry, slot) {
+  const cell = entry === null || typeof entry !== 'object' ? null : entry[slot]
+  if (cell === null || cell === undefined) return false
+  return cell.origin === SLOT_ORIGIN.DEFAULT && cell.value === SLOT_ENV_DEFAULT_SENTINEL
+}
+
 /** 某一槽在名单里是不是**显式声明**的（`origin === 'declared'`）。 */
 function isDeclared(entry, slot) {
   const cell = entry === null || typeof entry !== 'object' ? null : entry[slot]
@@ -162,6 +181,11 @@ export function resolveEffectiveSlots({ roster, role, seat = null, requested = {
       continue
     }
 
+    if (isSentinelPlaceholder(entry, slot)) {
+      // 占位不下发，但来源照记：读审计的人要看得出"这一槽是占位、没发给宿主"
+      provenance[slot] = { value: declared, origin: SLOT_ORIGIN.DEFAULT, issued: false }
+      continue
+    }
     if (declared !== null) {
       slots[slot] = declared
       provenance[slot] = { value: declared, origin: isDeclared(entry, slot) ? SLOT_ORIGIN.DECLARED : SLOT_ORIGIN.DEFAULT }

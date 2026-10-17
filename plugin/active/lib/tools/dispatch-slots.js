@@ -76,6 +76,8 @@ export function dispatchSlots(task, role, seat, args) {
  *      · `mode`：按角色取 `pl-<role>`（见文件头，用户第 2 件）；
  *      · `permission`：★ **按角色需求推导**（`permissionNeedOf`，B 件）；
  *      · `model` / `reasoning`：**不产出**，交给通道按"环境枚举默认档"取。
+ *        （名单里那份 `environment-default` 占位也不下发 —— 闸在 `lib/roster/slot-truth.js` 的
+ *        `isSentinelPlaceholder`；改前这里写"不产出"，那一层却把占位照抄给了宿主，缺陷 ③。）
  *
  * ★ 为什么 `permission` 的兜底放在这里、而不是改名单的占位值：`roster.slots` 是
  *   **带摘要冻结的声明表**，它的占位默认值被三处既有断言钉着（`roster-authority-check`

@@ -198,4 +198,9 @@ export const EXTRA_SUITES = [
   //    这一套钉：交付站重交（红→绿）/ 真·过期的图仍被拒（闸门没被改废）/ 幂等 /
   //    前置站两条既有判据原样 / 非枢纽任务不受影响。
   { file: './f13-hub-diagram-close-check.mjs', exportName: 'runF13HubDiagramCloseCheck', zh: '★ 枢纽路线下的架构图与关单（先画后写 ⇒ 关不掉单：交付站重交绑当前版本 + 真过期仍拒 + 幂等）' },
+  // ★★ 缺陷 ③（2026-10-17）：计划没声明 model ⇒ 名单落哨兵 environment-default（origin=default），
+  //    改前 slot-truth 只要非 null 就照抄 ⇒ 通道拿哨兵去 selectModel ⇒ 宿主拒 ⇒ 默认档派活全挂。
+  //    这一套钉：端到端默认档派活成功且不调 selectModel / 哨兵不进 slots 但来源照记 /
+  //    显式声明照旧下发 / 权限与模式的默认档照旧（只挡哨兵，不顺手放宽）。
+  { file: './f14-model-sentinel-check.mjs', exportName: 'runF14ModelSentinelCheck', zh: '★ model 槽哨兵不下发（缺陷 ③：默认档派活不再撞 model_failed，显式声明与其它槽默认档照旧）' },
 ]
