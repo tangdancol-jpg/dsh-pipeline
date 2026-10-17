@@ -44,11 +44,18 @@
  *      + 状态），点席位名字用 `uiWorkspace.openSession(...)` 打开那个对话，当前对话的席位
  *      带 ring 高亮与「当前对话」标签。数据来自 `GET /.dsh-pipeline/panel`（5s 轮询）。
  *
- * 面板里还有两处交互（宿主侧只需要契约，代码全在本文件）：
- *   · 任务卡右下角的**操作按钮**（终止 / 恢复 / 留档 / 删单）：按钮来源是快照的
+ * 面板里还有这几处交互（宿主侧只需要契约，代码全在本文件）：
+ *   · 任务卡右下角的**操作按钮**（终止 / 恢复 / 归档 / 删单）：按钮来源是快照的
  *     `task.allowed_actions`，点击发 `POST /.dsh-pipeline/panel/action`。
  *     「删单」用**两次点击**确认（3 秒内再点），**不弹** `window.confirm`（Electron 里体验差
  *     且可能被拦）。
+ *   · **置顶**（任务卡标题行右侧那颗钉子）：`pin` / `unpin`。宿主已经把置顶任务排在快照前面，
+ *     客户端**不重排**，只在卡上显示 📌。
+ *   · **批量模式**（头部左侧「批量」）：每张卡左侧出现圆勾、**点整卡切换选中**，底部浮出批量
+ *     操作栏；对选中项**串行** POST（一次一个，显示「处理中 i/N」），完成后清空选择并退出批量。
+ *   · **归档视图**（头部右侧「归档 N」）：`GET /.dsh-pipeline/panel?view=archived`，每张归档卡
+ *     可「恢复」/「永久删除」（后者同样两击确认）。★ 归档视图的 `task_id` 传的是**归档目录名
+ *     `dir`**，不是任务 id。
  *   · 席位 chip **悬停 400ms** 弹一个会话预览浮层（最近 12 条，`overflowY:auto` 可滚轮翻）：
  *     取数走客户端 `sessions` 服务（`ctx.get('sessions')` → `retain(...)` →
  *     `binding.eventSource`），不是从面板快照里拿的。
@@ -300,6 +307,16 @@
   var PANEL_PATH = '/.dsh-pipeline/panel'
 
   /**
+   * 归档视图：**同一条路由**，`view=archived` 换的是数据源。
+   *
+   * 契约：`GET {PANEL_ARCHIVED_PATH}` → `{ ok, tasks: [{ id, dir, state, state_label,
+   *        requirement_snippet, archived_at }], warnings[] }`
+   * ★ 归档项的写操作 `task_id` 传的是**归档目录名 `dir`**（不是任务 id）—— 后面所有
+   *   归档动作都按这条走：`unarchive` / `delete_archived`。
+   */
+  var PANEL_ARCHIVED_PATH = PANEL_PATH + '?view=archived'
+
+  /**
    * 面板条目的 id 与排序权重。
    * 开关是 100，这里给 110 ⇒ 排在它**右边一格**（order 越大越靠右），谁也不顶掉谁。
    */
@@ -332,10 +349,30 @@
 
   /** 动作 → 按钮文案 / 兜底成功提示 / tooltip。`done` 只在回包没给 `message` 时用。 */
   var PANEL_ACTION_META = {
-    cancel: { label: '终止', done: '已终止', tip: '终止这张任务单（进入终态，之后才能留档或删单）' },
+    cancel: { label: '终止', done: '已终止', tip: '终止这张任务单（进入终态，之后才能归档或删单）' },
     restore: { label: '恢复', done: '已恢复', tip: '解除阻塞，把任务单恢复到阻塞前的状态' },
-    archive: { label: '留档', done: '已留档', tip: '把这张终态任务单移进回收站（可恢复）' },
+    archive: { label: '归档', done: '已归档', tip: '把这张终态任务单移进归档区（可恢复）' },
     delete: { label: '删单', done: '已删单', tip: '永久删除这张终态任务单，不可恢复（要点两次）' },
+  }
+
+  /**
+   * 归档视图里的两个动作（按钮顺序同上，两个都允许）。
+   * 它们**不看 `allowed_actions`**：进了归档区就说明已经是终态单了，恢复与永久删除都合法。
+   * `task_id` 传归档目录名 `dir`；`delete_archived` 同样要 `confirm: true`。
+   */
+  var ARCHIVED_ACTION_ORDER = ['unarchive', 'delete_archived']
+  var ARCHIVED_ACTION_META = {
+    unarchive: { label: '恢复', done: '已恢复', tip: '把这张单移回任务列表（不是解除阻塞，是把它挪出归档区）' },
+    delete_archived: { label: '永久删除', done: '已删除', tip: '永久删除这张已归档的单，不可恢复（要点两次）' },
+  }
+
+  /**
+   * 置顶动作（📌）。宿主负责排序，客户端只负责发请求与画那颗钉子 ——
+   * 客户端**不重排**任务卡（排了会跟宿主的顺序打架）。
+   */
+  var PIN_ACTION_META = {
+    pin: { label: '置顶', done: '已置顶', tip: '把这张任务单钉在列表最前面（宿主排序，客户端不重排）' },
+    unpin: { label: '取消置顶', done: '已取消置顶', tip: '取消置顶，让它回到原来的位置' },
   }
 
   /** 删单的两击确认窗口：超时或指针移开就复原 —— 不可恢复的动作不该被误触。 */
@@ -343,6 +380,16 @@
 
   /** 删单按钮进入确认态后的文案（第二次点它才真的删）。 */
   var DELETE_CONFIRM_LABEL = '再点一次确认删单'
+
+  /** 确认态下的 tooltip（把"不可恢复"写死在这里，别指望用户记得住）。 */
+  var DELETE_ARMED_TIP = '再点一次就**永久**删除这张任务单（不可恢复）'
+
+  /** 归档视图里「永久删除」的确认文案 / tooltip（措辞更狠一点：真的不可恢复）。 */
+  var DELETE_ARCHIVED_CONFIRM_LABEL = '再点一次确认删除'
+  var DELETE_ARCHIVED_ARMED_TIP = '再点一次就**永久**删除这张已归档的单（不可恢复）'
+
+  /** 批量操作栏里删除类按钮的确认文案（一次删一批，更要说清）。 */
+  var BATCH_DELETE_CONFIRM_LABEL = '再点一次确认删除'
 
   /** 悬停多久才弹会话预览 —— 太短会在扫过一排 chip 时闪出一堆浮层。 */
   var PREVIEW_SHOW_MS = 400
@@ -431,15 +478,16 @@
   }
 
   /**
-   * 读面板数据。
+   * 读面板数据（主视图与归档视图**共用**这一套归一化）。
    *
    * 失败**不抛**：面板的规矩是"保留上次数据 + 底下补一行小字错误"，
    * 抛出去只会把整块面板打成白屏。
    *
+   * @param {string} path - `PANEL_PATH` 或 `PANEL_ARCHIVED_PATH`
    * @returns {Promise<{ok:boolean, tasks?:Array, generatedAt?:string, error?:string}>}
    */
-  function fetchPanel(signal) {
-    return fetch(PANEL_PATH, {
+  function fetchPanelFrom(path, signal) {
+    return fetch(path, {
       method: 'GET',
       credentials: 'same-origin',
       headers: { accept: 'application/json' },
@@ -465,6 +513,22 @@
         },
       )
     })
+  }
+
+  /**
+   * 读**主视图**快照。
+   * @returns {Promise<{ok:boolean, tasks?:Array, generatedAt?:string, error?:string}>}
+   */
+  function fetchPanel(signal) {
+    return fetchPanelFrom(PANEL_PATH, signal)
+  }
+
+  /**
+   * 读**归档视图**列表（同一套归一化；`archived_at` 留在 task 里原样带回来）。
+   * @returns {Promise<{ok:boolean, tasks?:Array, generatedAt?:string, error?:string}>}
+   */
+  function fetchArchived(signal) {
+    return fetchPanelFrom(PANEL_ARCHIVED_PATH, signal)
   }
 
   /**
@@ -958,9 +1022,136 @@
     )
   }
 
+  /**
+   * 一条列表项（任务 or 归档项）在**界面上的键**。
+   * 归档视图用归档目录名 `dir`（同一张单可能既有 id 又有 dir，键必须取 dir）；
+   * 主视图就是任务 id。空串表示这一项没法操作（调用方据此跳过）。
+   */
+  function rowKeyOf(row, view) {
+    if (row === null || typeof row !== 'object') return ''
+    if (view === 'archived' && typeof row.dir === 'string' && row.dir !== '') return row.dir
+    if (typeof row.id === 'string' && row.id !== '') return row.id
+    return typeof row.dir === 'string' ? row.dir : ''
+  }
+
+  /**
+   * 发写操作时 `task_id` 该填什么。
+   * ★ 归档视图填 **`dir`**（宿主契约：归档项的 task_id 是归档目录名），其余填任务 id。
+   */
+  function submitIdOf(row, view) {
+    if (row === null || typeof row !== 'object') return ''
+    if (view === 'archived' && typeof row.dir === 'string' && row.dir !== '') return row.dir
+    return typeof row.id === 'string' ? row.id : ''
+  }
+
+  /**
+   * 这一项能不能执行某个批量动作。
+   *
+   * 主视图看 `allowed_actions`（快照是唯一判据，客户端不猜状态）；
+   * 归档视图里两项动作恒定允许 —— 归档区里本来就只剩终态单。
+   */
+  function canRunAction(row, action) {
+    if (ARCHIVED_ACTION_META[action] !== undefined) return true
+    var allowed = row !== null && typeof row === 'object' && Array.isArray(row.allowed_actions) ? row.allowed_actions : []
+    return allowed.indexOf(action) !== -1
+  }
+
+  /**
+   * 归档时间 → 人能读的一行。
+   * 手拼而不是 `toLocaleString`：Electron 各环境 locale 不一致，归档卡的时间不该随机器变样。
+   * 解析不了就原样显示（宿主给了什么就显示什么，不吞掉）。
+   */
+  function archivedAtText(raw) {
+    if (typeof raw !== 'string' || raw === '') return ''
+    var ms = Date.parse(raw)
+    if (!Number.isFinite(ms)) return raw
+    var d = new Date(ms)
+    var pad = function (n) {
+      return n < 10 ? '0' + n : String(n)
+    }
+    return (
+      d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes())
+    )
+  }
+
   /** 面板动作的键：`taskId + 动作`（同一张卡上四个按钮各自独立 busy / 确认态）。 */
   function actionKeyOf(taskId, action) {
     return String(taskId) + '\u0000' + String(action)
+  }
+
+  /**
+   * 需要**两次点击**才执行的动作（删单 / 归档区里的永久删除）：
+   * 第一击只"上膛"，3 秒内再点才真的发出去。
+   */
+  function isConfirmAction(action) {
+    return action === 'delete' || action === 'delete_archived'
+  }
+
+  /**
+   * 这个动作成功后，卡就该从当前视图消失，且**两份数据都要刷新**：
+   * 归档把单从任务列表挪进归档区，删除把它从两处都抹掉，恢复归档把它挪回来。
+   */
+  function isArchiveMutation(action) {
+    return action === 'archive' || action === 'delete' || action === 'unarchive' || action === 'delete_archived'
+  }
+
+  /** 动作 → 文案/兜底提示（三种动作表合一；认不出也返回一份最保守的兜底，面板不白屏）。 */
+  function actionMetaOf(action) {
+    if (PANEL_ACTION_META[action] !== undefined) return PANEL_ACTION_META[action]
+    if (PIN_ACTION_META[action] !== undefined) return PIN_ACTION_META[action]
+    if (ARCHIVED_ACTION_META[action] !== undefined) return ARCHIVED_ACTION_META[action]
+    return { label: String(action), done: '已完成', tip: '' }
+  }
+
+  /**
+   * 一个操作按钮（任务卡与归档卡**共用**）。
+   *
+   * busy / 确认态 / 危险红一律由调用方算好传进来 —— 这里只负责长相与点击，
+   * 所以可以被自测当成纯函数调用。
+   */
+  function renderActionButton(React, spec) {
+    var busy = spec.busy === true
+    var armed = spec.armed === true
+    var danger = spec.danger === true
+    return React.createElement(
+      'button',
+      {
+        key: spec.action,
+        type: 'button',
+        disabled: busy,
+        'aria-busy': busy,
+        'data-pipeline-action': spec.action,
+        'data-pipeline-action-state': busy ? 'busy' : armed ? 'armed' : 'idle',
+        title: busy ? '正在等宿主回话…' : armed ? spec.armedTip : spec.tip,
+        onClick: spec.onClick,
+        // 移开就连确认态一起复原（不必等满 3 秒）
+        onMouseLeave: armed && typeof spec.onBlur === 'function' ? spec.onBlur : undefined,
+        style: {
+          height: '22px',
+          padding: '0 9px',
+          font: 'inherit',
+          fontSize: '11px',
+          lineHeight: '1',
+          color: armed ? '#ffffff' : danger ? '#d9534f' : 'inherit',
+          background: armed ? '#d9534f' : 'transparent',
+          border:
+            '1px solid ' +
+            (danger
+              ? armed
+                ? '#d9534f'
+                : 'rgba(217,83,79,.45)'
+              : 'var(--dsw-alias-border-l2, rgba(127,127,127,.35))'),
+          borderRadius: '999px',
+          cursor: busy ? 'progress' : 'pointer',
+          opacity: busy ? 0.6 : 1,
+          whiteSpace: 'nowrap',
+          userSelect: 'none',
+          // 卡片也在头部拖拽区里（与 chip 同理）
+          WebkitAppRegion: 'no-drag',
+        },
+      },
+      busy ? '处理中…' : armed ? spec.armedLabel : spec.label,
+    )
   }
 
   /**
@@ -969,12 +1160,14 @@
    * 按钮完全由 `task.allowed_actions` 决定（快照是唯一判据，这里不猜状态）：
    *   · 字段缺失 / 不是数组 / 空数组 ⇒ 一行都不渲染（老版本宿主没有这个字段）；
    *   · 认不出的动作 ⇒ 跳过（宁可少一个按钮，也不给一个点了没反应的）；
-   *   · 可见顺序固定 `cancel → restore → archive → delete`。
+   *   · 可见顺序固定 `cancel → restore → archive → delete`；
+   *   · **批量模式下整行让位**（那时点整张卡 = 选中，两种点击不该打架）。
    *
    * busy / 删单确认态由面板统一持有后经 `opts` 传进来 —— 这里**不碰状态**，
    * 所以可以被自测当成纯函数调用。
    */
   function renderTaskActions(React, task, opts) {
+    if (opts.batch === true) return null
     var taskId = typeof task.id === 'string' ? task.id : ''
     if (taskId === '') return null
     var allowed = Array.isArray(task.allowed_actions) ? task.allowed_actions : []
@@ -999,23 +1192,181 @@
       if (allowed.indexOf(action) === -1) continue
       var meta = PANEL_ACTION_META[action]
       var key = actionKeyOf(taskId, action)
-      var busy = opts.busyKey === key
-      var armed = action === 'delete' && opts.armedKey === key
-      var danger = action === 'delete'
+      buttons.push(
+        renderActionButton(React, {
+          action: action,
+          label: meta.label,
+          tip: meta.tip,
+          armedLabel: DELETE_CONFIRM_LABEL,
+          armedTip: DELETE_ARMED_TIP,
+          danger: action === 'delete',
+          busy: opts.busyKey === key,
+          armed: opts.armedKey === key,
+          onClick: clickOf(action),
+          onBlur: blurOf(action),
+        }),
+      )
+    }
+    if (buttons.length === 0) return null
+    return React.createElement(
+      'div',
+      {
+        'data-pipeline-actions': taskId,
+        style: { display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '5px', marginTop: '7px', minWidth: 0 },
+      },
+      buttons,
+    )
+  }
+
+  // =========================================================================
+  // 分区 · 置顶（📌）
+  // =========================================================================
+
+  /**
+   * 标题行右侧那颗**钉子**：点一下钉住 / 再点取消。
+   * `task.pinned` 是宿主给的字段（缺失 / 非 true 一律当没置顶 —— 老版本宿主没有它）。
+   * 批量模式下不渲染：那时点整卡是选中，钉子和勾选框会抢同一个点击。
+   */
+  function renderPinButton(React, task, opts) {
+    if (opts.batch === true) return null
+    var taskId = typeof task.id === 'string' ? task.id : ''
+    if (taskId === '') return null
+    var onPin = typeof opts.onPin === 'function' ? opts.onPin : null
+    if (onPin === null) return null
+    var pinned = task.pinned === true
+    var action = pinned ? 'unpin' : 'pin'
+    var meta = PIN_ACTION_META[action]
+    var busy = opts.busyKey === actionKeyOf(taskId, action)
+    return React.createElement(
+      'button',
+      {
+        type: 'button',
+        disabled: busy,
+        'aria-pressed': pinned,
+        'aria-label': pinned ? '取消置顶这张任务单' : '置顶这张任务单',
+        'data-pipeline-pin': pinned ? 'pinned' : 'unpinned',
+        title: busy ? '正在等宿主回话…' : meta.tip,
+        onClick: function (ev) {
+          // 批量模式下整卡是"选中"，这里虽然不渲染，仍然挡住冒泡（防御性）
+          if (ev !== null && ev !== undefined && typeof ev.stopPropagation === 'function') ev.stopPropagation()
+          onPin(taskId, pinned)
+        },
+        style: {
+          flex: '0 0 auto',
+          height: '20px',
+          padding: '0 7px',
+          font: 'inherit',
+          fontSize: '10.5px',
+          lineHeight: '1',
+          color: pinned ? 'var(--dsw-alias-brand-primary, #1f6feb)' : 'inherit',
+          background: pinned ? 'rgba(47,129,247,.14)' : 'transparent',
+          border: '1px solid ' + (pinned ? 'rgba(47,129,247,.55)' : 'var(--dsw-alias-border-l2, rgba(127,127,127,.35))'),
+          borderRadius: '999px',
+          cursor: busy ? 'progress' : 'pointer',
+          opacity: busy ? 0.6 : 1,
+          whiteSpace: 'nowrap',
+          userSelect: 'none',
+          WebkitAppRegion: 'no-drag',
+        },
+      },
+      busy ? '…' : pinned ? '取消置顶' : '置顶',
+    )
+  }
+
+  /** 置顶标记 📌（宿主已经排好序，这里只是让"它被钉住了"看得出来）。 */
+  function renderPinMark(React, task) {
+    if (task === null || typeof task !== 'object' || task.pinned !== true) return null
+    return React.createElement(
+      'span',
+      {
+        key: 'pinMark',
+        title: '已置顶（宿主会把置顶的任务排在最前面）',
+        'aria-label': '已置顶',
+        'data-pipeline-pinned': 'true',
+        style: { flex: '0 0 auto', fontSize: '11px', lineHeight: '15px', userSelect: 'none' },
+      },
+      '📌',
+    )
+  }
+
+  // =========================================================================
+  // 分区 · 批量管理（仿 QQ 多选面板）
+  // =========================================================================
+
+  /**
+   * 批量模式下的**圆形勾选框**（16px）。
+   * 纯装饰：真正的点击落在整张卡上（`data-pipeline-batch-check` 只给自动化核对用），
+   * 所以它自己**不带 onClick** —— 带了就会和卡的点击一起触发，等于点一下切两次。
+   */
+  function renderBatchCheckbox(React, checked) {
+    return React.createElement(
+      'span',
+      {
+        key: 'check',
+        'aria-hidden': 'true',
+        'data-pipeline-batch-check': checked ? 'checked' : 'empty',
+        style: {
+          flex: '0 0 auto',
+          width: '16px',
+          height: '16px',
+          boxSizing: 'border-box',
+          borderRadius: '50%',
+          border: '1px solid ' + (checked ? '#2f81f7' : 'rgba(127,127,127,.6)'),
+          background: checked ? '#2f81f7' : 'transparent',
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: '#ffffff',
+          fontSize: '10px',
+          lineHeight: '1',
+          userSelect: 'none',
+        },
+      },
+      checked ? '✓' : '',
+    )
+  }
+
+  /**
+   * 面板内边距（px）。**批量栏的负边距靠这两个数把它抵掉**，所以面板本体与
+   * `renderBatchBar` 必须用同一对常量 —— 否则那条底栏会缩在 padding 里，看着不像通栏。
+   */
+  var PANEL_PAD_X = 12
+  var PANEL_PAD_BOTTOM = 12
+
+  /**
+   * 底部的**批量操作栏**（sticky 在列表底部；面板本身是可滚动容器）。
+   *
+   * 只显示"对这些选中项有意义"的按钮：主视图 = 归档所选 / 删除所选，
+   * 归档视图 = 恢复所选 / 删除所选。删除类需要两击（`armed`），执行中显示「处理中 i/N」。
+   */
+  function renderBatchBar(React, opts) {
+    if (opts.visible !== true) return null
+    var count = Number.isFinite(opts.count) ? Number(opts.count) : 0
+    var busy = opts.busy === true
+    var total = Number.isFinite(opts.total) ? Number(opts.total) : 0
+    var done = Number.isFinite(opts.done) ? Number(opts.done) : 0
+    var progress = busy && total > 0 ? '处理中 ' + done + '/' + total : ''
+    var actions = Array.isArray(opts.actions) ? opts.actions : []
+    var buttons = []
+    for (var i = 0; i < actions.length; i++) {
+      var item = actions[i]
+      var armed = item.armed === true
+      var danger = item.danger === true
       buttons.push(
         React.createElement(
           'button',
           {
-            key: action,
+            key: 'batch-' + item.id,
             type: 'button',
-            disabled: busy,
-            'aria-busy': busy,
-            'data-pipeline-action': action,
-            'data-pipeline-action-state': busy ? 'busy' : armed ? 'armed' : 'idle',
-            title: busy ? '正在等宿主回话…' : armed ? '再点一次就**永久**删除这张任务单（不可恢复）' : meta.tip,
-            onClick: clickOf(action),
-            // 移开就连确认态一起复原（不必等满 3 秒）
-            onMouseLeave: armed ? blurOf(action) : undefined,
+            disabled: busy || count === 0,
+            'data-pipeline-batch-action': item.id,
+            'data-pipeline-batch-state': busy ? 'busy' : armed ? 'armed' : 'idle',
+            title: busy ? '正在逐个等宿主回话…' : armed ? item.armedTip : item.tip,
+            onClick: (function (id) {
+              return function () {
+                opts.onAction(id)
+              }
+            })(item.id),
             style: {
               height: '22px',
               padding: '0 9px',
@@ -1032,130 +1383,265 @@
                     : 'rgba(217,83,79,.45)'
                   : 'var(--dsw-alias-border-l2, rgba(127,127,127,.35))'),
               borderRadius: '999px',
-              cursor: busy ? 'progress' : 'pointer',
-              opacity: busy ? 0.6 : 1,
+              cursor: busy ? 'progress' : count === 0 ? 'not-allowed' : 'pointer',
+              opacity: busy ? 0.6 : count === 0 ? 0.55 : 1,
               whiteSpace: 'nowrap',
               userSelect: 'none',
-              // 卡片也在头部拖拽区里（与 chip 同理）
               WebkitAppRegion: 'no-drag',
             },
           },
-          busy ? '处理中…' : armed ? DELETE_CONFIRM_LABEL : meta.label,
+          armed ? item.armedLabel : item.label,
         ),
       )
     }
-    if (buttons.length === 0) return null
+    buttons.push(
+      React.createElement(
+        'button',
+        {
+          key: 'batch-cancel',
+          type: 'button',
+          disabled: busy,
+          'data-pipeline-batch-action': 'cancel',
+          title: '退出批量模式并清空选择',
+          onClick: function () {
+            opts.onCancel()
+          },
+          style: {
+            height: '22px',
+            padding: '0 9px',
+            font: 'inherit',
+            fontSize: '11px',
+            lineHeight: '1',
+            color: 'inherit',
+            background: 'transparent',
+            border: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.35))',
+            borderRadius: '999px',
+            cursor: busy ? 'progress' : 'pointer',
+            opacity: busy ? 0.6 : 1,
+            whiteSpace: 'nowrap',
+            userSelect: 'none',
+            WebkitAppRegion: 'no-drag',
+          },
+        },
+        '取消',
+      ),
+    )
     return React.createElement(
       'div',
       {
-        'data-pipeline-actions': taskId,
-        style: { display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '5px', marginTop: '7px', minWidth: 0 },
+        'data-pipeline-batch-bar': 'true',
+        'data-pipeline-batch-progress': progress,
+        style: {
+          // sticky：面板是 overflowY:auto 的滚动容器，这一条贴在它的下边缘。
+          // 负的左右 / 下边距把面板 padding 抵掉，看起来才像一条通栏。
+          position: 'sticky',
+          bottom: 0,
+          zIndex: 5,
+          margin: '8px -' + PANEL_PAD_X + 'px -' + PANEL_PAD_BOTTOM + 'px',
+          padding: '8px ' + PANEL_PAD_X + 'px 9px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'flex-end',
+          flexWrap: 'wrap',
+          gap: '5px',
+          minWidth: 0,
+          background: 'var(--dsw-specific-menu, #ffffff)',
+          borderTop: '1px solid var(--dsw-alias-border-l1, rgba(127,127,127,.26))',
+          boxShadow: '0 -6px 12px -10px rgba(0,0,0,.35)',
+        },
       },
+      React.createElement(
+        'span',
+        {
+          'data-pipeline-batch-count': String(count),
+          style: { flex: '1 1 auto', fontSize: '11.5px', fontWeight: 600, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' },
+        },
+        progress !== '' ? progress : '已选 ' + count + ' 项',
+      ),
       buttons,
     )
   }
 
-  /** 一张任务卡：`[pipeline]` + 任务 id + 状态徽标 + 需求摘要（两行截断）+ 席位 chips。 */
+  // -------------------------------------------------------------------------
+  // 卡片里的小零件（任务卡与归档卡共用，免得两处各画一遍）
+  // -------------------------------------------------------------------------
+
+  /** `[pipeline]` 那个小标签。 */
+  function renderPipelineTag(React) {
+    return React.createElement(
+      'span',
+      {
+        key: 'pipelineTag',
+        style: {
+          flex: '0 0 auto',
+          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+          fontSize: '9.5px',
+          lineHeight: '15px',
+          padding: '0 4px',
+          borderRadius: '4px',
+          color: 'var(--dsw-alias-label-caption, rgba(127,127,127,.95))',
+          background: 'rgba(127,127,127,.16)',
+        },
+      },
+      '[pipeline]',
+    )
+  }
+
+  /** 状态徽标（颜色由 `stateTone` 定）。 */
+  function renderStateBadge(React, state, label) {
+    var tone = stateTone(state)
+    return React.createElement(
+      'span',
+      {
+        key: 'state',
+        style: {
+          flex: '0 0 auto',
+          fontSize: '10.5px',
+          lineHeight: '16px',
+          padding: '0 6px',
+          borderRadius: '999px',
+          color: tone.fg,
+          border: '1px solid ' + tone.border,
+          background: tone.bg,
+          whiteSpace: 'nowrap',
+        },
+      },
+      label,
+    )
+  }
+
+  /** 任务 id / 归档目录名那一格（等宽、超长省略；全文与目录名都进 title）。 */
+  function renderIdLabel(React, text, title) {
+    var tip = typeof title === 'string' && title !== '' ? title : text
+    return React.createElement(
+      'span',
+      {
+        key: 'id',
+        title: tip,
+        style: {
+          flex: '1 1 auto',
+          minWidth: 0,
+          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+          fontSize: '11.5px',
+          fontWeight: 600,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+        },
+      },
+      text,
+    )
+  }
+
+  /** 需求摘要（两行截断，title 里看全文）。 */
+  function renderSnippet(React, snippet) {
+    if (typeof snippet !== 'string' || snippet === '') return null
+    return React.createElement(
+      'p',
+      {
+        key: 'snippet',
+        title: snippet,
+        style: {
+          margin: '5px 0 0',
+          fontSize: '11.5px',
+          lineHeight: '1.5',
+          color: 'var(--dsw-alias-label-secondary, rgba(110,118,129,1))',
+          display: '-webkit-box',
+          WebkitLineClamp: 2,
+          WebkitBoxOrient: 'vertical',
+          overflow: 'hidden',
+        },
+      },
+      snippet,
+    )
+  }
+
+  /**
+   * **可选中卡壳**（任务卡 / 归档卡共用同一个外壳）。
+   *
+   * 批量模式下：整卡 `role=checkbox`、点击（或空格/回车）= 切换选中、选中时整卡淡蓝高亮；
+   * 卡内正文统一 `pointerEvents:none` —— 点 chip / 按钮不会"穿透"成打开会话或单个操作，
+   * 点哪儿都是"选中"。普通模式下这些一样都不加，两张卡各自保持原来那套点击行为。
+   */
+  function renderSelectableCard(React, opts) {
+    var batch = opts.batch === true
+    var selected = batch && opts.selected === true
+    var toggle = function () {
+      if (typeof opts.onToggleSelect === 'function') opts.onToggleSelect(opts.id)
+    }
+    var props = {
+      key: opts.key,
+      style: {
+        marginTop: '8px',
+        padding: '8px 10px 9px',
+        border: '1px solid ' + (selected ? 'rgba(47,129,247,.55)' : 'var(--dsw-alias-border-l1, rgba(127,127,127,.26))'),
+        borderRadius: '10px',
+        background: selected ? 'rgba(47,129,247,.10)' : 'var(--dsw-alias-bg-layer-2, rgba(127,127,127,.06))',
+        cursor: batch ? 'pointer' : 'default',
+        transition: 'background .12s ease, border-color .12s ease',
+      },
+    }
+    // 调用方给的 data-* 钩子（`data-pipeline-task` / `data-pipeline-archive-card` …）
+    var attrs = opts.attrs
+    if (attrs !== null && attrs !== undefined) {
+      for (var k in attrs) {
+        if (Object.prototype.hasOwnProperty.call(attrs, k)) props[k] = attrs[k]
+      }
+    }
+    if (batch) {
+      props.role = 'checkbox'
+      props.tabIndex = 0
+      props['aria-checked'] = selected
+      props.onClick = toggle
+      props.onKeyDown = function (ev) {
+        if (ev === null || ev === undefined) return
+        if (ev.key !== ' ' && ev.key !== 'Enter') return
+        if (typeof ev.preventDefault === 'function') ev.preventDefault()
+        toggle()
+      }
+    }
+    return React.createElement(
+      'article',
+      props,
+      React.createElement('div', { key: 'inner', style: { pointerEvents: batch ? 'none' : undefined } }, opts.children),
+    )
+  }
+
+  /**
+   * 一张任务卡：`[pipeline]` + 任务 id（置顶时挂 📌）+ 状态徽标 + 需求摘要（两行截断）+ 席位 chips。
+   *
+   * 两种模式：
+   *   · 普通模式：标题行右侧是**置顶**按钮，右下角是单卡操作按钮；
+   *   · **批量模式**（`opts.batch`）：左侧多一个圆勾、点整卡 = 切换选中、单卡按钮全部让位。
+   */
   function renderTaskCard(React, task, opts) {
     var taskId = typeof task.id === 'string' && task.id !== '' ? task.id : '(无 id)'
+    var batch = opts.batch === true
+    var selected = batch && opts.selected === true
     var stateLabel =
       typeof task.state_label === 'string' && task.state_label !== ''
         ? task.state_label
         : typeof task.state === 'string' && task.state !== ''
           ? task.state
           : '未知状态'
-    var tone = stateTone(task.state)
     var snippet = typeof task.requirement_snippet === 'string' ? task.requirement_snippet : ''
     var seats = Array.isArray(task.seats) ? task.seats : []
-    return React.createElement(
-      'article',
-      {
-        key: opts.key,
-        'data-pipeline-task': taskId,
-        style: {
-          marginTop: '8px',
-          padding: '8px 10px 9px',
-          border: '1px solid var(--dsw-alias-border-l1, rgba(127,127,127,.26))',
-          borderRadius: '10px',
-          background: 'var(--dsw-alias-bg-layer-2, rgba(127,127,127,.06))',
-        },
-      },
+
+    var head = []
+    if (batch) head.push(renderBatchCheckbox(React, selected))
+    head.push(renderPipelineTag(React))
+    head.push(renderIdLabel(React, taskId))
+    head.push(renderPinMark(React, task))
+    head.push(renderStateBadge(React, task.state, stateLabel))
+    head.push(renderPinButton(React, task, opts)) // 批量模式下它自己返回 null
+
+    var body = []
+    body.push(React.createElement('div', { key: 'head', style: { display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 } }, head))
+    body.push(renderSnippet(React, snippet))
+    body.push(
       React.createElement(
         'div',
-        { style: { display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 } },
-        React.createElement(
-          'span',
-          {
-            style: {
-              flex: '0 0 auto',
-              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
-              fontSize: '9.5px',
-              lineHeight: '15px',
-              padding: '0 4px',
-              borderRadius: '4px',
-              color: 'var(--dsw-alias-label-caption, rgba(127,127,127,.95))',
-              background: 'rgba(127,127,127,.16)',
-            },
-          },
-          '[pipeline]',
-        ),
-        React.createElement(
-          'span',
-          {
-            title: taskId,
-            style: {
-              flex: '1 1 auto',
-              minWidth: 0,
-              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
-              fontSize: '11.5px',
-              fontWeight: 600,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            },
-          },
-          taskId,
-        ),
-        React.createElement(
-          'span',
-          {
-            style: {
-              flex: '0 0 auto',
-              fontSize: '10.5px',
-              lineHeight: '16px',
-              padding: '0 6px',
-              borderRadius: '999px',
-              color: tone.fg,
-              border: '1px solid ' + tone.border,
-              background: tone.bg,
-              whiteSpace: 'nowrap',
-            },
-          },
-          stateLabel,
-        ),
-      ),
-      snippet === ''
-        ? null
-        : React.createElement(
-            'p',
-            {
-              title: snippet,
-              style: {
-                margin: '5px 0 0',
-                fontSize: '11.5px',
-                lineHeight: '1.5',
-                color: 'var(--dsw-alias-label-secondary, rgba(110,118,129,1))',
-                display: '-webkit-box',
-                WebkitLineClamp: 2,
-                WebkitBoxOrient: 'vertical',
-                overflow: 'hidden',
-              },
-            },
-            snippet,
-          ),
-      React.createElement(
-        'div',
-        { style: { display: 'flex', flexWrap: 'wrap', gap: '5px', marginTop: '7px', minWidth: 0 } },
+        { key: 'seats', style: { display: 'flex', flexWrap: 'wrap', gap: '5px', marginTop: '7px', minWidth: 0 } },
         seats.length === 0
           ? React.createElement('span', { style: { fontSize: '11px', opacity: 0.7 } }, '这个任务还没有席位')
           : seats.map(function (seat, i) {
@@ -1169,8 +1655,301 @@
               })
             }),
       ),
-      // 右下角那行小按钮（`allowed_actions` 为空/缺失时返回 null，这一行整体不占位）
-      renderTaskActions(React, task, opts),
+    )
+    // 右下角那行小按钮（`allowed_actions` 为空/缺失、或批量模式下返回 null，这一行整体不占位）
+    if (!batch) body.push(renderTaskActions(React, task, opts))
+
+    var attrs = { 'data-pipeline-task': taskId, 'data-pipeline-pinned': task.pinned === true ? 'true' : 'false' }
+    if (batch) attrs['data-pipeline-batch-selected'] = selected ? 'true' : 'false'
+    return renderSelectableCard(React, {
+      key: opts.key,
+      id: taskId,
+      batch: batch,
+      selected: selected,
+      onToggleSelect: opts.onToggleSelect,
+      attrs: attrs,
+      children: body,
+    })
+  }
+
+  // =========================================================================
+  // 分区 · 归档视图（查看 / 恢复 / 永久删除已归档的单）
+  // =========================================================================
+
+  /**
+   * 归档卡底部那行按钮：**恢复** / **永久删除**。
+   * 不看 `allowed_actions`：进了归档区就只剩终态单，两个动作都允许（与宿主契约一致）。
+   * `dir` 是归档目录名 —— 归档动作的 `task_id` 就是它。
+   */
+  function renderArchivedActions(React, dir, opts) {
+    if (opts.batch === true) return null
+    if (dir === '') return null
+    var onAction = typeof opts.onAction === 'function' ? opts.onAction : null
+    if (onAction === null) return null
+    var onActionBlur = typeof opts.onActionBlur === 'function' ? opts.onActionBlur : function () {}
+    var buttons = []
+    for (var i = 0; i < ARCHIVED_ACTION_ORDER.length; i++) {
+      var action = ARCHIVED_ACTION_ORDER[i]
+      var meta = ARCHIVED_ACTION_META[action]
+      var key = actionKeyOf(dir, action)
+      buttons.push(
+        renderActionButton(React, {
+          action: action,
+          label: meta.label,
+          tip: meta.tip,
+          armedLabel: DELETE_ARCHIVED_CONFIRM_LABEL,
+          armedTip: DELETE_ARCHIVED_ARMED_TIP,
+          danger: action === 'delete_archived',
+          busy: opts.busyKey === key,
+          armed: opts.armedKey === key,
+          // 参数化再返回闭包（别让循环变量 `action` 被闭包按引用捕走）
+          onClick: (function (a) {
+            return function () {
+              onAction(dir, a)
+            }
+          })(action),
+          onBlur: (function (a) {
+            return function () {
+              onActionBlur(dir, a)
+            }
+          })(action),
+        }),
+      )
+    }
+    return React.createElement(
+      'div',
+      {
+        'data-pipeline-archive-actions': dir,
+        style: { display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '5px', marginTop: '7px', minWidth: 0 },
+      },
+      buttons,
+    )
+  }
+
+  /**
+   * 一张**归档卡**：`[pipeline]` + 任务 id + 状态徽标 + 需求摘要 + 归档时间 + 「恢复 / 永久删除」。
+   *
+   * ★ 归档区里的写操作 `task_id` 传的是**归档目录名 `dir`**（宿主契约），不是任务 id ——
+   *   所以这张卡上所有回调拿到的都是 `dir`。
+   */
+  function renderArchivedCard(React, task, opts) {
+    var dir = typeof task.dir === 'string' && task.dir !== '' ? task.dir : ''
+    var taskId = typeof task.id === 'string' && task.id !== '' ? task.id : ''
+    var key = dir !== '' ? dir : taskId !== '' ? taskId : '(无 id)'
+    var shown = taskId !== '' ? taskId : key
+    var batch = opts.batch === true
+    var selected = batch && opts.selected === true
+    var stateLabel =
+      typeof task.state_label === 'string' && task.state_label !== ''
+        ? task.state_label
+        : typeof task.state === 'string' && task.state !== ''
+          ? task.state
+          : '未知状态'
+    var snippet = typeof task.requirement_snippet === 'string' ? task.requirement_snippet : ''
+    var when = archivedAtText(task.archived_at)
+
+    var head = []
+    if (batch) head.push(renderBatchCheckbox(React, selected))
+    head.push(renderPipelineTag(React))
+    head.push(renderIdLabel(React, shown, dir !== '' && dir !== shown ? shown + '\n归档目录：' + dir : shown))
+    head.push(renderStateBadge(React, task.state, stateLabel))
+
+    var body = []
+    body.push(React.createElement('div', { key: 'head', style: { display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 } }, head))
+    body.push(renderSnippet(React, snippet))
+    if (when !== '') {
+      body.push(
+        React.createElement(
+          'div',
+          {
+            key: 'when',
+            'data-pipeline-archived-at': when,
+            title: typeof task.archived_at === 'string' ? '归档原始时间：' + task.archived_at : when,
+            style: { marginTop: '5px', fontSize: '10.5px', lineHeight: '1.5', color: 'rgba(127,127,127,.95)' },
+          },
+          '归档时间：' + when,
+        ),
+      )
+    }
+    if (!batch) body.push(renderArchivedActions(React, key, opts))
+
+    var attrs = { 'data-pipeline-archive-card': key }
+    if (batch) attrs['data-pipeline-batch-selected'] = selected ? 'true' : 'false'
+    return renderSelectableCard(React, {
+      key: opts.key,
+      id: key,
+      batch: batch,
+      selected: selected,
+      onToggleSelect: opts.onToggleSelect,
+      attrs: attrs,
+      children: body,
+    })
+  }
+
+  // =========================================================================
+  // 分区 · 列表与头部（面板骨架，别把这些都塞进 PipelinePanel 的 return 里）
+  // =========================================================================
+
+  /** 主视图的任务列表（含"读不到 / 暂无任务"两档空态）。 */
+  function renderTaskList(React, opts) {
+    var tasks = opts.tasks
+    if (tasks === null) {
+      return React.createElement(
+        'div',
+        { key: 'loading', style: { marginTop: '8px', fontSize: '11.5px', opacity: 0.75 } },
+        opts.error === '' ? '正在读取多AI协调团队…' : '读不到多AI协调团队数据：' + opts.error,
+      )
+    }
+    if (tasks.length === 0) {
+      return React.createElement('div', { key: 'empty', style: { marginTop: '8px', fontSize: '11.5px', opacity: 0.75 } }, '暂无任务')
+    }
+    var selectedIds = Array.isArray(opts.selectedIds) ? opts.selectedIds : []
+    return React.createElement(
+      'div',
+      { key: 'tasks' },
+      tasks.map(function (task, i) {
+        var safe = task !== null && typeof task === 'object' ? task : {}
+        var id = rowKeyOf(safe, 'tasks')
+        var cardKey = (typeof safe.id === 'string' && safe.id !== '' ? safe.id : 'task') + '#' + i
+        return renderTaskCard(React, safe, Object.assign({}, opts, { key: cardKey, selected: id !== '' && selectedIds.indexOf(id) !== -1 }))
+      }),
+    )
+  }
+
+  /** 归档视图的列表（读不到时只写一行灰字 —— 归档是附加视图，失败不该把主面板拖下水）。 */
+  function renderArchivedList(React, opts) {
+    var archived = opts.archived
+    var rows = archived !== null && archived !== undefined && Array.isArray(archived.tasks) ? archived.tasks : null
+    if (rows === null) {
+      var err = archived !== null && archived !== undefined && typeof archived.error === 'string' ? archived.error : ''
+      return React.createElement(
+        'div',
+        { key: 'archLoading', style: { marginTop: '8px', fontSize: '11.5px', opacity: 0.75 } },
+        err === '' ? '正在读取已归档的任务…' : '读不到归档列表：' + err,
+      )
+    }
+    if (rows.length === 0) {
+      return React.createElement('div', { key: 'archEmpty', style: { marginTop: '8px', fontSize: '11.5px', opacity: 0.75 } }, '归档区是空的')
+    }
+    var selectedIds = Array.isArray(opts.selectedIds) ? opts.selectedIds : []
+    return React.createElement(
+      'div',
+      { key: 'archived' },
+      rows.map(function (task, i) {
+        var safe = task !== null && typeof task === 'object' ? task : {}
+        var id = rowKeyOf(safe, 'archived')
+        var cardKey = (id !== '' ? id : 'archived') + '#' + i
+        return renderArchivedCard(
+          React,
+          safe,
+          Object.assign({}, opts, { key: cardKey, selected: id !== '' && selectedIds.indexOf(id) !== -1 }),
+        )
+      }),
+    )
+  }
+
+  /** 头部小按钮（「批量」「归档 N」「← 返回任务」共用一套长相）。 */
+  function renderHeaderButton(React, spec) {
+    var active = spec.active === true
+    var props = {
+      key: spec.key,
+      type: 'button',
+      title: spec.title,
+      onClick: spec.onClick,
+      style: {
+        flex: '0 0 auto',
+        height: '22px',
+        padding: '0 8px',
+        font: 'inherit',
+        fontSize: '11px',
+        lineHeight: '1',
+        color: active ? 'var(--dsw-alias-brand-primary, #1f6feb)' : 'inherit',
+        background: active ? 'rgba(47,129,247,.14)' : 'transparent',
+        border: '1px solid ' + (active ? 'rgba(47,129,247,.55)' : 'var(--dsw-alias-border-l2, rgba(127,127,127,.35))'),
+        borderRadius: '999px',
+        cursor: 'pointer',
+        whiteSpace: 'nowrap',
+        userSelect: 'none',
+        WebkitAppRegion: 'no-drag',
+      },
+    }
+    var hooks = spec.hooks
+    if (hooks !== null && hooks !== undefined) {
+      for (var k in hooks) {
+        if (Object.prototype.hasOwnProperty.call(hooks, k)) props[k] = hooks[k]
+      }
+    }
+    return React.createElement('button', props, spec.label)
+  }
+
+  /**
+   * 面板头部：标题 + 「批量」（靠左）+ 「归档 N」/「← 返回任务」（靠右）。
+   * 归档数量来自归档列表长度（还没读到就只写「归档」两个字，不编一个 0）。
+   */
+  function renderPanelHeader(React, opts) {
+    var view = opts.view === 'archived' ? 'archived' : 'tasks'
+    var batch = opts.batch === true
+    var count = opts.archivedCount
+    var title =
+      view === 'archived'
+        ? '已归档' + (count === null ? '' : ' · ' + count + ' 张')
+        : opts.tasksCount === null
+          ? '多AI协调团队'
+          : '多AI协调团队 · ' + opts.tasksCount + ' 个任务'
+    var children = [
+      React.createElement(
+        'strong',
+        {
+          key: 'title',
+          style: {
+            fontSize: '12.5px',
+            fontWeight: 600,
+            minWidth: 0,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          },
+        },
+        title,
+      ),
+      renderHeaderButton(React, {
+        key: 'batch',
+        label: batch ? '批量中' : '批量',
+        active: batch,
+        title: batch ? '退出批量模式（已选中的会清空）' : '进入批量模式：点整张卡选中，底部会出现批量操作栏',
+        hooks: { 'data-pipeline-batch-toggle': batch ? 'on' : 'off' },
+        onClick: opts.onToggleBatch,
+      }),
+      React.createElement('span', { key: 'spacer', style: { flex: '1 1 auto', minWidth: 0 } }),
+    ]
+    if (view === 'archived') {
+      children.push(
+        renderHeaderButton(React, {
+          key: 'back',
+          label: '← 返回任务',
+          title: '切回任务列表',
+          hooks: { 'data-pipeline-archive-back': 'true' },
+          onClick: opts.onBackToTasks,
+        }),
+      )
+    } else {
+      children.push(
+        renderHeaderButton(React, {
+          key: 'archive',
+          label: '归档' + (count === null ? '' : ' ' + count),
+          title: '查看已归档的任务（可以恢复或永久删除）',
+          hooks: {
+            'data-pipeline-archive-toggle': 'true',
+            'data-pipeline-archived-count': count === null ? '' : String(count),
+          },
+          onClick: opts.onOpenArchive,
+        }),
+      )
+    }
+    return React.createElement(
+      'div',
+      { 'data-pipeline-panel-head': 'true', style: { display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 } },
+      children,
     )
   }
 
@@ -1195,6 +1974,26 @@
     var openErrHook = React.useState('')
     var openError = openErrHook[0]
     var setOpenError = openErrHook[1]
+
+    // ---- 视图与归档列表（分区：归档视图）----
+    //   view     'tasks'（主视图）| 'archived'（归档视图）
+    //   archived { tasks: [...] | null, error: string } —— **另一份数据**，与主快照互不影响
+    var viewHook = React.useState('tasks')
+    var view = viewHook[0]
+    var setView = viewHook[1]
+
+    var archHook = React.useState(null)
+    var archived = archHook[0]
+    var setArchived = archHook[1]
+
+    // ---- 批量模式（分区：批量管理）----
+    //   on       是否在批量模式
+    //   selected 选中的键：主视图 = 任务 id；归档视图 = **归档目录名 dir**
+    //   busy/done/total  串行执行进度（批量栏显示「处理中 i/N」）
+    //   armed    删除类批量动作是否已经"上膛"（两击确认）
+    var batchHook = React.useState({ on: false, selected: [], busy: false, done: 0, total: 0, armed: '' })
+    var batch = batchHook[0]
+    var setBatch = batchHook[1]
 
     var aliveRef = React.useRef(true)
     var pinnedRef = React.useRef(false) // 点击钉住后面板不因移开而收起
@@ -1254,6 +2053,65 @@
         })
     }
 
+    /** 拉一次归档列表（与 `readOnce` 同一套规矩：失败保留上次数据 + 只更新错误文案）。 */
+    var readArchivedOnce = function (signal) {
+      fetchArchived(signal)
+        .then(function (body) {
+          if (!aliveRef.current) return
+          if (body.ok === true) {
+            setArchived({ tasks: body.tasks, error: '' })
+            return
+          }
+          setArchived(function (prev) {
+            return { tasks: prev === null ? null : prev.tasks, error: body.error || '读取失败' }
+          })
+        })
+        .catch(function (err) {
+          if (!aliveRef.current) return
+          if (err && err.name === 'AbortError') return
+          setArchived(function (prev) {
+            return { tasks: prev === null ? null : prev.tasks, error: messageOf(err) }
+          })
+        })
+    }
+
+    /**
+     * 写成功之后**立刻**把这几张卡从界面上撤掉。
+     *
+     * 宿主把目录挪走之后快照自然会少一张，但那要等下一次回包 —— 归档 / 删单这类
+     * "点完就该消失"的动作不能留着旧卡让人以为没生效。两份列表都按各自的键清一遍
+     * （任务 id 与归档目录名不会撞车，所以清两张表是安全的）。
+     */
+    var dropRows = function (ids) {
+      if (!Array.isArray(ids) || ids.length === 0) return
+      var keep = function (list, viewName) {
+        if (!Array.isArray(list)) return list
+        return list.filter(function (row) {
+          return ids.indexOf(rowKeyOf(row, viewName)) === -1
+        })
+      }
+      setSnap(function (prev) {
+        if (prev === null) return prev
+        return { tasks: keep(prev.tasks, 'tasks'), error: prev.error, generatedAt: prev.generatedAt }
+      })
+      setArchived(function (prev) {
+        if (prev === null) return prev
+        return { tasks: keep(prev.tasks, 'archived'), error: prev.error }
+      })
+    }
+
+    /** 归档相关动作会同时改动两份数据（任务列表 + 归档列表），两边都刷一次。 */
+    var refreshAfterWrite = function () {
+      readOnce(undefined)
+      readArchivedOnce(undefined)
+    }
+
+    /** 当前视图的列表（批量操作的选中判定只看这一份）。 */
+    var currentRows = function () {
+      if (view === 'archived') return archived !== null && Array.isArray(archived.tasks) ? archived.tasks : []
+      return snap !== null && Array.isArray(snap.tasks) ? snap.tasks : []
+    }
+
     // ---- 轮询：5s 一轮；页面在后台时跳过这一轮 ----
     React.useEffect(function () {
       aliveRef.current = true
@@ -1305,7 +2163,7 @@
     }
 
     // =======================================================================
-    // 任务卡操作按钮：终止 / 恢复 / 留档 / 删单
+    // 任务卡操作按钮：终止 / 恢复 / 归档 / 删单（+ 归档视图的 恢复 / 永久删除）
     // =======================================================================
 
     /** 只改传入的键，其它字段原样保留（busy / 确认态 / 提示互不覆盖）。 */
@@ -1328,6 +2186,9 @@
     /** 删单第一击：只进入确认态，3 秒后自己复原（超过就不认第二击）。 */
     var armDelete = function (key) {
       clearArmTimer()
+      // 同一时刻只允许**一处**"上膛"：单卡刚上膛过、又去点批量删除时，
+      // 别让单卡那颗按钮一直红着（它等的那次确认已经不可能来了）。
+      if (batch.armed !== '') patchBatch({ armed: '' })
       patchActionUi({ armedKey: key })
       armTimerRef.current = setTimeout(function () {
         armTimerRef.current = null
@@ -1337,14 +2198,14 @@
 
     /**
      * 发一次动作：按钮转 busy → POST → 绿字/红字。
-     * 成功时**立刻刷新一次快照**（复用 `readOnce`）：按钮该消失还是该换，下一帧就看得见。
+     * 成功时**立刻**把卡从界面撤掉（归档 / 删单 / 恢复归档 / 永久删除）并刷新快照：
+     * 按钮该消失还是该换，下一帧就看得见，不用等 5 秒轮询。
      */
     var runAction = function (taskId, action) {
       var key = actionKeyOf(taskId, action)
-      var meta = PANEL_ACTION_META[action]
-      var fallback = meta === undefined ? '已完成' : meta.done
+      var fallback = actionMetaOf(action).done
       patchActionUi({ busyKey: key, armedKey: '', note: null })
-      postPanelAction(taskId, action, action === 'delete').then(
+      postPanelAction(taskId, action, isConfirmAction(action)).then(
         function (body) {
           if (!aliveRef.current) return
           if (body.ok === true) {
@@ -1355,7 +2216,12 @@
                 text: typeof body.message === 'string' && body.message !== '' ? body.message : fallback,
               },
             })
-            readOnce(undefined)
+            if (isArchiveMutation(action)) {
+              dropRows([taskId])
+              refreshAfterWrite()
+            } else {
+              readOnce(undefined)
+            }
             return
           }
           patchActionUi({
@@ -1370,10 +2236,10 @@
       )
     }
 
-    /** 按钮点击入口：删单的两次点击判据就在这里（第一次只"上膛"）。 */
+    /** 按钮点击入口：删单 / 永久删除的两次点击判据就在这里（第一次只"上膛"）。 */
     var onActionClick = function (taskId, action) {
       if (actionUi.busyKey !== '') return // 一次只让一个动作在飞
-      if (action === 'delete' && actionUi.armedKey !== actionKeyOf(taskId, action)) {
+      if (isConfirmAction(action) && actionUi.armedKey !== actionKeyOf(taskId, action)) {
         armDelete(actionKeyOf(taskId, action))
         return
       }
@@ -1381,12 +2247,198 @@
       runAction(taskId, action)
     }
 
-    /** 指针离开删单按钮 ⇒ 立刻复原（不必等满 3 秒）。 */
+    /** 指针离开删单 / 永久删除按钮 ⇒ 立刻复原（不必等满 3 秒）。 */
     var onActionBlur = function (taskId, action) {
-      if (action !== 'delete') return
+      if (!isConfirmAction(action)) return
       if (actionUi.armedKey !== actionKeyOf(taskId, action)) return
       clearArmTimer()
       patchActionUi({ armedKey: '' })
+    }
+
+    /**
+     * 置顶 / 取消置顶。
+     * 只发请求 + 刷快照：**不重排**任务卡（宿主已经把置顶的排在前面，客户端再排会打架）。
+     */
+    var onPinClick = function (taskId, pinned) {
+      if (actionUi.busyKey !== '') return
+      runAction(taskId, pinned === true ? 'unpin' : 'pin')
+    }
+
+    // =======================================================================
+    // 批量管理（仿 QQ 多选面板）：串行执行 + 底部操作栏
+    // =======================================================================
+
+    /** 只改传入的键，其它字段原样保留。 */
+    var patchBatch = function (patch) {
+      setBatch(function (prev) {
+        var next = {
+          on: prev.on,
+          selected: prev.selected,
+          busy: prev.busy,
+          done: prev.done,
+          total: prev.total,
+          armed: prev.armed,
+        }
+        if (patch.on !== undefined) next.on = patch.on
+        if (patch.selected !== undefined) next.selected = patch.selected
+        if (patch.busy !== undefined) next.busy = patch.busy
+        if (patch.done !== undefined) next.done = patch.done
+        if (patch.total !== undefined) next.total = patch.total
+        if (patch.armed !== undefined) next.armed = patch.armed
+        return next
+      })
+    }
+
+    /** 退出批量模式：清空选择、清掉进度与确认态（幂等）。 */
+    var exitBatch = function () {
+      clearArmTimer()
+      patchBatch({ on: false, selected: [], busy: false, done: 0, total: 0, armed: '' })
+    }
+
+    /** 头部「批量」：进 / 出批量模式（进去时先清空上一次的选择）。 */
+    var toggleBatch = function () {
+      if (batch.on) {
+        exitBatch()
+        return
+      }
+      clearArmTimer()
+      patchBatch({ on: true, selected: [], busy: false, done: 0, total: 0, armed: '' })
+    }
+
+    /** 点整张卡 = 切换选中（批量模式外、执行中都忽略）。 */
+    var toggleSelect = function (id) {
+      if (!batch.on || batch.busy) return
+      if (typeof id !== 'string' || id === '') return
+      var at = batch.selected.indexOf(id)
+      var next = batch.selected.slice()
+      if (at === -1) next.push(id)
+      else next.splice(at, 1)
+      // 选择变了，上膛的"确认删除"就该作废（别让它删到别的单）
+      patchBatch({ selected: next, armed: '' })
+    }
+
+    /** 批量删除类动作的第一击：只上膛，3 秒后自己复原。 */
+    var armBatch = function (action) {
+      clearArmTimer()
+      // 同上：单卡上膛的那颗先清掉 —— 一次只让一个"第二击"在等。
+      if (actionUi.armedKey !== '') patchActionUi({ armedKey: '' })
+      patchBatch({ armed: action })
+      armTimerRef.current = setTimeout(function () {
+        armTimerRef.current = null
+        if (aliveRef.current) patchBatch({ armed: '' })
+      }, DELETE_CONFIRM_MS)
+    }
+
+    /** 批量栏按钮入口：删除类先上膛（第二击才真的发）。 */
+    var onBatchAction = function (action) {
+      if (batch.busy) return
+      if (isConfirmAction(action) && batch.armed !== action) {
+        armBatch(action)
+        return
+      }
+      clearArmTimer()
+      runBatch(action)
+    }
+
+    /**
+     * 批量执行：对选中项**串行** POST（一次一个，回包了再发下一个）。
+     *
+     * 选中的项里**不支持这个动作的跳过**（主视图看 `allowed_actions`；归档视图两项都允许），
+     * 结束时把「成功 N / 跳过 M / 失败 K」写进顶部提示，然后清空选择、退出批量、刷新快照。
+     */
+    var runBatch = function (action) {
+      if (batch.busy) return
+      var rows = currentRows()
+      var picked = []
+      var skipped = 0
+      for (var i = 0; i < batch.selected.length; i++) {
+        var id = batch.selected[i]
+        var row = null
+        for (var j = 0; j < rows.length; j++) {
+          if (rowKeyOf(rows[j], view) === id) {
+            row = rows[j]
+            break
+          }
+        }
+        if (row === null || !canRunAction(row, action)) {
+          skipped += 1
+          continue
+        }
+        var submit = submitIdOf(row, view)
+        if (submit === '') {
+          skipped += 1
+          continue
+        }
+        picked.push(submit)
+      }
+      if (picked.length === 0) {
+        patchActionUi({ note: { kind: 'err', text: '选中的 ' + batch.selected.length + ' 项都不支持这个操作' } })
+        return
+      }
+      var confirm = isConfirmAction(action)
+      var doneLabel = actionMetaOf(action).done
+      patchActionUi({ note: null })
+      patchBatch({ busy: true, done: 0, total: picked.length, armed: '' })
+
+      var okCount = 0
+      var failCount = 0
+      var failedIds = []
+      var lastError = ''
+      var chain = Promise.resolve()
+      picked.forEach(function (taskId, index) {
+        chain = chain.then(function () {
+          if (!aliveRef.current) return
+          patchBatch({ done: index })
+          return postPanelAction(taskId, action, confirm).then(
+            function (body) {
+              if (body.ok === true) {
+                okCount += 1
+                return
+              }
+              failCount += 1
+              failedIds.push(taskId)
+              if (lastError === '' && typeof body.error === 'string' && body.error !== '') lastError = body.error
+            },
+            function (err) {
+              failCount += 1
+              failedIds.push(taskId)
+              if (lastError === '') lastError = messageOf(err)
+            },
+          )
+        })
+      })
+      chain.then(function () {
+        if (!aliveRef.current) return
+        var okIds = picked.filter(function (taskId) {
+          return failedIds.indexOf(taskId) === -1
+        })
+        if (okIds.length > 0) dropRows(okIds)
+        var parts = [doneLabel + ' ' + okCount + ' 项']
+        if (skipped > 0) parts.push('跳过 ' + skipped + ' 项（不支持这个操作）')
+        if (failCount > 0) parts.push('失败 ' + failCount + ' 项' + (lastError === '' ? '' : '：' + lastError))
+        patchActionUi({ note: { kind: failCount > 0 ? 'err' : 'ok', text: parts.join('；') } })
+        exitBatch()
+        if (isArchiveMutation(action)) refreshAfterWrite()
+        else readOnce(undefined)
+      })
+    }
+
+    // =======================================================================
+    // 归档视图的开关（分区：归档视图）
+    // =======================================================================
+
+    /** 头部「归档 N」：进归档视图（顺手刷一次，保证数量与列表是新的）。 */
+    var openArchivedView = function () {
+      exitBatch()
+      setView('archived')
+      readArchivedOnce(undefined)
+    }
+
+    /** 头部「← 返回任务」：回主视图（顺手刷一次，刚恢复的单才会立刻出现）。 */
+    var backToTasks = function () {
+      exitBatch()
+      setView('tasks')
+      readOnce(undefined)
     }
 
     // =======================================================================
@@ -1512,22 +2564,26 @@
       pinnedRef.current = false
       setOpen(false)
       setOpenError('')
-      // 预览 / 删单确认态 / 操作提示都是**上一个会话**那一屏的东西，一起撤掉。
+      // 预览 / 删单确认态 / 操作提示 / 批量选择都是**上一个会话**那一屏的东西，一起撤掉。
       closePreview()
       clearArmTimer()
       if (actionUi.armedKey !== '' || actionUi.note !== null) patchActionUi({ armedKey: '', note: null })
+      if (batch.on || batch.selected.length > 0) exitBatch()
     }, [sessionId])
 
-    // ---- 打开时：立刻刷一次 + 点外部/ESC 关闭；收起时把预览/确认态/提示一起撤掉 ----
+    // ---- 打开时：立刻刷一次 + 点外部/ESC 关闭；收起时把预览/确认态/提示/批量一起撤掉 ----
     React.useEffect(function () {
       if (!open) {
-        // 面板收起 = 预览层、"删单等二次确认"、上一行提示全部作废（滚出 / 卸载也走这条）
+        // 面板收起 = 预览层、"删单等二次确认"、上一行提示、批量选择全部作废（滚出 / 卸载也走这条）
         closePreview()
         clearArmTimer()
         if (actionUi.armedKey !== '' || actionUi.note !== null) patchActionUi({ armedKey: '', note: null })
+        if (batch.on || batch.selected.length > 0) exitBatch()
         return undefined
       }
       readOnce(undefined) // 别让用户等满 5 秒
+      readArchivedOnce(undefined) // 头部「归档 N」上的数量靠它（顺带预热归档视图）
+
       if (typeof document === 'undefined') return undefined
       var onPointerDown = function (ev) {
         var root = rootRef.current
@@ -1664,17 +2720,23 @@
       React.createElement('span', { style: { opacity: 0.7, fontVariantNumeric: 'tabular-nums' } }, countText),
     )
 
+    // ---- 面板骨架（分区拼装）：头部 → 提示 → 列表 → 批量栏 ----
+    //   每个分区都是本文件里一个独立函数（renderPanelHeader / renderTaskList /
+    //   renderArchivedList / renderBatchBar），这里只负责按顺序把它们串起来。
+    var archivedCount = archived !== null && Array.isArray(archived.tasks) ? archived.tasks.length : null
+    var selectedIds = batch.on ? batch.selected : []
+
     var children = []
     children.push(
-      React.createElement(
-        'div',
-        { key: 'head', style: { display: 'flex', alignItems: 'center', gap: '6px' } },
-        React.createElement(
-          'strong',
-          { style: { fontSize: '12.5px', fontWeight: 600 } },
-          tasks === null ? '多AI协调团队' : '多AI协调团队 · ' + tasks.length + ' 个任务',
-        ),
-      ),
+      renderPanelHeader(React, {
+        view: view,
+        tasksCount: tasks === null ? null : tasks.length,
+        archivedCount: archivedCount,
+        batch: batch.on,
+        onToggleBatch: toggleBatch,
+        onOpenArchive: openArchivedView,
+        onBackToTasks: backToTasks,
+      }),
     )
 
     // 面板顶部那一行操作结果：成功绿色、失败红色（失败时按钮保持可点，直接重试）
@@ -1714,44 +2776,32 @@
       )
     }
 
-    if (tasks === null) {
-      children.push(
-        React.createElement(
-          'div',
-          { key: 'loading', style: { marginTop: '8px', fontSize: '11.5px', opacity: 0.75 } },
-          errorText === '' ? '正在读取多AI协调团队…' : '读不到多AI协调团队数据：' + errorText,
-        ),
-      )
-    } else if (tasks.length === 0) {
-      children.push(
-        React.createElement('div', { key: 'empty', style: { marginTop: '8px', fontSize: '11.5px', opacity: 0.75 } }, '暂无任务'),
-      )
-    } else {
-      children.push(
-        React.createElement(
-          'div',
-          { key: 'tasks' },
-          tasks.map(function (task, i) {
-            var safe = task !== null && typeof task === 'object' ? task : {}
-            return renderTaskCard(React, safe, {
-              key: (typeof safe.id === 'string' && safe.id !== '' ? safe.id : 'task') + '#' + i,
-              currentSessionId: sessionId,
-              onOpen: openSeat,
-              // 操作按钮（来源 = `allowed_actions`）
-              busyKey: actionUi.busyKey,
-              armedKey: actionUi.armedKey,
-              onAction: onActionClick,
-              onActionBlur: onActionBlur,
-              // 悬停预览
-              onPreviewEnter: schedulePreviewShow,
-              onPreviewLeave: schedulePreviewHide,
-            })
-          }),
-        ),
-      )
+    // 卡片级回调（任务卡与归档卡共用同一套 opts）
+    var cardOpts = {
+      batch: batch.on,
+      selectedIds: selectedIds,
+      onToggleSelect: toggleSelect,
+      currentSessionId: sessionId,
+      onOpen: openSeat,
+      // 单卡操作按钮（来源 = `allowed_actions`；归档卡固定 恢复 / 永久删除）
+      busyKey: actionUi.busyKey,
+      armedKey: actionUi.armedKey,
+      onAction: onActionClick,
+      onActionBlur: onActionBlur,
+      // 置顶（📌）
+      onPin: onPinClick,
+      // 悬停预览
+      onPreviewEnter: schedulePreviewShow,
+      onPreviewLeave: schedulePreviewHide,
     }
 
-    if (tasks !== null && errorText !== '') {
+    if (view === 'archived') {
+      children.push(renderArchivedList(React, Object.assign({}, cardOpts, { archived: archived })))
+    } else {
+      children.push(renderTaskList(React, Object.assign({}, cardOpts, { tasks: tasks, error: errorText })))
+    }
+
+    if (view === 'tasks' && tasks !== null && errorText !== '') {
       children.push(
         React.createElement(
           'div',
@@ -1764,6 +2814,75 @@
         ),
       )
     }
+
+    // 归档列表"读到的是上一次的数据"提示（与主视图同一套规矩）
+    if (view === 'archived' && archived !== null && archived.error !== '' && archived.tasks !== null) {
+      children.push(
+        React.createElement(
+          'div',
+          {
+            key: 'archErr',
+            role: 'status',
+            style: { marginTop: '8px', fontSize: '10.5px', lineHeight: '1.5', color: '#d29922', wordBreak: 'break-word' },
+          },
+          '归档列表读取失败（显示的是上一次的数据）：' + archived.error,
+        ),
+      )
+    }
+
+    // 底部的批量操作栏：只放"对当前视图有意义"的动作（删除类要两击）
+    var batchActions = []
+    if (view === 'archived') {
+      batchActions.push({
+        id: 'unarchive',
+        label: '恢复所选',
+        danger: false,
+        armed: false,
+        armedLabel: '',
+        armedTip: '',
+        tip: '把选中的单移回任务列表',
+      })
+      batchActions.push({
+        id: 'delete_archived',
+        label: '删除所选',
+        danger: true,
+        armed: batch.armed === 'delete_archived',
+        armedLabel: BATCH_DELETE_CONFIRM_LABEL,
+        armedTip: '再点一次就**永久**删除选中的这些已归档单（不可恢复）',
+        tip: '永久删除选中的单，不可恢复（要点两次）',
+      })
+    } else {
+      batchActions.push({
+        id: 'archive',
+        label: '归档所选',
+        danger: false,
+        armed: false,
+        armedLabel: '',
+        armedTip: '',
+        tip: '把选中的终态单移进归档区（可恢复）',
+      })
+      batchActions.push({
+        id: 'delete',
+        label: '删除所选',
+        danger: true,
+        armed: batch.armed === 'delete',
+        armedLabel: BATCH_DELETE_CONFIRM_LABEL,
+        armedTip: '再点一次就**永久**删除选中的这些单（不可恢复）',
+        tip: '永久删除选中的单，不可恢复（要点两次）',
+      })
+    }
+    children.push(
+      renderBatchBar(React, {
+        visible: batch.on,
+        count: batch.selected.length,
+        busy: batch.busy,
+        done: batch.done,
+        total: batch.total,
+        actions: batchActions,
+        onAction: onBatchAction,
+        onCancel: exitBatch,
+      }),
+    )
 
     var popover = open
       ? React.createElement(
@@ -1780,6 +2899,8 @@
               role: 'dialog',
               'aria-label': '多AI协调团队',
               'data-pipeline-panel': 'open',
+              'data-pipeline-panel-view': view === 'archived' ? 'archived' : 'tasks',
+              'data-pipeline-panel-batch': batch.on ? 'on' : 'off',
               style: {
                 zIndex: 2147483000,
                 width: 'min(440px, 92vw)',
@@ -1787,7 +2908,7 @@
                 overflowY: 'auto',
                 overscrollBehavior: 'contain',
                 boxSizing: 'border-box',
-                padding: '10px 12px 12px',
+                padding: '10px ' + PANEL_PAD_X + 'px ' + PANEL_PAD_BOTTOM + 'px',
                 background: 'var(--dsw-specific-menu, #ffffff)',
                 color: 'var(--dsw-alias-label-primary, #1f2328)',
                 border: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.35))',
@@ -2065,6 +3186,23 @@
         renderTaskCard: renderTaskCard,
         renderSeatChip: renderSeatChip,
         renderTaskActions: renderTaskActions,
+        // 归档视图 / 批量管理（自测可以直接拿它们验"列表项 → 该发哪个 id"）
+        renderArchivedCard: renderArchivedCard,
+        renderArchivedActions: renderArchivedActions,
+        renderArchivedList: renderArchivedList,
+        renderTaskList: renderTaskList,
+        renderPanelHeader: renderPanelHeader,
+        renderBatchBar: renderBatchBar,
+        renderBatchCheckbox: renderBatchCheckbox,
+        renderPinButton: renderPinButton,
+        fetchArchived: fetchArchived,
+        rowKeyOf: rowKeyOf,
+        submitIdOf: submitIdOf,
+        canRunAction: canRunAction,
+        archivedAtText: archivedAtText,
+        actionMetaOf: actionMetaOf,
+        isConfirmAction: isConfirmAction,
+        isArchiveMutation: isArchiveMutation,
         postPanelAction: postPanelAction,
         actionKeyOf: actionKeyOf,
         // 预览取数（自测可以直接拿它们验"事件窗口 → 预览行"的转换）
@@ -2081,11 +3219,17 @@
         PANEL_ENTRY_ORDER: PANEL_ENTRY_ORDER,
         STATE_PATH: STATE_PATH,
         PANEL_PATH: PANEL_PATH,
+        PANEL_ARCHIVED_PATH: PANEL_ARCHIVED_PATH,
         PANEL_ACTION_PATH: PANEL_ACTION_PATH,
         PANEL_ACTION_ORDER: PANEL_ACTION_ORDER,
         PANEL_ACTION_META: PANEL_ACTION_META,
+        ARCHIVED_ACTION_ORDER: ARCHIVED_ACTION_ORDER,
+        ARCHIVED_ACTION_META: ARCHIVED_ACTION_META,
+        PIN_ACTION_META: PIN_ACTION_META,
         DELETE_CONFIRM_MS: DELETE_CONFIRM_MS,
         DELETE_CONFIRM_LABEL: DELETE_CONFIRM_LABEL,
+        DELETE_ARCHIVED_CONFIRM_LABEL: DELETE_ARCHIVED_CONFIRM_LABEL,
+        BATCH_DELETE_CONFIRM_LABEL: BATCH_DELETE_CONFIRM_LABEL,
         PREVIEW_SHOW_MS: PREVIEW_SHOW_MS,
         PREVIEW_HIDE_MS: PREVIEW_HIDE_MS,
         PREVIEW_MAX_ROWS: PREVIEW_MAX_ROWS,

@@ -58,8 +58,8 @@ node tests/run-all.mjs            # 全套；结果写到 tests/last-run.txt
 node tests/<套件>.mjs             # 单跑一套
 ```
 
-- 全套当前 **3572/3572** 通过（108 套）。
-- 有少数套件依赖**宿主安装**（`DSH_APP_ASAR=<DSH 安装>/resources/app.asar`）或宿主包（`@deepseek-ai/dsh-tools`、`@deepseek-ai/cordis`）；拿不到时如实标注、**不计入通过率**。本机口径：设了 `DSH_APP_ASAR` 后 3572/3572；不设时 3 条预置校验会红（环境面，不是代码面）。
+- 全套当前 **3641/3641** 通过（108 套）。
+- 有少数套件依赖**宿主安装**（`DSH_APP_ASAR=<DSH 安装>/resources/app.asar`）或宿主包（`@deepseek-ai/dsh-tools`、`@deepseek-ai/cordis`）；拿不到时如实标注、**不计入通过率**。本机口径：设了 `DSH_APP_ASAR` 后 3641/3641；不设时 3 条预置校验会红（环境面，不是代码面）。
 - `tests/seat-liveness-wake-check.mjs` 没有注册进全套，内容已落后于现在的失联判据，单跑会有失败。
 
 ### 安装

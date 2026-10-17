@@ -55,6 +55,16 @@ export const STATE_PATH = `${ROUTE_PREFIX}/state`
 export const PANEL_PATH = `${ROUTE_PREFIX}/panel`
 
 /**
+ * 归档视图的 `view` 取值：`GET /.dsh-pipeline/panel?view=archived`。
+ *
+ * ★ **同一个只读端点**，只多认一个 query —— 不新开路径（客户端的相对 fetch 与跨站闸
+ *   口径一个字都不用改）。除 `view=archived` 之外的**任何** query（含没有 query）
+ *   都照原样走主快照，所以老客户端与 `/state` 的行为都没动。
+ * 数据源是 `lib/panel/archive.js` 的 `listArchived()`，由 `deps.panelArchived` 注入。
+ */
+export const PANEL_ARCHIVED_VIEW = 'archived'
+
+/**
  * 面板**写操作**路由的完整路径（`POST`；动作执行在 `lib/panel/actions.js`）。
  *
  * 与 `/panel` 的关系：`/panel` 只读快照，`/panel/action` 才是用户点按钮的出口。
@@ -154,6 +164,9 @@ export function readBody(req, limit = MAX_BODY_BYTES) {
  * @param {(m:string)=>void} [deps.log]
  * @param {() => object} [deps.panel] - 面板快照数据源（只读；缺省 ⇒ `/panel` 回 503）。
  *   **本文件不猜 projectRoot** —— 目录从哪来是接线方（`index.js`）的事。
+ * @param {() => object} [deps.panelArchived] - 归档视图数据源（`listArchived()` 的接线；
+ *   缺省 ⇒ `?view=archived` 回 503）。与 `panel` 分开注入：两边的**读盘范围**不同
+ *   （主快照看 `T-*`、归档看 `_trash/`），混成一个取数函数就等于让路由层猜。
  * @param {{ run: (input:object) => Promise<object> }} [deps.panelAction] - 面板写操作执行器
  *   （`lib/panel/actions.js` 的 `createPanelActions()`；缺省 ⇒ `/panel/action` 回 503）。
  *   本文件**不判**动作白名单 / 开关 / 二次确认 —— 那些全在执行器里，只有一份。
@@ -164,6 +177,8 @@ export function createSwitchHandler(deps) {
   const log = typeof deps.log === 'function' ? deps.log : () => {}
   /** 面板数据源：没有就如实说"没接线"，不拿空对象冒充一份快照。 */
   const panel = typeof deps.panel === 'function' ? deps.panel : null
+  /** 归档视图数据源（`?view=archived`）：没接线就 503，不拿主快照冒充归档。 */
+  const panelArchived = typeof deps.panelArchived === 'function' ? deps.panelArchived : null
   /** 面板写操作执行器：同上，没接线就 503（**不**拿"空操作"冒充一次成功）。 */
   const panelAction = deps.panelAction !== null && typeof deps.panelAction?.run === 'function' ? deps.panelAction : null
 
@@ -185,6 +200,25 @@ export function createSwitchHandler(deps) {
       if (path === PANEL_PATH) {
         if (method !== 'GET' && method !== 'HEAD') {
           sendJson(res, 405, { ok: false, error: `面板是只读的，不支持 ${method}。` })
+          return
+        }
+        // ★ 归档视图：`?view=archived` 走 `lib/panel/archive.js` 的 `listArchived()`。
+        //   只多认这一个 query 取值；其它任何 query / 没有 query 都**照原样**走主快照。
+        //   放在 `panel === null` 之前：两个数据源**各自独立**（归档视图能单独接、单独测）。
+        if (String(url.searchParams.get('view') ?? '').trim() === PANEL_ARCHIVED_VIEW) {
+          if (panelArchived === null) {
+            sendJson(res, 503, { ok: false, error: '归档视图数据源未接线（mountSwitchRoute 没收到 panelArchived 数据源）。' })
+            return
+          }
+          let archived = null
+          try {
+            archived = panelArchived()
+          } catch (err) {
+            log(`归档视图数据源抛异常：${String(err?.stack ?? err)}`)
+            sendJson(res, 500, { ok: false, error: '归档视图构建失败。' })
+            return
+          }
+          sendJson(res, 200, archived)
           return
         }
         if (panel === null) {
@@ -346,6 +380,8 @@ export function createSwitchHandler(deps) {
  *
  * ★ 面板数据面：`deps.panel` 原样递给 `createSwitchHandler`（本函数不看内容、不猜目录）。
  *   同一个前缀下于是有两条路：`/state` 可读写开关位，`/panel` 只读快照。
+ * ★ 归档视图：`deps.panelArchived` 同样原样递下去（`?view=archived` 的取数函数；
+ *   本文件不判 `_trash` 在哪 —— 那是 `lib/panel/archive.js` 的事）。
  * ★ 面板**写操作**：`deps.panelAction` 原样递给 `createSwitchHandler` ——
  *   动作白名单 / 开关门 / 二次确认 / 状态机全在 `lib/panel/actions.js`，
  *   本文件只负责 HTTP 形状（方法、跨站闸、8KB 上限、坏 JSON）。

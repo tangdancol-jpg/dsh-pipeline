@@ -58,8 +58,8 @@ node tests/run-all.mjs            # 全套；结果写到 tests/last-run.txt
 node tests/<套件>.mjs             # 单跑一套
 ```
 
-- The full suite currently passes **3572/3572** (108 suites).
-- A few suites need the **host installation** (`DSH_APP_ASAR=<DSH install>/resources/app.asar`) or host packages (`@deepseek-ai/dsh-tools`, `@deepseek-ai/cordis`); when unavailable they are clearly marked and not counted in the pass rate. On this machine: with `DSH_APP_ASAR` set, 3572/3572; without it, 3 preset checks report red (an environment fact, not a code defect).
+- The full suite currently passes **3641/3641** (108 suites).
+- A few suites need the **host installation** (`DSH_APP_ASAR=<DSH install>/resources/app.asar`) or host packages (`@deepseek-ai/dsh-tools`, `@deepseek-ai/cordis`); when unavailable they are clearly marked and not counted in the pass rate. On this machine: with `DSH_APP_ASAR` set, 3641/3641; without it, 3 preset checks report red (an environment fact, not a code defect).
 - `tests/seat-liveness-wake-check.mjs` is not registered in the full suite, and its content is outdated relative to the current liveness criteria, so running it on its own will fail.
 
 ### Installation

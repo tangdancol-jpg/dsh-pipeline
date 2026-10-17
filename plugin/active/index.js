@@ -92,11 +92,15 @@ import { mountSwitchRoute, ROUTE_PREFIX, STATE_PATH } from './lib/switch-routes.
 //   挂法见下面 `mountSwitchRouteWhenReady` 的 `panel` 那一条 —— 目录来自本文件已有的
 //   `projectRoot` 与 `config.artifactDirName`，**不另造第二份目录来源**。
 import { buildPanelSnapshot } from './lib/panel/snapshot.js'
-// ★ 自建流水线面板的**写操作面**（用户点按钮：终止 / 恢复 / 留档 / 删单）：
+// ★ 自建流水线面板的**写操作面**（用户点按钮：终止 / 恢复 / 留档 / 删单 / 置顶 / 归档区）：
 //   判据（白名单、开关门、二次确认、状态机）全在 `lib/panel/actions.js`，
 //   路由层只负责 HTTP 形状。这里注入的 `store` / `sw` 就是上面那两个**同一个实例** ——
 //   不另造第二份目录来源、也不另开一个开关读数。
 import { createPanelActions } from './lib/panel/actions.js'
+// ★ 面板的**归档视图**（`GET /.dsh-pipeline/panel?view=archived`）：`_trash/` 里那些单。
+//   与主快照分开接线（读盘范围不同：主快照看 `T-*`、这里看 `_trash/`），
+//   目录同样来自本文件已有的 `projectRoot` 与 `config.artifactDirName`。
+import { listArchived } from './lib/panel/archive.js'
 import { createTokenStore } from './lib/tokens.js'
 // ★★ E 路 ③：角色常量（"主对话不收紧工具面"这条口径要按**同一个**角色 id 判）。
 import { ROLE, ROLES, roleLabel } from './lib/roles.js'
@@ -994,10 +998,16 @@ export function apply(ctx, rawConfig) {
    * `store` 与 `sw` 都是**本作用域已有的那两个实例**（`createTaskStore` / `createSwitch`）：
    * 动作因此与 `pipeline_task_purge` / `pipeline_transition` 走**同一份**判据，
    * 不存在"面板有自己的一套删除逻辑"这种分叉。
+   *
+   * ★ `projectRoot` / `artifactDirName` 也来自**同一处**（本文件 §1 那套 `resolveDirs`）：
+   *   置顶（`_panel-pins.json`）与归档区（`_trash/`）因此和快照 / store 看的是同一个目录 ——
+   *   不会出现"面板置顶写 A 目录、快照读 B 目录"那种对不上的分叉。
    */
   const panelActions = createPanelActions({
     store,
     sw,
+    projectRoot,
+    artifactDirName: config.artifactDirName,
     log: (m) => ctx.logger?.debug?.(`[pipeline] ${m}`),
   })
 
@@ -1020,6 +1030,14 @@ export function apply(ctx, rawConfig) {
          * 绝不抛），所以面板看到的永远是盘上的当前状态，而不是插件启动那一刻的缓存。
          */
         panel: () => buildPanelSnapshot({ projectRoot, artifactDirName: config.artifactDirName }),
+        /**
+         * ★★ 面板的**归档视图**（`GET /.dsh-pipeline/panel?view=archived`）。
+         *
+         * 与 `panel` 分开一个取数函数（不是在里面分叉）：归档视图扫的是 `_trash/`，
+         * 主快照扫的是 `T-*` —— 读盘范围不同、判据在不同模块（`lib/panel/archive.js`），
+         * 混成一个函数就等于让路由层去猜"这次要读哪一半"。
+         */
+        panelArchived: () => listArchived({ projectRoot, artifactDirName: config.artifactDirName }),
         /**
          * ★★ 自建流水线面板的**写操作面**（`POST /.dsh-pipeline/panel/action`）。
          *

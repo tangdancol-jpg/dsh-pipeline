@@ -4,11 +4,15 @@
  * ============================================================================
  * 一次给齐客户端要显示的四样东西：任务列表（状态中文名 + 需求摘要）、每个任务的席位
  * （角色中文名 + 席位号 + 是否已派出 + 当前会话身份）、人工待办数。
- * 外加一格 `allowed_actions`：这个状态下**面板能发起**哪些操作（只读判定，
+ * 外加两格：`pinned`（这颗星是不是用户置顶的，见 `lib/panel/pins.js`）与
+ * `allowed_actions`（这个状态下**面板能发起**哪些操作；只读判定，
  * 执行在 `lib/panel/actions.js`，两边共用 `lib/states.js` 的同一份状态机判据）。
  *
+ * 排序：**置顶优先**，组内按 `updated_at` 倒序（见 `buildPanelSnapshot` 里那段比较器）。
+ *
  * ---- 硬边界 ----------------------------------------------------------------
- *   · **只读**：只 `readdirSync` / `readFileSync` / `statSync`，一个字节都不写任务数据；
+ *   · **只读**：只 `readdirSync` / `readFileSync` / `statSync`，一个字节都不写任务数据
+ *     （置顶表的**写**在 `pins.js`，本文件只读它）；
  *   · **不读正文**：只碰 `task.json` 与 `team-board.json` 的**结构化字段**，绝不打开
  *     `handoffs/` · `artifacts/` · `records/` · `reports/`（面板不展示交接物正文/补丁/代码）；
  *   · **绝不抛**：坏 JSON / 读失败 / 形状不对 ⇒ 跳过该任务并记进 `warnings[]`；连工作区目录
@@ -38,6 +42,7 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
+import { readPins } from './pins.js'
 import { ROLE, roleLabel } from '../roles.js'
 import { STATE_LABEL, TERMINAL_STATES, findTransition } from '../states.js'
 import { pathKey } from '../util.js'
@@ -57,13 +62,37 @@ const HUMAN_CLOSED_STATUSES = ['answered', 'withdrawn']
 /**
  * 面板操作 id（顺序 = 契约顺序，**只出现可用的**）。
  *
- * ★ 与 `lib/panel/actions.js` 的 `PANEL_ACTION_IDS` 是**同一组名字**：
+ * ★ 与 `lib/panel/actions.js` 的 `PANEL_ACTION_IDS` **前四个是同一组名字**（后者是完整白名单）：
  *   本文件只回答"这个状态下**能**做哪几件"，能不能真做成由 `actions.run()` 判
  *   （开关、二次确认、终态闸、状态机全部在那一侧，本文件一个字节都不写盘）。
  *   顺序固定为 `cancel, restore, archive, delete` —— 客户端按这个顺序渲染按钮即可，
  *   不需要自己再排一遍。
+ * ★ 后加的 `pin` / `unpin` / `unarchive` / `delete_archived` **不在这里**：
+ *   它们跟状态机无关（置顶是展示偏好、归档两件只对归档视图的行成立），
+ *   进了这个数组就会给一张在跑的单画出"恢复归档"按钮。
  */
 export const PANEL_ACTION_ORDER = Object.freeze(['cancel', 'restore', 'archive', 'delete'])
+
+/**
+ * 任务行的**键序契约**（`allowed_actions` 固定在最后，`pinned` 紧挨在它前面）。
+ *
+ * ★ 为什么把键序写成一个导出常量而不是"靠写代码时的顺序"：客户端按固定键序渲染，
+ *   而键序是**会被无意打乱**的（往中间插一格就变了）。测试拿它逐字比对，漂移当场被抓住。
+ * ★ `pinned` 的位置是刻意的：原有 8 个键一个都没动（老客户端读前 8 个键照旧），
+ *   新键插在 `allowed_actions` **之前** —— 而 `allowed_actions` 仍然**是最后一个键**。
+ */
+export const PANEL_TASK_KEY_ORDER = Object.freeze([
+  'id',
+  'state',
+  'state_label',
+  'requirement_snippet',
+  'updated_at',
+  'human_pending',
+  'team_board',
+  'seats',
+  'pinned',
+  'allowed_actions',
+])
 
 /**
  * 构建面板快照（**同步 · 纯读 · 绝不抛**）。
@@ -86,7 +115,10 @@ export function buildPanelSnapshot(input = {}) {
   }
 
   try {
-    const pipelineDir = join(rootRaw, nonEmptyText(opts.artifactDirName) ?? '.pipeline')
+    const dirName = nonEmptyText(opts.artifactDirName) ?? '.pipeline'
+    const pipelineDir = join(rootRaw, dirName)
+    // ★ 置顶表是一次读出来的（不是每行再读一遍盘）：坏文件在 `pins.js` 里已经降级成空表。
+    const pinnedIds = pinnedSetOf(rootRaw, dirName, warnings)
     let entries = null
     try {
       entries = readdirSync(pipelineDir, { withFileTypes: true })
@@ -102,11 +134,14 @@ export function buildPanelSnapshot(input = {}) {
       const name = String(dirent?.name ?? '')
       if (!name.startsWith(PANEL_TASK_PREFIX)) continue
       if (isDirectory(dirent) !== true) continue
-      const built = buildTaskRow({ taskId: name, taskDir: join(pipelineDir, name), nowMs, warnings })
+      const built = buildTaskRow({ taskId: name, taskDir: join(pipelineDir, name), nowMs, warnings, pinnedIds })
       if (built !== null) rows.push(built)
     }
-    // 任务按 `updated_at` **倒序**；同刻按 id 升序（确定性 —— 顺序不靠天吃饭）。
-    rows.sort((a, b) => (b.sortMs - a.sortMs) || compareText(a.entry.id, b.entry.id))
+    // 排序：**置顶优先**，组内按 `updated_at` 倒序；同刻按 id 升序（确定性 —— 顺序不靠天吃饭）。
+    // ★ 置顶组内部**不另立一套顺序**：置顶只回答"要不要往上提"，不跟时间抢排序权。
+    rows.sort((a, b) => (Number(b.entry.pinned) - Number(a.entry.pinned))
+      || (b.sortMs - a.sortMs)
+      || compareText(a.entry.id, b.entry.id))
     return { ok: true, ...base, tasks: rows.map((r) => r.entry), warnings }
   } catch (err) {
     // 兜底：任何意外都不许把面板打成 500 —— 如实说"没拿到"，并把理由带出去。
@@ -116,7 +151,7 @@ export function buildPanelSnapshot(input = {}) {
 }
 
 /** 一个任务目录 → 一行任务（坏 JSON / 形状不对 ⇒ `null` + `warnings`）。 */
-function buildTaskRow({ taskId, taskDir, nowMs, warnings }) {
+function buildTaskRow({ taskId, taskDir, nowMs, warnings, pinnedIds }) {
   const taskFile = join(taskDir, 'task.json')
   let text = null
   let mtimeMs = null
@@ -149,11 +184,31 @@ function buildTaskRow({ taskId, taskDir, nowMs, warnings }) {
       human_pending: humanPendingCount(task),
       team_board: teamBoardOf({ taskDir, taskId, warnings }),
       seats: seatsOf(task),
-      // ★ 追加在现有 8 个键**之后**（键名/顺序不动，只多这一格）。
-      //   判据见 `allowedActionsOf()`：全部来自 `lib/states.js`，不手抄状态名单。
+      // ★ 新键插在 `allowed_actions` **之前**：既有 8 个键位置不动，`allowed_actions` 仍是最后一个。
+      //   判据见 {@link PANEL_TASK_KEY_ORDER}（键序是契约，测试逐字钉住）。
+      pinned: pinnedIds instanceof Set && pinnedIds.has(taskId),
+      // ★ 追加在最后（键名/顺序不动）：判据见 `allowedActionsOf()`，
+      //   全部来自 `lib/states.js`，不手抄状态名单。
       allowed_actions: allowedActionsOf(task.state),
     },
     sortMs: msOf(updatedAt) ?? 0,
+  }
+}
+
+/**
+ * 置顶 id 集合（**读不出来就是空集**：置顶丢了只影响排序，不该让整张面板失败）。
+ *
+ * @param {string} root
+ * @param {string} dirName
+ * @param {string[]} warnings
+ * @returns {Set<string>}
+ */
+function pinnedSetOf(root, dirName, warnings) {
+  try {
+    return new Set(readPins(root, dirName))
+  } catch (err) {
+    warnings.push(`读取置顶表失败（${reasonOf(err)}），本次按"没有置顶"处理。`)
+    return new Set()
   }
 }
 
