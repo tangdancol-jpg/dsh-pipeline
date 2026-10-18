@@ -16,7 +16,7 @@
  *   ⑤ **生成物可被 YAML 解析** —— 用运行时自带的 YAML 解析器解析
  *      `generated/pipeline-presets.patch.yml`：顶层是数组、展开后有 16 条 insert、
  *      `config.id` 唯一且逐个正确、`config.plugins` 里**恰有一条** `dsh-persona`
- *      且 prefix/suffix 非空、行 name 全是 `@deepseek-ai/dsh-agent-preset`。
+ *      且 prefix 非空、suffix 可缺省（缺省 = 不写该键，等价于宿主默认空串）、行 name 全是
  *      解析器找不到时**如实写"未校验"并判红**（不当作通过）。
  *   ⑥ **负例自证** —— 在**临时副本**上删角色目录 / 删 suffix.md / 改 meta.id，
  *      `validatePresets()` 必须**变红**且点名到具体文件。全程不碰真树。
@@ -229,9 +229,10 @@ export async function runPresetsCheck() {
       const rows = Array.isArray(e?.config?.plugins) ? e.config.plugins : []
       const personas = rows.filter((r) => r?.name === PERSONA_MODULE)
       if (personas.length !== 1) personaBad.push(`${e?.config?.id}: persona×${personas.length}`)
-      else if (!personas[0]?.config?.prefix || !personas[0]?.config?.suffix) personaBad.push(`${e?.config?.id}: prefix/suffix 为空`)
+      else if (!personas[0]?.config?.prefix) personaBad.push(`${e?.config?.id}: prefix 为空`)
+      else if (personas[0]?.config?.suffix !== undefined && String(personas[0]?.config?.suffix).trim() === '') personaBad.push(`${e?.config?.id}: suffix 是空串（缺省应完全不写该键）`)
     }
-    ok(personaBad.length === 0, '⑤ 每条预设里恰有一条 dsh-persona，且 prefix/suffix 均非空', personaBad.join(' ') || '16/16')
+    ok(personaBad.length === 0, '⑤ 每条预设里恰有一条 dsh-persona，且 prefix 非空、suffix 缺省或非空', personaBad.join(' ') || '16/16')
     const wsBad = roles.filter((r) => {
       const e = entries.find((x) => x?.config?.id === `${index.presetIdPrefix}${r}`)
       const p = e?.config?.plugins?.find((x) => x?.name === PERSONA_MODULE)?.config?.prefix ?? ''

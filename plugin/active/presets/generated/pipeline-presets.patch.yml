@@ -102,8 +102,6 @@
                   ① 派活（`pipeline_dispatch`）或查状态（`pipeline_status`）；
                   ② 确实绕不过去 ⇒ 按上面那三步**向用户申请**，**一次只放行一次**。
                 - **最好别碰**：能不问就不问。用户把调度权交给你，不是把实现权交给你。
-
-                你的工作目录是 {{cwd}}。
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
@@ -202,8 +200,6 @@
 
                 ## 你的工具面
                 20 个 `pipeline_*` 工具可见。
-              suffix: |-
-                你的工作目录是 {{cwd}}。
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
@@ -277,8 +273,6 @@
 
                 ## 你的工具面
                 21 个 `pipeline_*` 工具可见。
-              suffix: |-
-                你的工作目录是 {{cwd}}。
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
@@ -393,8 +387,6 @@
 
                 （实例：本仓库有个约 800 行的单文件经评估**不宜拆** —— 属于 ①。那是必要性的**实例**，
                  **不是**"长文件豁免"：豁免要逐条自证拿到。）
-
-                你的工作目录是 {{cwd}}。
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
@@ -459,8 +451,6 @@
 
                 ## 你的工具面
                 18 个 `pipeline_*` 工具可见。
-              suffix: |-
-                你的工作目录是 {{cwd}}。
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
@@ -530,8 +520,6 @@
 
                 ## 你的工具面
                 20 个 `pipeline_*` 工具可见（含 `pipeline_security_check`）。
-              suffix: |-
-                你的工作目录是 {{cwd}}。
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
@@ -627,8 +615,6 @@
                 ④ 有没有为凑行数把**同一件事**切碎到多个文件？（有 ⇒ 合回去）
 
                 注意：行数不是判据，但**超 400 行的文件必须先自证属于哪一条**，否则先拆再改。
-
-                你的工作目录是 {{cwd}}。
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
@@ -696,8 +682,6 @@
 
                 ## 你的工具面
                 19 个 `pipeline_*` 工具可见（含跑 shell 的工具 —— 本插件里唯一 `can_run_tests=true` 的执行角色）。
-              suffix: |-
-                你的工作目录是 {{cwd}}。
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
@@ -807,8 +791,6 @@
 
                 （实例：本仓库有个约 800 行的单文件经评估**不宜拆** —— 它属于 ①。那是必要性的**实例**，
                  **不是**"长文件豁免"：豁免要靠逐条自证拿到，不靠长度本身。）
-
-                你的工作目录是 {{cwd}}。
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
@@ -876,8 +858,6 @@
 
                 ## 你的工具面
                 18 个 `pipeline_*` 工具可见（含 `pipeline_compile_requirement` 与 `pipeline_record_submit`）。
-              suffix: |-
-                你的工作目录是 {{cwd}}。
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
@@ -948,8 +928,6 @@
 
                 ## 你的工具面
                 18 个 `pipeline_*` 工具可见。
-              suffix: |-
-                你的工作目录是 {{cwd}}。
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
@@ -1020,8 +998,6 @@
 
                 ## 你的工具面
                 18 个 `pipeline_*` 工具可见。
-              suffix: |-
-                你的工作目录是 {{cwd}}。
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
@@ -1090,8 +1066,6 @@
 
                 ## 你的工具面
                 18 个 `pipeline_*` 工具可见。
-              suffix: |-
-                你的工作目录是 {{cwd}}。
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
@@ -1161,8 +1135,6 @@
 
                 ## 你的工具面
                 18 个 `pipeline_*` 工具可见。
-              suffix: |-
-                你的工作目录是 {{cwd}}。
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
@@ -1229,8 +1201,6 @@
 
                 ## 你的工具面
                 18 个 `pipeline_*` 工具可见。
-              suffix: |-
-                你的工作目录是 {{cwd}}。
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
@@ -1299,8 +1269,6 @@
 
                 ## 你的工具面
                 21 个 `pipeline_*` 工具可见。
-              suffix: |-
-                你的工作目录是 {{cwd}}。
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:

@@ -64,7 +64,7 @@ presets/
 
 1. **`persona`** —— `@deepseek-ai/dsh-persona`，`config.prefix` / `config.suffix`：
    - `prefix` = `[prefix.md?] + prompt.md`（有 `prefix.md` 的三角色，首尾提示词在最前）
-   - `suffix` = `[suffix.md?] + "你的工作目录是 {{cwd}}。"`
+   - `suffix` = `[suffix.md?]`（**只拼源文件，不追加任何运行时变量模板**：DSH 0.2.1-rc.2 的 `deployment:persona-suffix` 只注册 `provider` / `model`，`cwd` 不是合法变量，写进去会让用该预设发起的一轮直接失败）
 2. **`agent-instructions`** —— 让 `AGENTS.md` 进上下文（`maxBytes: 65536`）。
 3. **底座工具行**（角色无关，见下方判据）：`tool-bash` / `tool-pwsh`（`!!js` 按平台互斥）、
    `tool-fs`、`tool-fs-search`、`tool-jobs`。

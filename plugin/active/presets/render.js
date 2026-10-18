@@ -31,10 +31,16 @@ export const PRESET_MODULE = '@deepseek-ai/dsh-agent-preset'
 export const PERSONA_MODULE = '@deepseek-ai/dsh-persona'
 
 /**
- * persona 的运行时后缀（与 shipped 预设同形）：`{{cwd}}` 由宿主在渲染时替换。
- * 它**不是**角色专属内容，所以不放进 src/。
+ * ★ 不再往 persona 里塞任何运行时**变量**模板（2026-10-18 真机缺陷的修复）。
+ *
+ * 旧版在每条预设的 suffix 末尾固定追加 `你的工作目录是 {{cwd}}。`，理由是"与 shipped
+ * 预设同形"。但 DSH 0.2.1-rc.2 的 `deployment:persona-suffix` 段只注册了
+ * `provider` / `model` 两个变量 —— `cwd` 不再是合法变量，用这些预设发起一轮会
+ * 直接失败（`unknown prompt variable "{{cwd}}"`）。
+ *
+ * 现在 suffix 只拼 `src/<role>/suffix.md`（纯文本，无占位符）；工作目录由宿主的
+ * 运行时上下文/系统提示提供，不需要预设层再重复一遍。
  */
-export const RUNTIME_SUFFIX = '你的工作目录是 {{cwd}}。'
 
 /**
  * ★ 底座工具行 —— **16 个角色完全一致**。
@@ -112,13 +118,10 @@ export function composePrefix(dir) {
   return out.join('\n\n')
 }
 
-/** 组装 persona 的 suffix：`[suffix.md] + 运行时后缀`。 */
+/** 组装 persona 的 suffix：只拼 `src/<role>/suffix.md`（**不追加任何变量模板**，见上方注释）。 */
 export function composeSuffix(dir) {
-  const out = []
   const suf = readText(join(dir, 'suffix.md'))
-  if (suf !== null && suf.trim().length > 0) out.push(suf.trim())
-  out.push(RUNTIME_SUFFIX)
-  return out.join('\n\n')
+  return suf !== null && suf.trim().length > 0 ? suf.trim() : ''
 }
 
 /** 把一串名字折成注释行（每行 ≤ 76 列）。 */
@@ -172,14 +175,18 @@ export function renderPreset(role, entry, index, root = HERE) {
   L.push(`        description: ${yamlScalar(meta.description)}`)
   L.push(`        order: ${meta.order}`)
   L.push('        plugins:')
-  // ① persona —— 提示词的唯一落点
+  // ① persona —— 提示词的唯一落点（`suffix` 只有存在 suffix.md 的角色才写；空串会让宿主的
+  //    模板渲染拿到一个没有内容的块，没必要。
   L.push('          - id: persona')
   L.push(`            name: '${PERSONA_MODULE}'`)
   L.push('            config:')
   L.push('              prefix: |-')
   L.push(yamlBlock(composePrefix(dir), 16))
-  L.push('              suffix: |-')
-  L.push(yamlBlock(composeSuffix(dir), 16))
+  const suffixText = composeSuffix(dir)
+  if (suffixText !== '') {
+    L.push('              suffix: |-')
+    L.push(yamlBlock(suffixText, 16))
+  }
   // ② 底座工具行（角色无关）
   for (const row of BASE_PLUGIN_ROWS) {
     L.push(`          - id: ${row.id}`)
