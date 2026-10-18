@@ -187,8 +187,8 @@ async function main() {
     await runRound(hostLive, file)
     const bytesAfterBack = bytesOf(file)
     ok(
-      mountedOn === 6 && mountedOff === 0 && mountedBack === 6,
-      '★★ 挂载数：开=6 → 关=0 → 再开=6（四条既有缝 + 两条记忆缝）',
+      mountedOn === 8 && mountedOff === 0 && mountedBack === 8,
+      '★★ 挂载数：开=8 → 关=0 → 再开=8（四条既有缝 + 两条记忆缝 + 两条文件规模提醒缝）',
       `${mountedOn} → ${mountedOff} → ${mountedBack}`,
     )
     ok(bytesAfterFlip === bytesBeforeFlip, '★ 关掉那一段里跑同样一轮 ⇒ 字节数不变（**订阅式挂/摘真的生效**）', `${bytesBeforeFlip} → ${bytesAfterFlip}`)

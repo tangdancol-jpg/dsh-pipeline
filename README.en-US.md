@@ -27,7 +27,7 @@ docs + delivery reports and diagrams (all under `docs/`) + a separate local read
 │       ├── index.js           ← host-side entry: apply / tools / guard / HTTP routes / client registration
 │       ├── lib/               ← implementation, split by domain (including panel/ and the 18 client chunks)
 │       ├── presets/           ← 16 role presets (src/ is the source, generated/ is the output)
-│       ├── tests/             ← self-tests: 112 suites, one file per suite
+│       ├── tests/             ← self-tests: 113 suites, one file per suite
 │       ├── tools/             ← repository tools; install-items.json is the single source of the copy scope
 │       ├── design/            ← open design records (agent-teams / memory / panel)
 │       ├── locale/ skills/
@@ -182,7 +182,7 @@ node tests\run-all.mjs            # full suite; writes tests\last-run.txt
 node tests\<suite>.mjs            # run one suite
 ```
 
-- The full suite currently passes **3681/3681** (**112 suites**). The panel-related five are
+- The full suite currently passes **3701/3701** (**113 suites**). The panel-related five are
   `client-check.mjs` (loading contract, rendering and clicks for the entry and the 18 chunks,
   30 items), `panel-ui-check.mjs` (header "batch / archive" click regression, 14 items),
   `panel-portal-check.mjs` (popover portal and fixed placement, 3 items),
@@ -191,7 +191,7 @@ node tests\<suite>.mjs            # run one suite
 - A few suites need the **host installation**: `DSH_APP_ASAR` pointing at
   `<DSH install>\resources\app.asar`, because preset and host-schema criteria read host packages
   from there. When unavailable they are clearly marked "skipped, not counted in the pass rate". On
-  this machine: with `DSH_APP_ASAR` set, 3681/3681; without it, 3 preset checks report red (an
+  this machine: with `DSH_APP_ASAR` set, 3701/3701; without it, 3 preset checks report red (an
   environment fact, not a code defect).
 - `tests/seat-liveness-wake-check.mjs` is not registered in the full suite, and its content is
   outdated relative to the current liveness criteria, so running it on its own will fail.

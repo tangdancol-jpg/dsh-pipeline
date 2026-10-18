@@ -2224,15 +2224,15 @@ DSH 0.2.1 起官方带「智能体团队」：根会话是 Lead，可以 `spawn_
 ```powershell
 cd <插件目录>
 $env:DSH_APP_ASAR = '<DSH 安装>\resources\app.asar'   # 预设/宿主 schema 类判据要读宿主安装
-node tests\run-all.mjs            # 112 套一起跑（3681 项，含残留检查）
+node tests\run-all.mjs            # 113 套一起跑（3701 项，含残留检查）
 node tests\run-all.mjs --quiet    # 只打结论，不贴完整拒绝原文
 ```
 
-**当前口径**：设了 `DSH_APP_ASAR` 时 **3681/3681 通过（112 套）**；不设时会有 3 条
+**当前口径**：设了 `DSH_APP_ASAR` 时 **3701/3701 通过（113 套）**；不设时会有 3 条
 "读不到宿主安装"的预置校验判红（环境面，不是代码面）。单套清单与每套的判据写在
 `tests/run-all.mjs` 与 `tests/registry.mjs` 里（新增能力用新套 + registry 一行登记）。
 
-按能力分组（不逐一列 112 套）：
+按能力分组（不逐一列 113 套）：
 
 | 分组 | 代表套件 | 内容 |
 |---|---|---|
@@ -2245,6 +2245,7 @@ node tests\run-all.mjs --quiet    # 只打结论，不贴完整拒绝原文
 | 自建面板 | `panel-snapshot-check.mjs`、`panel-actions-check.mjs`、`panel-ui-check.mjs`、`panel-portal-check.mjs`、`client-check.mjs` | 只读快照契约（任务/席位/待办/摘要截断，74 项）、坏 JSON 降级、`/panel` 与 `?view=archived` 路由、`/state` 不回归；动作/执行器/归档（allowed_actions、参数透传与 confirm 闸、`_trash` 恢复/删除、pins 写，99 项）；客户端入口与 18 个 chunk 的装载契约（经典脚本、`require.async`、`load({id,chunk,factory})`、行数只作报告不判红）与桩 React 渲染/点击（30 项）；面板头部「批量 / 归档」点击回归（`rootRef` 缺失不得关面板、按钮自身 stopPropagation，旧代码 8/11 → 现 11/11，14 项）；弹层 portal 到 `document.body` + fixed 落点与回退（3 项） |
 | 预设与真机 | `p11-presets-check.mjs`、`p12-*`、`e-route-check.mjs` | 16 个角色预设与 shipped/schema 对形；需要 `DSH_APP_ASAR` |
 | 文件规模体检 | `file-size-check.mjs` | `CONVENTIONS §4.1`：**只报告，不是闸** —— 列出超过预警线（400 行）的文件与最大文件，**永远全绿、不判红、不设基线/登记表**（为拆而拆没有意义；拆不拆按 §4 四问判断）。设计见 `design/conventions/01-文件规模体检.md`（7 项） |
+| 文件规模提醒 | `size-reminder-check.mjs` | `CONVENTIONS §4.2`：文件 **>150 / >300 / ≥400** 三档由**程序自动发起**询问（注入成用户消息）——「有必要写这么大吗？顺手还是功能需求」→ 同一句再问 → 第三次要求「一定这个写法吗？有没有更优的写法」并实际调用 `web_search` / `web_fetch`。钉住阈值/文案/过滤/去重/注入形状（20 项） |
 | 回归专项 | `f1`–`f23`、`p1`–`p16`、`m1`–`m11` 等 | 每轮缺陷的判据化回归（一个缺陷一个套件） |
 
 报告落到 `tests/last-run.txt`。

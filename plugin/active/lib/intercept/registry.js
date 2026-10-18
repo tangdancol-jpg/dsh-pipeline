@@ -37,6 +37,10 @@ import { createPreExecuteHook } from '../guard/hook-pre.js'
 import { createPromptHook } from '../guard/hook-prompt.js'
 import { createWakeHook } from '../guard/hook-wake.js'
 import { createResultNetHook } from '../guard/hook-post.js'
+// ★★ 文件规模提醒（用户需求 2026-10-18）：写文件后按 150/300/400 三档记录，下一次开步
+//    把"有必要写这么大吗？"作为用户消息**程序自动发起**（实现在 lib/size-reminder.js + hook-size.js）。
+import { createSizeAskHook, createSizeWatchHook } from '../guard/hook-size.js'
+import { createSizeReminder } from '../size-reminder.js'
 // ★★ 记忆域的两条缝（E1）：注入（pre-step）与 retain（post-execute）。
 //    实现全在 `lib/memory/**`；本文件只负责**按闸门真挂真摘**（与既有四条缝同一套机制）。
 import { createMemoryInjectHook } from '../memory/inject-hook.js'
@@ -67,6 +71,10 @@ const HOOKS = [
   //    这样记下的是**原始结果**，而不是"被本插件自己换成 feedback 的结果"。
   { id: 'memory-retain', event: 'tools/post-execute', make: createMemoryRetainHook },
   { id: 'seam-post-execute-result-net', event: 'tools/post-execute', make: createResultNetHook },
+  // ★★ 文件规模提醒（两条缝一组）：post-execute 记"刚写的文件多少行"，pre-step 把问句注入。
+  //    顺序：观察排在最后（它不改结果，放在结果网之后最安全）；投递排在记忆注入之后。
+  { id: 'seam-pre-step-size-ask', event: 'agent/pre-step', make: createSizeAskHook },
+  { id: 'seam-post-execute-size-watch', event: 'tools/post-execute', make: createSizeWatchHook },
 ]
 
 /**
@@ -190,9 +198,11 @@ export function registerInterception(ctx, deps) {
   }
 
   // --- 服务袋：各条缝共用同一批依赖，各自只取自己要的 ------------------------
+  const sizeReminder = createSizeReminder(deps.sizeReminder)
   const svc = {
     seatOf,
     warn,
+    sizeReminder,
     guard: deps.guard,
     waker: deps.waker ?? null,
     getTask: deps.getTask,

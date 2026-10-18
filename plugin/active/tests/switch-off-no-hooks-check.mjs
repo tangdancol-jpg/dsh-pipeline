@@ -103,10 +103,11 @@ export async function runSwitchOffNoHooksCheck() {
     const mountedBack = live.ic.mounted().length
     rec.add(
       'D 中途翻转即时跟随',
-      '★★ 开 ⇒ 挂 6 条；中途关 ⇒ **立刻摘成 0 条**、结果立刻不再被过滤；再开 ⇒ 挂回 6 条（不重启）',
-      mountedBefore === 6 && mountedAfterOff === 0 && mountedBack === 6 && midBody.includes('function add(a, b)') && !midBody.includes('不看代码'),
+      '★★ 开 ⇒ 挂 8 条；中途关 ⇒ **立刻摘成 0 条**、结果立刻不再被过滤；再开 ⇒ 挂回 8 条（不重启）',
+      mountedBefore === 8 && mountedAfterOff === 0 && mountedBack === 8 && midBody.includes('function add(a, b)') && !midBody.includes('不看代码'),
       `挂载数：开=${mountedBefore} → 关=${mountedAfterOff} → 再开=${mountedBack}\n关掉时那次调用返回：${midBody.slice(0, 200)}` +
-        '\n    ★ 4 → 6 是**记忆域 E1** 的两条新缝（`memory-inject` / `memory-retain`）：' +
+        '\n    ★ 4 → 6 是**记忆域 E1** 的两条新缝（`memory-inject` / `memory-retain`）；' +
+        '\n      6 → 8 是**文件规模提醒**的两条缝（`seam-pre-step-size-ask` / `seam-post-execute-size-watch`）。' +
         '\n      判定方向一个字没放宽 —— 仍然是"开时精确等于总条数、关时精确等于 0"。',
     )
     live.dispose()

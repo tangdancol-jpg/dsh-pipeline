@@ -762,6 +762,9 @@ export function apply(ctx, rawConfig) {
         waker: wakeup,
         // ★ 失联检测的静默阈值（席位简报里那条提示要用它，与 store 用**同一个**值）
         seatSilenceMs: config.seatSilenceMs,
+        // ★★ 文件规模提醒（用户需求 2026-10-18）：阈值与开关；两条缝在 lib/guard/hook-size.js，
+        //    状态与文案在 lib/size-reminder.js。不传也不崩（缺省值在那边）。
+        sizeReminder: config.sizeReminder,
         // ★★ 记忆域（E1）：项目目录（算 `.pipeline/_memory/` 落点）+ 计价器（注入的硬上限）。
         projectDir: projectRoot,
         tokenMeter: (() => {

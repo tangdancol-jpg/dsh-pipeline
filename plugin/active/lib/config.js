@@ -309,6 +309,23 @@ export const DEFAULTS = {
    * 如果你的 profile 把 webServer 配成对外监听，建议设成 false。
    */
   switchRoute: true,
+  /**
+   * ★★ **文件规模提醒**（用户需求 2026-10-18）：
+   * 文件行数 >150 / >300 / ≥400 时，由**程序自动发起**一次对话（注入成用户消息）问：
+   * 「有必要写这么大吗？是顺手写在一起了还是功能需求？」；400 时第三次问「一定要这个
+   * 写法吗？有没有更优的写法？」，并要求 AI 实际调用 `web_search` / `web_fetch` 查更优写法。
+   *
+   * 只是**提醒**（不判红、不阻塞）：去重（同文件同档只问一次）在 `lib/size-reminder.js`；
+   * 两条缝在 `lib/guard/hook-size.js`（post-execute 记行数 → pre-step 投递问句）。
+   * 关掉（`enabled:false`）则整条提醒链不做事。
+   */
+  sizeReminder: {
+    enabled: true,
+    firstLines: 150,
+    secondLines: 300,
+    thirdLines: 400,
+    maxAsksPerStep: 2,
+  },
   /** 项目根：留空 = 用 session 工作目录。 */
   projectRoot: '',
   /**

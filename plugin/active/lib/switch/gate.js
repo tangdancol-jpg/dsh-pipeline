@@ -236,6 +236,22 @@ export const SWITCH_SURFACES = Object.freeze([
     why: '它是 off 下**唯一还会主动往席位会话投递**的东西（`notify`），并且写 `.pipeline` 账本与审计。停表后 `runOnce` 不再被定时器触发。',
   },
   {
+    id: 'seam-pre-step-size-ask',
+    label: '拦截缝 · 文件规模提醒（`agent/pre-step`，把"有必要写这么大吗"的询问程序自动发出去）',
+    kind: 'inject',
+    off: 'inert',
+    where: 'lib/guard/hook-size.js · createSizeAskHook（挂载由 lib/intercept/registry.js 按闸门决定）',
+    why: '它往**席位会话**注入用户消息（程序自动发起的询问）。off = 本插件不再说话 ⇒ 这条缝不挂。',
+  },
+  {
+    id: 'seam-post-execute-size-watch',
+    label: '拦截缝 · 文件规模观察（`tools/post-execute`，写文件后记行数）',
+    kind: 'intercept',
+    off: 'inert',
+    where: 'lib/guard/hook-size.js · createSizeWatchHook（挂载同上）',
+    why: '它读文件行数并记录待问（为 pre-step 那条注入供料）。off = 不观察、不问；不改工具结果、不拦调用。',
+  },
+  {
     id: 'switch-route',
     label: '开关的 HTTP 面（`/.dsh-pipeline/state` 的 GET/POST）',
     kind: 'readonly',

@@ -242,17 +242,18 @@ export async function runLoadSmoke() {
       `已挂事件：${seamEvents.join(' / ') || '（一条都没挂）'}`,
     )
     add(
-      '★ 中间件条数：pre-execute 1 条 · pre-step **2 条**（简报 + 记忆注入）· post-execute **3 条**（唤醒 + 记忆 retain + 代码拦截）',
+      '★ 中间件条数：pre-execute 1 条 · pre-step **3 条**（简报 + 记忆注入 + 文件规模提醒）· post-execute **4 条**（唤醒 + 记忆 retain + 代码拦截 + 文件规模观察）',
       (f.interceptors.get('tools/pre-execute') ?? []).length === 1 &&
-        (f.interceptors.get('agent/pre-step') ?? []).length === 2 &&
-        (f.interceptors.get('tools/post-execute') ?? []).length === 3,
+        (f.interceptors.get('agent/pre-step') ?? []).length === 3 &&
+        (f.interceptors.get('tools/post-execute') ?? []).length === 4,
       [...f.interceptors.entries()].map(([e, a]) => `${e}: ${a.length}`).join(' · ') +
         '\n    ★ 判定方向**一个字没放宽**，仍然是"精确相等"：少一条（能力悄悄消失）或多一条（悄悄多一面）都红。' +
-        '\n      本轮 +2 条是**记忆域 E1**（用户裁定 2 解除了"既有文件零修改"约束）：' +
-        '\n      · `memory-inject`（agent/pre-step）：每席位一次注入最近记忆（可被总开关摘掉）；' +
-        '\n      · `memory-retain`（tools/post-execute，排在 ③ 与 ④ 之间）：把 `pipeline_*` 的结果记进记忆库。' +
+        '\n      本轮 +2 条是**文件规模提醒**（用户需求 2026-10-18）：' +
+        '\n      · `seam-pre-step-size-ask`（agent/pre-step）：把"有必要写这么大吗？"作为用户消息程序自动发起；' +
+        '\n      · `seam-post-execute-size-watch`（tools/post-execute）：写类工具执行后按 150/300/400 记行数。' +
+        '\n      此前 +2 条是**记忆域 E1**（`memory-inject` / `memory-retain`）。' +
         '\n      仍然复用**既有三个事件名**（`seamEvents.length === 3` 那条断言没变）。' +
-        '\n      ★ post-execute 三条的顺序是**有意**的：唤醒（③）→ **记忆记原始结果** → 结果网（④）；' +
+        '\n      ★ post-execute 四条的顺序是**有意**的：唤醒（③）→ **记忆记原始结果** → 结果网（④）→ 规模观察（只读，不改结果）；' +
         '\n        记忆排在结果网之前，才不会记下"被本插件自己换成 feedback 的结果"（设计 04 §1 的裁决）。',
     )
     // ★ 作用域：非管线会话必须直通（这条不成立就是事故）

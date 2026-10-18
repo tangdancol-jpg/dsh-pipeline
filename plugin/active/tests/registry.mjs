@@ -291,4 +291,11 @@ export const EXTRA_SUITES = [
   //    **永远全绿、不判红、不设基线/登记表**（防止"为登记而登记"的官僚化）。
   //    设计见 `design/conventions/01-文件规模体检.md`。
   { file: './file-size-check.mjs', exportName: 'runFileSizeCheck', zh: '★ 文件规模体检（只报告：列出超过 400 行的文件与最大文件；不判红、不设基线）' },
+  // ★★ **文件规模提醒**（用户需求 2026-10-18）：>150 / >300 / ≥400 三档，由**程序自动发起**询问
+  //    「有必要写这么大吗？是顺手写在一起了还是功能需求？」；400 时第三次问并要求实际调用
+  //    `web_search` / `web_fetch` 查更优写法。实现：`lib/size-reminder.js`（判据/文案/去重）+
+  //    `lib/guard/hook-size.js`（post-execute 记行数 → pre-step 注入用户消息）。
+  //    钉住：阈值边界、三档文案关键词、只观察写类工具/代码文件、同档只问一次、每步最多 2 条、
+  //    `seatOf=null` 直通、`enabled:false` 不做事。
+  { file: './size-reminder-check.mjs', exportName: 'runSizeReminderCheck', zh: '★ 文件规模提醒（150/300/400 三档程序自动发起询问；去重 / 过滤 / 注入形状 / 不改工具结果）' },
 ]

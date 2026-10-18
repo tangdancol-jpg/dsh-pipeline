@@ -275,6 +275,17 @@ export const HOST_INJECTION_SITES = [
     why: '★ 失联席位提示：只发给控制角色（主对话 / 需求分析 / 计划），一次性',
   },
   {
+    id: 'pre-step-file-size-ask',
+    where: 'lib/guard/hook-size.js · agent/pre-step',
+    field: 'decision.messages[]',
+    form: 'file-size-reminder',
+    via: 'hostMessage',
+    why:
+      '★ 文件规模提醒：写类工具执行后按 150/300/400 三档计数（`lib/size-reminder.js`），' +
+      '下一次开步把"有必要写这么大吗？是顺手写在一起还是功能需求？"作为**用户消息**自动发给 AI；' +
+      '400 时第三次问并要求实际调用 `web_search` / `web_fetch` 查更优写法。只提醒、不否决。',
+  },
+  {
     id: 'spawn-brief-prompt',
     where: 'lib/transport/index.js · subagents.startContinuable / start',
     field: 'request.prompt[]',

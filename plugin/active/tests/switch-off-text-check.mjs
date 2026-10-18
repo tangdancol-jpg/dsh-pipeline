@@ -116,14 +116,15 @@ export async function runSwitchOffTextCheck() {
     // =======================================================================
     {
       const registry = readFileSync(join(ROOT, 'lib/intercept', 'registry.js'), 'utf8')
-      // ★ 计数范围含**记忆域的两条缝**（E1 起 id 前缀是 `memory-`）：判据是
-      //   "编排表里的**每一条**缝都有闸门兜底"，把新缝排除在计数之外就不是那条判据了。
+      // ★ 计数范围含**记忆域的两条缝**（E1 起 id 前缀是 `memory-`）与**文件规模提醒的两条缝**
+      //   （2026-10-18 起 id 以 `seam-` 开头，排进编排表）：判据是"编排表里的**每一条**缝都有
+      //   闸门兜底"，把新缝排除在计数之外就不是那条判据了。
       const hooks = (registry.match(/^ {2}\{ id: '(?:seam|memory)-/gm) ?? []).length
       rec.add(
         'D 防漂移',
         '★★ 编排表里的每条缝都有闸门兜底（缝 ' + hooks + ' 条；挂载前问闸门 + 每条缝自带闸门）',
-        hooks === 6 && registry.includes('shouldFire(deps.sw, h.id)') && registry.includes('createSeamGate'),
-        `编排表里的缝：${hooks}（4 条既有 seam-* + 2 条记忆域 memory-*）　挂载前问闸门：${registry.includes('shouldFire(deps.sw, h.id)')}　每条缝自带闸门：${registry.includes('createSeamGate')}`,
+        hooks === 8 && registry.includes('shouldFire(deps.sw, h.id)') && registry.includes('createSeamGate'),
+        `编排表里的缝：${hooks}（4 条既有 seam-* + 2 条记忆域 memory-* + 2 条文件规模提醒 seam-*）　挂载前问闸门：${registry.includes('shouldFire(deps.sw, h.id)')}　每条缝自带闸门：${registry.includes('createSeamGate')}`,
       )
       const shells = ['lib/intercept.js', 'lib/guard/hook-pre.js', 'lib/guard/hook-prompt.js', 'lib/guard/hook-wake.js', 'lib/guard/hook-post.js']
       const raw = shells.reduce((n, f) => n + countInCode(readFileSync(join(ROOT, f), 'utf8'), /sw\.isOn\(\)/g), 0)
