@@ -21,6 +21,16 @@ import {
 import { ROLE, roleLabel } from '../roles.js'
 import { nowIso, toStringArray } from '../util.js'
 import { checkAllSeatsSubmitted } from './shared.js'
+// ★★ P1-18：**按档位的必需产物矩阵**（唯一出处 `lib/tiers/product-matrix.js`，经 `lib/tiers.js` 转出）。
+//    关单闸 `role_products_delivered` 改读它；豁免项也从任务卡上这一份读。
+import {
+  LEGACY_ROLE_PRODUCT_KINDS,
+  PRODUCT_KINDS,
+  deferralLine,
+  deferredArtifactsOf,
+  isProductDeferred,
+  requiredProductsOf,
+} from '../tiers.js'
 // ★★ P4 接线（`WIRING.md` §W3）：DEMO 两个闸门的**名字**从闸门模块取，不手抄字符串。
 import { DEMO_GATE_GUARD, DEMO_ROUND_GUARD } from '../guard/demo-gate.js'
 
@@ -736,6 +746,18 @@ export function preconditionMethods(ctx) {
         case 'diagram_delivered': {
           const hasDiagrammer = Array.isArray(task.roster?.execution_roles) && task.roster.execution_roles.includes(ROLE.DIAGRAMMER)
           if (!hasDiagrammer) break
+          /**
+           * ★★ P1-18：**架构图在 L4/L5 属于"可豁免的必需产物"**。
+           *
+           * 计划在 `deferred_artifacts` 里显式豁免它（why 必填 + accepted_by=user/supervisor）
+           * 之后，这一条闸门必须跟着放行 —— 否则"已豁免不拒"就只是一句空话：
+           * `role_products_delivered` 认了豁免、这里却照旧拒，两个闸门会互相打脸。
+           *
+           * ★ 判据与矩阵同源（`isProductDeferred` 只认本档"可豁免的必需产物"）：
+           *   L2/L3 的架构图不在这两个档的可豁免集合里 ⇒ 这里照旧不认豁免；
+           *   测试 / 审核 / 安全类产物没有任何豁免通道（本闸门本来就只管架构图）。
+           */
+          if (isProductDeferred(task, 'architecture_diagram')) break
           const dg = lastHandoff(task, 'architecture_diagram')
           if (dg === null) {
             return deny(
@@ -743,7 +765,8 @@ export function preconditionMethods(ctx) {
               `拒绝关单：本任务的角色清单里有「架构图」角色（${ROLE.DIAGRAMMER}），但没有任何 architecture_diagram 交接物。\n` +
                 '★ 它在本任务里是**交付物之一**，不是可选项 —— 清单里派了它，就得交。\n' +
                 '要么让架构图角色交图（走 diagram_deliver 拿收据，或降级并标 degraded=true），' +
-                '要么让编排复核后把该角色从清单里去掉（roster_request → roster_review）。',
+                '要么让编排复核后把该角色从清单里去掉（roster_request → roster_review）。\n' +
+                '（L4/L5 还可以在计划里用 deferred_artifacts 显式豁免它 —— 要写理由、由用户或主管批准。）',
             )
           }
           const version = currentArtifactVersion(task)
@@ -765,31 +788,87 @@ export function preconditionMethods(ctx) {
          *   · `docs`     —— "产出用户文档 / 变更日志 / 使用说明"
          *   · `performance` —— "给出基准、压测结果与性能回归结论"
          * 写在 summary 里等于**没有执法**：角色不交，也没人拦得住。
-         * 现在与 `diagram_delivered` **完全同形**：清单里派了它，就得交它那一份。
          *
-         * ⚠️ 只在"该角色确实在册"时生效（L4/L5 才会有 release，L5 才会有 docs/performance），
-         *    所以 L0~L3 的任务一点都不受影响。
+         * ---------------------------------------------------------------------
+         * ★★ P1-18（设计档 `04-demo与制品模型.md` §4「推荐 A」）：**改读档位矩阵**
+         * ---------------------------------------------------------------------
+         * 判据从"清单里派了谁"升级成两张表的**并集**：
+         *   ① **本档矩阵要求的、可豁免的仪式性产物**（`TIER_PRODUCT_REQUIREMENTS[档]`
+         *      ∩ `exemptible`：架构图 / 发布计划 / 文档 / 性能），且**产出角色在册**
+         *      —— 设计档原话：「关单的 `role_products_delivered` 判据改为读档位矩阵
+         *      （**在册角色 ∧ 未被豁免**）」；
+         *   ② **既有口径原样保留**：清单里手工派了 release/docs/performance 的任务
+         *      （低档位夹具 / 旧单）照旧要交那三份 —— 既有判据的期望值一个字不许改。
+         *
+         * ★ 豁免（`deferred_artifacts`）只对第①类里 `exemptible=true` 的产物生效：
+         *   它必须是**本档可豁免的必需产物**（L4：架构图/发布计划；L5：再加文档/性能），
+         *   `why` 必填、`accepted_by` 只能是 user / supervisor（supervisor 仅 L4+）。
+         *   非法豁免在计划那一站就被拒收（见 `pipeline_plan` / `store.setRoster`），
+         *   这里读的任务卡数据还会**再防御一遍**（`deferredArtifactsOf` 只认合法条目）。
+         *
+         * ★ **测试 / 审核 / 安全类产物不可豁免**：它们照旧由既有闸门执法
+         *   （`review_ok_exists` / `security_not_blocked` / 测试报告的状态机边），
+         *   这里既不重复要求、也不给任何 deferred 绕过口子。
          */
         case 'role_products_delivered': {
           const inRoster = (r) => Array.isArray(task.roster?.execution_roles) && task.roster.execution_roles.includes(r)
-          const need = [
-            { role: ROLE.RELEASE, kind: 'release_plan', zh: '发布与回滚计划' },
-            { role: ROLE.DOCS, kind: 'docs_note', zh: '文档 / 变更日志' },
-            { role: ROLE.PERFORMANCE, kind: 'perf_report', zh: '性能基准与回归结论' },
-          ]
-          const missing = need.filter((x) => inRoster(x.role) && lastHandoff(task, x.kind) === null)
+          const tier = typeof task.roster?.tier === 'string' ? task.roster.tier : ''
+          const deferrals = deferredArtifactsOf(task)
+
+          // ① 本档矩阵要求、且产出角色在册的**可豁免类**产物
+          const matrixRequired = requiredProductsOf(tier).filter((p) => p.exemptible === true && inRoster(p.role))
+          // ② 既有口径：在册的 release / docs / performance 仍必须交（不因档位矩阵而放宽）
+          const legacyRequired = LEGACY_ROLE_PRODUCT_KINDS.filter((k) => inRoster(PRODUCT_KINDS[k].role)).map((k) => PRODUCT_KINDS[k])
+
+          const required = []
+          for (const p of [...matrixRequired, ...legacyRequired]) {
+            if (!required.some((x) => x.kind === p.kind)) required.push(p)
+          }
+
+          const delivered = required.filter((p) => lastHandoff(task, p.kind) !== null)
+          const deferred = []
+          const missing = []
+          for (const p of required) {
+            if (lastHandoff(task, p.kind) !== null) continue
+            const d = deferrals.get(p.kind)
+            if (d !== undefined) deferred.push({ ...d, zh: p.zh })
+            else missing.push(p)
+          }
+
           if (missing.length > 0) {
             return deny(
               'MISSING_ROLE_PRODUCT',
-              `拒绝关单：角色清单里有 ${missing.map((x) => `「${roleLabel(x.role)}」`).join('、')}，` +
-                `但没有对应的交接物。\n` +
-                missing.map((x) => `  · ${roleLabel(x.role)} → 该交 ${x.kind}（${x.zh}）`).join('\n') +
-                '\n★ 这条以前只写在角色卡里（"关单前必须给出……"）—— 写在 summary 里等于没人执法。\n' +
-                '  现在它与"架构图必须交"完全同形：**清单里派了它，就得交它那一份**。\n' +
-                '两条出路：① 让该角色把产物交上来；② 让计划 AI 复核后把它从清单里去掉（roster_request → roster_review）。',
+              `拒绝关单：本档（${tier || '未编排'}）要求的产物有 ${missing.length} 项**没交、也没有被豁免**。\n` +
+                '缺失（按档位矩阵 + 在册角色）：\n' +
+                missing.map((p) => `  · ${p.zh}（${p.kind}）—— 产出角色「${roleLabel(p.role)}」在册`).join('\n') +
+                // ★ 已豁免的也要列出来：拒绝文案要让人一眼看出"哪些已经不拦、凭什么"。
+                (deferred.length === 0
+                  ? ''
+                  : '\n已豁免（**不拦**，但必须写清理由与批准人）：\n' + deferred.map((d) => `  · ${deferralLine(d)}`).join('\n')) +
+                '\n三条出路（选一条）：\n' +
+                '  ① 让对应角色把产物交上来（pipeline_handoff kind=…）；\n' +
+                '  ② 在计划里用 `deferred_artifacts` 声明豁免（why 必填；accepted_by 只能是 user / supervisor，' +
+                'supervisor 仅 L4+ 有效）—— 这是**计划**的字段，要改计划就得走计划那一站；\n' +
+                '  ③ 让计划 AI 复核后把该角色从清单里去掉（roster_request → roster_review）。\n' +
+                '★ 测试 / 审核 / 安全类产物**不可豁免** —— 它们由既有闸门（review_ok_exists / security_not_blocked / 状态机）执法。',
             )
           }
-          break
+
+          /**
+           * ★ "已豁免不拒，但摘要要写清豁免"：放行时也把豁免清单带回去
+           *   （`pipeline_close` 的摘要与 `pipeline_status` 的产物行都读它，不靠调用方自己拼）。
+           */
+          return {
+            ok: true,
+            tier,
+            required: required.map((p) => p.kind),
+            delivered: delivered.map((p) => p.kind),
+            deferred: deferred.map((d) => ({ kind: d.kind, why: d.why, accepted_by: d.accepted_by })),
+            summary:
+              deferred.length === 0
+                ? ''
+                : `已豁免的产物（${deferred.length} 项，关单闸已放行）：\n` + deferred.map((d) => `  · ${deferralLine(d)}`).join('\n'),
+          }
         }
 
         case 'rework_budget': {

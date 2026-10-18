@@ -10,7 +10,7 @@
 import { buildHandoffRecord } from '../handoff.js'
 import { ST, STATE_LABEL } from '../states.js'
 import { ROLE } from '../roles.js'
-import { buildRoster, rosterSlotKeys, validateRoster } from '../tiers.js'
+import { buildRoster, rosterSlotKeys, validateDeferredArtifacts, validateRoster } from '../tiers.js'
 // ★ 领域对象集中：任务卡（task_card）的形状在 `lib/model/task.js`。
 import { makeTaskCard } from '../model/task.js'
 import { toStringArray } from '../util.js'
@@ -160,6 +160,31 @@ export function rosterMethods(ctx) {
       const v = validateRoster(roster)
       if (v.ok !== true) return deny('BAD_ROSTER', `角色清单自检不通过：\n- ${v.errors.join('\n- ')}`)
 
+      /**
+       * ★★ P1-18：**计划里的产物豁免（deferred_artifacts）在分配这一站再判一次**。
+       *
+       * 为什么判据要在这儿再落一遍（与 `pipeline_plan` 里那次同源、同函数）：
+       *   `plan` 交接物还有另一条入口 —— `pipeline_handoff { kind: "plan" }`（planner 直交）。
+       *   那条路不经过计划工具的参数校验；如果这里不判，"豁免"就能成为一条
+       *   **绕过档位矩阵**的旁路（例如直接声明豁免 security_review 再指望关单闸认）。
+       * 判据本体在 `lib/tiers/product-matrix.js`（唯一出处），本处只负责"拒在改内存之前"。
+       */
+      let planDeferredArtifacts = []
+      if (input.judgedBy === 'planner') {
+        const planForDeferred = lastHandoff(task, 'plan')
+        const dv = validateDeferredArtifacts(planForDeferred?.payload?.deferred_artifacts, { tier: input.tier })
+        if (dv.ok !== true) {
+          return deny(
+            'BAD_DEFERRED_ARTIFACTS',
+            `拒绝分配：计划里的 \`deferred_artifacts\` 非法（${dv.errors.length} 处）—— 角色清单**没有写入**。\n` +
+              dv.errors.map((e, i) => `  ${i + 1}) ${e}`).join('\n') +
+              '\n★ 判据与 `pipeline_plan` 同源（lib/tiers/product-matrix.js）：' +
+              '测试 / 审核 / 安全类不可豁免、计划不能自己豁免自己、why 必填、kind 必须是本档可豁免的必需产物。',
+          )
+        }
+        planDeferredArtifacts = dv.items
+      }
+
       const previous = task.roster
       task.roster = roster
       // ★ 设计目的：把计划里的**授权改动面**与**角色边界卡**落到任务上。
@@ -179,11 +204,21 @@ export function rosterMethods(ctx) {
             ...extra,
           ]
           task.plan_handoff_id = plan.handoff_id
+          /**
+           * ★★ P1-18：**当前生效的产物豁免**落到任务卡（关单闸 / 状态展示读它）。
+           *
+           * 为什么读**任务卡**而不是每次去翻最后一份 plan 交接物：
+           *   交接物是历史；豁免是"这次分配生效的结论"。后续再有人补交 plan
+           *   （或直接 handoff）时，任务卡上这一份会随之更新 —— 判据永远只有一处。
+           */
+          task.deferred_artifacts = planDeferredArtifacts
         } else if (task.change_scope === undefined) {
           // L0（规则引擎自批）没有计划这一站 ⇒ 不存在授权面。
           // 不塞一个"整棵项目根"的假授权：那只会制造"看起来在管、其实没管"的假执法。
           task.change_scope = null
           task.role_boundaries = null
+          // ★ L0 也没有"计划声明豁免"这一站：显式给空数组（不塞假豁免）。
+          task.deferred_artifacts = []
         }
       }
       // 任务卡的形状集中在 `lib/model/task.js`（本文件只给上下文值）。

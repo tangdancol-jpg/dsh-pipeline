@@ -11,7 +11,7 @@ import { HUMAN_URGENCIES } from '../handoff.js'
 import { ROLE, ROLES, roleLabel } from '../roles.js'
 import { renderRequirementDoc } from '../context.js'
 import { NONFINITE_BOUNDARY_HINT, boundaryHintLine } from '../intake/boundary-hints.js'
-import { TIER_ORDER, buildRoster } from '../tiers.js'
+import { TIER_ORDER, buildRoster, deferrableProductsOf, deferralLine, validateDeferredArtifacts } from '../tiers.js'
 import { toStringArray } from '../util.js'
 // ★★ 分区覆盖校验（2026-10-18 测试报告 P0-1）：授权面里的每条路径必须**有主** ——
 //    要么落在某个编写分区的 `scope_paths` 下，要么显式写 `owner_role`（非编写归属）。
@@ -81,6 +81,20 @@ export function buildPlanTools(ctx) {
       role_scope: S('object', '★ 计划 AI 自己的职责自限声明 { will_do: string[], will_not_do: string[] } —— 只做什么 / 不做什么', { additionalProperties: true }),
       // --- 分配 AI（verdict=ok 时才用得到）---
       tier: S('string', '档位 L0~L5（必须给）', { enum: TIER_ORDER }),
+      /**
+       * ★★ **P1-18：按档位豁免的产物**（设计档 `04-demo与制品模型.md` §4「推荐 A」）。
+       *
+       * 只在**自检 verdict=ok 且给了 tier** 时可用；非法 ⇒ **拒收计划**（在分配前）。
+       * kind 必须是本档矩阵里"可豁免"的必需产物：
+       *   · L4：architecture_diagram / release_plan
+       *   · L5：再加 docs_note / perf_report
+       * 测试 / 审核 / 安全类产物**不可豁免**（既有闸门执法，deferred 绕不过去）。
+       */
+      deferred_artifacts: S(
+        'array',
+        '★ 按档位豁免的产物 [{ kind, why, accepted_by }] —— kind 必须是本档"可豁免"的必需产物（L4+: 架构图/发布计划；L5: 再加文档/性能）；why 必填；accepted_by=user 或 supervisor（supervisor 仅 L4+）。测试/审核/安全类不可豁免；非法即拒收计划',
+        { items: { type: 'object', additionalProperties: true } },
+      ),
       reason: S('string', '★ 分配理由：为什么是这一档、为什么是这几个角色、为什么这么分层（必须给，会留痕可追溯）'),
       extra_roles: S('array', '额外需要的角色（L5 从扩展池里挑）', { items: { type: 'string' } }),
       writers: S('object', '★编写席位方案 { layers: ["interface","data","logic"], partitions: [{seat, layer, scope_paths[], interface_owner, deliverables[]}], reason }。**席位数 = 层数**；不传 = 单席位（层 all，范围整棵项目根）', { additionalProperties: true }),
@@ -111,6 +125,8 @@ export function buildPlanTools(ctx) {
       roles: S('string', '角色清单（顿号分隔）'),
       sequence: S('string', '调用顺序'),
       allocated: S('boolean', '是否已经分配 AI（自检 gaps 时为 false）'),
+      /** ★ P1-18：本计划声明并落盘的豁免项（形如 `[{kind, why, accepted_by}]`）。 */
+      deferred_artifacts: S('array', '★ 本计划声明并落盘的豁免项 [{ kind, why, accepted_by }]（没有就是空数组）', { items: { type: 'object', additionalProperties: true } }),
     },
     async run(args, exec) {
       const actor = resolveActor(args, exec, deps)
@@ -126,6 +142,57 @@ export function buildPlanTools(ctx) {
         checked: toStringArray(args.self_check_checked),
         gaps: toStringArray(args.self_check_gaps),
       }
+
+      // --- ①a ★★ P1-18：按档位豁免的产物 —— **在分配前**（交计划之前）判死 ------
+      //
+      //   ★ 为什么必须判在这里：
+      //     · 一旦 `submitHandoff(plan)` 先落盘、`setRoster` 再分配，任务就已经到
+      //       「待开发」了；拒了还得靠人重走一轮。计划这一站是最后一个"什么都没写"
+      //       的时刻 —— 非法豁免必须在这里被拦下（"非法 ⇒ 拒收计划，在分配前"）。
+      //     · 档位（tier）是判断"这个 kind 在本档能不能豁免"的唯一依据，所以声明豁免
+      //       就必须同时给合法 tier；自检 gaps 的计划也谈不上豁免（还没到分配那一步）。
+      //   ★ 合法项原样进 plan 交接物 payload，再由 `store.setRoster` 落到
+      //     `task.deferred_artifacts` —— 关单闸与状态展示读的都是那一份。
+      let deferredArtifacts = []
+      // ⚠️ 空数组 = "没有声明豁免"（不触发那条"gaps 计划不许带豁免"的判据）——
+      //    调用方可能习惯性地传 `deferred_artifacts: []`，那不该被当成一次声明。
+      const deferredDeclared =
+        args.deferred_artifacts !== undefined &&
+        args.deferred_artifacts !== null &&
+        (!Array.isArray(args.deferred_artifacts) || args.deferred_artifacts.length > 0)
+      if (deferredDeclared) {
+        if (selfCheck.verdict !== 'ok') {
+          return {
+            ...empty,
+            summary:
+              '拒绝：自检 verdict 不是 ok 时**不能**声明 deferred_artifacts —— 计划**没有提交**。\n' +
+              '★ 自检发现缺口就先去补缺口（退回需求分析），"豁免产物"是自检通过之后才谈的事。',
+          }
+        }
+        if (typeof args.tier !== 'string' || !TIER_ORDER.includes(args.tier)) {
+          return {
+            ...empty,
+            summary:
+              `拒绝：声明 deferred_artifacts 必须同时给**合法档位**（${TIER_ORDER.join('/')}）—— 计划**没有提交**。\n` +
+              `你给的 tier 是 ${JSON.stringify(args.tier ?? null)}。\n` +
+              '★ 能不能豁免、能豁免哪几项，是按档位矩阵算的；没有档位就没有判据。',
+          }
+        }
+        const dv = validateDeferredArtifacts(args.deferred_artifacts, { tier: args.tier })
+        if (dv.ok !== true) {
+          return {
+            ...empty,
+            summary:
+              `拒绝：计划的 deferred_artifacts **非法**（${dv.errors.length} 处）—— 计划**没有提交**、也没有分配 AI。\n` +
+              dv.errors.map((e, i) => `  ${i + 1}) ${e}`).join('\n') +
+              `\n本档（${args.tier}）可豁免的必需产物：${deferrableProductsOf(args.tier).join(' / ') || '（无）'}\n` +
+              '★ 三条硬边界：① 测试 / 审核 / 安全类产物不可豁免；② 计划不能自己豁免自己' +
+              '（accepted_by 只能是 user / supervisor，supervisor 仅 L4+ 有效）；③ why 必填。',
+          }
+        }
+        deferredArtifacts = dv.items
+      }
+
       const planPayload = {
         task_id: task.id,
         based_on_analysis: typeof args.based_on_analysis === 'string' ? args.based_on_analysis : '',
@@ -138,6 +205,13 @@ export function buildPlanTools(ctx) {
         change_scope: Array.isArray(args.change_scope) ? args.change_scope : [],
         forbidden: toStringArray(args.forbidden),
         role_boundaries: Array.isArray(args.role_boundaries) ? args.role_boundaries : [],
+        /**
+         * ★★ P1-18：按档位豁免的产物（已在上面的 ①a 校验过）。
+         *   `store.setRoster` 会把它落到 `task.deferred_artifacts` —— 关单闸
+         *   `role_products_delivered` 与 `pipeline_status` 读的都是任务卡上那一份
+         *   （交接物是**历史**，任务卡是**当前生效的结论**）。
+         */
+        deferred_artifacts: deferredArtifacts,
         role_scope: args.role_scope,
         /**
          * ★★ **B1 的第二半：四槽声明的落点**。
@@ -420,11 +494,20 @@ export function buildPlanTools(ctx) {
         ai_count: r.ai_count,
         roles: r.execution_roles.map((x) => roleLabel(x)).join(' / '),
         sequence: r.sequence.map((s) => roleLabel(s.role)).join(' → '),
+        deferred_artifacts: deferredArtifacts,
         summary: [
           `计划自检通过（核对了 ${selfCheck.checked.length} 项），角色清单已产出：${r.tier}（${r.tier_zh}）· ${r.ai_count} 个独立对话`,
           `执行角色：${r.execution_roles.map((x) => roleLabel(x)).join(' / ')}`,
           `调用顺序：${r.sequence.map((s) => roleLabel(s.role)).join(' → ')}`,
           `分配理由：${r.reason}`,
+          // ★ P1-18：豁免了哪些产物（写进摘要 —— 关单闸与状态展示看得到，主对话也该看到）。
+          ...(deferredArtifacts.length === 0
+            ? []
+            : [
+                `★ 已声明产物豁免（${deferredArtifacts.length} 项，已落盘到任务卡）：`,
+                ...deferredArtifacts.map((d) => `  · ${deferralLine(d)}`),
+                '  ★ 关单时这些产物不再要求交付；测试 / 审核 / 安全类产物**不可豁免**（既有闸门照旧）。',
+              ]),
           ...(r.writers
             ? [
                 `编写席位：${r.writers.count} 个（席位数 = 层数 ${(r.writers.layers ?? []).length}）`,

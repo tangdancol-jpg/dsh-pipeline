@@ -64,6 +64,8 @@ planning ──demo_started──▶ demo_building ──demo_submitted──▶
 
 ## 4. P1-18：产物矩阵与档位不绑定（L5 约 60% 时间是仪式性产物）
 
+> **状态：已按推荐 A 落地**（2026-10-18，lib/tiers/product-matrix.js + deferred_artifacts，回归 29）。
+
 **现场**：L5 强制 10 个角色全交产物，一个 7 文件静态页被要求交架构图/发布计划/性能报告/
 安全审计/文档/留档；全链路约 2.5 小时里相当一部分是仪式性产物。
 

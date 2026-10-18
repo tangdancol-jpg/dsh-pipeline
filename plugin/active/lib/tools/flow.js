@@ -30,6 +30,9 @@ import { S, tool, resolveActor } from './kit.js'
 import { HANDOFF_STEP_SKIPPED } from '../errors/codes.js'
 // ★ 拒绝文案的**唯一出处**（`lib/errors/text.js`）：本文件只换成引用，字面值未动。
 import { taskNotFound } from '../errors/text.js'
+// ★★ P1-18：关单成功时把**已豁免的产物**写进摘要（"已豁免不拒，但摘要要写清豁免"）。
+//    判据与关单闸同源：`deferredArtifactsOf` 只认本档合法的豁免条目。
+import { deferralLine, deferredArtifactsOf } from '../tiers.js'
 
 /**
  * ★ 哪几个主管动作**要顺带派人**（与"唤醒点"同源：到点了就得有人）。
@@ -770,6 +773,8 @@ export function buildFlowTools(ctx) {
       }
       indexTask(res.task.id, res.task)
       const n = tokens.revokeTask(res.task.id)
+      // ★★ P1-18："已豁免不拒，但摘要要写清豁免" —— 关单成功时也必须看得到豁免了什么、凭什么。
+      const waivedProducts = [...deferredArtifactsOf(res.task).values()]
       return {
         ok: true,
         artifact_version: res.report.artifact_version ?? '',
@@ -778,6 +783,11 @@ export function buildFlowTools(ctx) {
           `${res.summary}\n` +
           `最终交付说明：${res.report.final_delivery_note || '（审核未填）'}\n` +
           `风险说明：${(res.report.risk_notes ?? []).join('；') || '（无）'}\n` +
+          (waivedProducts.length === 0
+            ? ''
+            : `产物豁免（关单已放行，共 ${waivedProducts.length} 项 —— 理由与批准人都留痕在 task.json）：\n` +
+              waivedProducts.map((d) => `  · ${deferralLine(d)}`).join('\n') +
+              '\n') +
           `已回收本任务的角色令牌 ${n} 枚。`,
       }
     },

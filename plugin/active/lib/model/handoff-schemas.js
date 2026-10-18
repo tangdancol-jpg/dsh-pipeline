@@ -140,6 +140,29 @@ export const HANDOFF_SCHEMAS = {
        * 覆盖性由 store 在写角色清单时核对（必须覆盖 roster 里每一个执行角色）。
        */
       role_boundaries: F('object[]', '★ 每个角色的边界卡 [{ role, only: string[], not: string[] }] —— 必须覆盖清单里每一个执行角色'),
+      /**
+       * ★★ **P1-18：按档位豁免的产物**（设计档 `04-demo与制品模型.md` §4「推荐 A」）。
+       *
+       * shape：`[{ kind, why, accepted_by }]`
+       *   · `kind`        要豁免的产物类型；必须是**本档矩阵里"可豁免"的必需产物**
+       *                   （L4：architecture_diagram / release_plan；
+       *                    L5：再加 docs_note / perf_report）；
+       *   · `why`         为什么这次可以不交（**必填**，事后要能照着复核）；
+       *   · `accepted_by` `user`（用户）或 `supervisor`（主管，**仅 L4+ 有效**）。
+       *
+       * ★ 三条硬边界（判据在 `lib/tiers/product-matrix.js`）：
+       *   ① 测试 / 审核 / 安全类产物**不可豁免** —— 那是三权分立的证据，不是仪式；
+       *   ② **计划不能自己豁免自己**（accepted_by 不接受 `planner`）；
+       *   ③ 不豁免的产物照旧由关单闸 `role_products_delivered` 按矩阵要。
+       *
+       * ⚠️ 这里声明为**可选**（旧计划没有这个字段）；档位相关校验在 `pipeline_plan`
+       *    交计划之前做（那时才知道 tier），交接物层只查形状。
+       */
+      deferred_artifacts: F(
+        'object[]',
+        '★ 按档位豁免的产物 [{ kind, why, accepted_by }] —— kind 必须是本档"可豁免"的必需产物；why 必填；accepted_by=user|supervisor（supervisor 仅 L4+）。非法即拒收计划',
+        { allowEmpty: true },
+      ),
       /** ★ 职责自限声明（同 requirement_analysis）。 */
       role_scope: F('object', '★ 职责自限声明 { will_do: string[], will_not_do: string[] } —— 只做什么 / 不做什么'),
     },

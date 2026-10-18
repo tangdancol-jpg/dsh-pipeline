@@ -89,3 +89,27 @@ export {
 export {
   roleModePlan,
 } from './tiers/roster-mode.js'
+
+// ★★ P1-18（设计档 `04-demo与制品模型.md` §4「推荐 A」）：**按档位的必需产物矩阵**
+//   与 `deferred_artifacts` 豁免判据。**单一出处**：计划工具、关单闸、状态展示都从
+//   这里取，别处不许再手抄一份矩阵（抄一份必然与档位表漂移）。
+export {
+  PRODUCT_KINDS,
+  PRODUCT_ORDER,
+  EXEMPTIBLE_PRODUCT_KINDS,
+  NON_EXEMPTIBLE_PRODUCT_KINDS,
+  LEGACY_ROLE_PRODUCT_KINDS,
+  TIER_PRODUCT_REQUIREMENTS,
+  normalizeTier,
+  productSpecOf,
+  requiredProductsOf,
+  deferrableProductsOf,
+  isDeferrableProduct,
+  nonExemptibleProductsOf,
+  productKindsText,
+  deferralLine,
+  validateDeferredArtifacts,
+  deferredArtifactsOf,
+  isProductDeferred,
+  productStatusFor,
+} from './tiers/product-matrix.js'

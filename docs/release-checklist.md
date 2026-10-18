@@ -12,11 +12,12 @@
 | 客户端入口 | `plugin/active/lib/client.js` **375 行** |
 | 客户端 chunk | **18 个** `client.panel-*.js`；入口 + chunk 共 **19 个文件、4743 行** |
 | 单文件大小 | **无死限、无登记**（大小是信号不是死限）；体检报告只列"超过 400 行的文件"给人看，永远全绿、不判红（`tests/file-size-check.mjs`） |
-| 全量自测 | **3875/3875**、**118 套**（设了 `DSH_APP_ASAR`） |
+| 全量自测 | **3918/3918**、**119 套**（设了 `DSH_APP_ASAR`） |
 | 面板相关套件 | `client-check` 30 / `panel-ui-check` 14 / `panel-portal-check` 3 / `panel-snapshot-check` 74 / `panel-actions-check` 99 |
 | 文件规模提醒 | >150 / >300 / ≥400 由**程序自动发起**询问（`size-reminder-check` 20/20；阈值可配 `sizeReminder.*`） |
 | 修复批次回归（2026-10-18） | `f24-browser-profile-guard-check` 33/33 · `f25-hashgate-attribution-check` 25/25 · `f26-liveness-approval-check` 40/40 |
 | P2 批次回归（2026-10-18） | `f27-pipeline-wait-check` 43/43 · `f28-p2-polish-check` 27/27；工具总数 36→**37** |
+| P1-18 批次回归（2026-10-18） | `f29-artifact-matrix-check` 43/43（矩阵 / 豁免 / 关单） |
 
 ---
 
@@ -26,7 +27,7 @@
 $patterns = [ordered]@{
   '375'       = '375'
   '4743'      = '4743'
-  '3875'      = '3875/3875'
+  '3918'      = '3918/3918'
   '112'       = '112'
   '18 chunk'  = '18\s*(个|個|chunks?|chunk)'
   '19 files'  = '19\s*(个文件|個のファイル|ファイル|files?|файл)'
@@ -39,7 +40,7 @@ foreach ($f in 'README.md','README.en-US.md','README.ja.md','README.ru.md') {
 }
 ```
 
-- 通过标准：四份都出现 `375`、`4743`、`18 chunk`、`19 files`、`3875/3875`、`112` 与
+- 通过标准：四份都出现 `375`、`4743`、`18 chunk`、`19 files`、`3918/3918`、`112` 与
   「大小是信号不是死限（`file-size-check`）」的说明；
   章节编号一致（部署 / 插件源码 / 控制面板 / DSH 插件声明 / 文档 / 校验 / 开源协议与出处 / 文档索引）。
 - 同时反查旧说法是否还有残留：
@@ -123,7 +124,7 @@ $env:DSH_APP_ASAR = '<DSH 安装>\resources\app.asar'   # 预设 / 宿主 schema
 node tests\run-all.mjs
 ```
 
-- 通过标准：`3875/3875 通过（118 套）`，退出码 0；结果落在 `tests/last-run.txt`。
+- 通过标准：`3918/3918 通过（119 套）`，退出码 0；结果落在 `tests/last-run.txt`。
 - 不设 `DSH_APP_ASAR` 时会有 3 条预置校验判红（环境面）；这类红要在 PR 里写明，不能当成通过。
 - 单套复跑：`node tests\client-check.mjs` / `node tests\panel-ui-check.mjs` /
   `node tests\panel-portal-check.mjs` / `node tests\panel-snapshot-check.mjs` /
@@ -135,6 +136,7 @@ node tests\run-all.mjs
   `node tests\f26-liveness-approval-check.mjs` **40/40**。
 - P2 批次回归（2026-10-18）：`node tests\f27-pipeline-wait-check.mjs` **43/43** ·
   `node tests\f28-p2-polish-check.mjs` **27/27**。
+- P1-18 批次回归（2026-10-18）：`node tests\f29-artifact-matrix-check.mjs` **43/43**。
 
 ---
 

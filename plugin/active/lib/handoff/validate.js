@@ -12,6 +12,7 @@ import { looksLikeRawSecret } from '../security.js'
 import { validateSeatHandover } from '../context.js'
 // ★ P1-9：`foreign_paths_ack` 的**上限**与判据码从唯一出处取（不在校验层手抄一份数字）。
 import { FOREIGN_ACK_MAX } from '../hashgate.js'
+// ★ 两级升级梯 / 计划产物 / 豁免产物的形状判据 —— 各自定义在对应模块里，这里只调用。
 import {
   detectCodeInHumanText,
   looksLikeQuestion,
@@ -21,6 +22,9 @@ import {
   validateChangeScope,
   validateRoleBoundaries,
 } from './fields.js'
+// ★★ P1-18：`deferred_artifacts` 的**形状**判据与矩阵同源（`lib/tiers/product-matrix.js`）。
+//    交接物层只有形状、没有 tier ⇒ 只做形状校验；档位相关校验在 `pipeline_plan` 交计划前做。
+import { validateDeferredArtifacts } from '../tiers/product-matrix.js'
 import {
   scanRequirementAnalysisForAllocation,
   TEST_VERDICT_FIELDS,
@@ -170,6 +174,12 @@ export function validateHandoff(kind, payload) {
   if (kind === 'plan') {
     errors.push(...validateChangeScope(normalized.change_scope))
     errors.push(...validateRoleBoundaries(normalized.role_boundaries))
+    // ★★ P1-18：按档位豁免的产物（形状）。档位相关的判据在 pipeline_plan 里
+    //    （这里**没有** tier，不许在这里猜一个）。
+    if (normalized.deferred_artifacts !== undefined) {
+      const dv = validateDeferredArtifacts(normalized.deferred_artifacts)
+      if (dv.ok !== true) errors.push(...dv.errors)
+    }
   }
 
   // --- ★设计目的：最小改动（改动面必须与授权面相等）------------------------

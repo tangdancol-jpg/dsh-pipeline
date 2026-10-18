@@ -24,6 +24,8 @@ import { isEnabled } from '../switch/gate.js'
 // ★★ 主管枢纽的**席位补派**（缺位自愈）：判据与实现都在它里面，这里只触发。
 import { HUB_SEAT_RESPAWN_HEAD } from './hub-seats.js'
 import { S, SNullable, tool, resolveActor } from './kit.js'
+// ★★ P1-18：按档位的必需产物矩阵（唯一出处 `lib/tiers/product-matrix.js`，经 `lib/tiers.js` 转出）。
+import { deferralLine, productKindsText, productStatusFor } from '../tiers.js'
 
 /**
  * ★ P2 文案小修：`task.json` 超过这个体积就提醒"全文很大、建议用紧凑档"。
@@ -230,6 +232,50 @@ export function buildStatusTools(ctx) {
   }
 
   /**
+   * ★★ **P1-18：产物矩阵的一行紧凑摘要**（`pipeline_status` 的「产物 / 关单」区块）。
+   *
+   * 要求原话：「显示"必需产物 / 已交 / 已豁免（理由）"（紧凑档一行，别撑体积）」。
+   * 所以这里只给**算好的计数 + 必要的名字**（缺什么 / 豁免了什么），理由截断到 40 字符。
+   * 判据与关单闸同源：`productStatusFor` 只看档位矩阵 + 任务卡上的豁免，
+   * 不在状态这层重新判一遍。
+   */
+  function productBriefLine(products) {
+    if (products === null || products === undefined || products.known !== true) {
+      return `产物：档位未编排 —— 矩阵不适用（没有 role 清单就没有必需产物）`
+    }
+    const parts = [
+      `产物（${products.tier}）：必需 ${products.required.length}`,
+      `已交 ${products.delivered.length}`,
+      `已豁免 ${products.deferred.length}`,
+      `缺 ${products.missing.length}`,
+    ]
+    if (products.deferred.length > 0) {
+      parts.push(`豁免：${products.deferred.map((d) => `${productKindsText([d.kind])}——${clamp(d.why, 40)}（${d.accepted_by}）`).join('；')}`)
+    }
+    if (products.missing.length > 0) parts.push(`缺：${productKindsText(products.missing)}`)
+    return parts.join(' · ')
+  }
+
+  /**
+   * ★★ **P1-18：产物矩阵的完整两行**（非紧凑档）。
+   *   · 第一行：本档必需的产物清单（人话名）
+   *   · 第二行：已交 / 已豁免（理由 + 批准人）/ 缺
+   */
+  function productFullLines(products) {
+    if (products === null || products === undefined || products.known !== true) {
+      return ['必需产物：（档位未编排 —— 矩阵不适用）']
+    }
+    const L = [`必需产物（${products.tier}，${products.required.length} 项）：${productKindsText(products.required.map((p) => p.kind))}`]
+    const detail = [`已交 ${products.delivered.length}${products.delivered.length === 0 ? '' : `：${productKindsText(products.delivered)}`}`]
+    if (products.deferred.length > 0) {
+      detail.push(`已豁免 ${products.deferred.length}：${products.deferred.map((d) => deferralLine(d)).join('；')}`)
+    }
+    if (products.missing.length > 0) detail.push(`**缺 ${products.missing.length}**：${productKindsText(products.missing)}`)
+    L.push(`  ${detail.join('　·　')}`)
+    return L
+  }
+
+  /**
    * 紧凑档正文（`summary` / `count`）。
    *
    * ★ 每个**数**都在这里算好；`count` 只是把 `summary` 再压成一行。
@@ -258,6 +304,8 @@ export function buildStatusTools(ctx) {
         `下一步该谁（主链）：${owners.main.length === 0 ? '（无 —— 终态）' : owners.main.map((o) => o.who).join('、')}` +
           `${owners.side_events.length === 0 ? '' : `　侧路可提：${owners.side_events.join(' / ')}`}`,
         countLine,
+        // ★ P1-18：产物矩阵一行（必需 / 已交 / 已豁免 / 缺）—— 紧凑档也只多这一行。
+        productBriefLine(opts.products ?? null),
         `★ 要摘要版：detail="summary"；要全文：detail="full"；只要某几个字段：fields=[…]。`,
       ].join('\n')
     }
@@ -276,6 +324,8 @@ export function buildStatusTools(ctx) {
       )
     }
     L.push(countLine)
+    // ★ P1-18：产物矩阵一行（必需 / 已交 / 已豁免（理由）/ 缺）—— 紧凑档别撑体积。
+    L.push(productBriefLine(opts.products ?? null))
     const sc = res.scope_conformance ?? null
     if (sc !== null) {
       L.push(
@@ -329,6 +379,11 @@ export function buildStatusTools(ctx) {
       summary: S('string', '可直接阅读的状态报告'),
       /** ★ 哈希前置闸门：连续不通过计数 + 自动交人工（升级未了结时拒收新提交）。 */
       hash_gate: SNullable('object', '★ 哈希前置闸门视图 { blocked, streak, threshold, accepting_submissions, checks, escalation }', { additionalProperties: true }),
+      /**
+       * ★★ **P1-18：按档位的必需产物矩阵**（状态展示与关单闸同源）。
+       *   `{ tier, known, required:[{kind,zh,role,exemptible,delivered,deferred}], delivered[], deferred:[{kind,why,accepted_by}], missing[], non_exemptible[] }`
+       */
+      products: SNullable('object', '★ 产物矩阵视图 { tier, required[], delivered[], deferred[]（理由/批准人）, missing[] }（与关单闸同源）', { additionalProperties: true }),
       /**
        * ★★ **主管枢纽视图**（T-20261011-56a37e）。
        *   `enabled=false` = 本任务未启用枢纽（走既有链）。
@@ -615,6 +670,14 @@ export function buildStatusTools(ctx) {
       //   交接物 0 份"这句话本身**看不出**是"它还在想"还是"它已经死了"——
       //   失联视图补的就是这一个比特。
       const liveTask = await load(taskId)
+      /**
+       * ★★ **P1-18：按档位的必需产物矩阵视图**（必需 / 已交 / 已豁免（理由）/ 缺）。
+       *
+       * ★ 与关单闸 `role_products_delivered` **同一份派生逻辑**（`productStatusFor`）——
+       *   状态展示与关单判据不各算一套，否则"status 说齐了、close 说缺"就是必然。
+       * ★ 只读：不写盘、不改状态。
+       */
+      const products = productStatusFor(liveTask ?? (await load(taskId)))
       const liveSilenceMs =
         Number.isInteger(deps.config?.seatSilenceMs) && deps.config.seatSilenceMs > 0
           ? deps.config.seatSilenceMs
@@ -719,7 +782,7 @@ export function buildStatusTools(ctx) {
       /** ★ 显式给了 `page` 才分页（不传 ⇒ 与改前逐字节一致；紧凑档自己给计数，不分页）。 */
       const handoffPage = !isBrief && args.page !== undefined && args.page !== null ? paginate(res.handoffs, args.page) : null
       const lines = isBrief
-        ? [renderStatusBrief(res, live, { mode: briefMode }), ...hubSeatLines, ...mainIdentityLines]
+        ? [renderStatusBrief(res, live, { mode: briefMode, products }), ...hubSeatLines, ...mainIdentityLines]
         : [
         `任务 ${res.task_id}：${res.state_zh}(${res.state})`,
         `原始需求：${clamp(res.requirement, 300)}`,
@@ -750,6 +813,8 @@ export function buildStatusTools(ctx) {
           ? `角色边界卡：${res.role_boundaries.map((b) => b.role).join(' / ')}（派活时按它派）`
           : '',
         `制品版本：${res.artifact_version ?? '（尚无）'}${res.artifacts.length > 0 ? `（历史：${res.artifacts.map((a) => a.version).join(', ')}）` : ''}`,
+        // ★★ P1-18：产物矩阵（必需 / 已交 / 已豁免（理由、批准人）/ 缺）—— 与关单闸同源。
+        ...productFullLines(products),
         `打回计数：编写 ${res.rework.dev}/${res.rework.budget}，测试 ${res.rework.test}/${res.rework.budget}`,
         // ★ 哈希前置闸门的可见面（P13 之后它多了一半内容：连续计数 + 自动交人工）
         res.hash_gate === null || res.hash_gate === undefined
@@ -854,6 +919,8 @@ export function buildStatusTools(ctx) {
         role_boundaries: res.role_boundaries ?? null,
         // ★ 哈希前置闸门（P13：连续不过计数 + 自动交人工）
         hash_gate: res.hash_gate ?? null,
+        // ★★ P1-18：产物矩阵视图（必需 / 已交 / 已豁免（理由、批准人）/ 缺）—— 与关单闸同源
+        products: products ?? null,
         /**
          * ★★ **主管枢纽视图**（T-20261011-56a37e）。
          *   用户口径③要「待机**要能看出来**」，验收 5 要「每道站点各自留痕」——

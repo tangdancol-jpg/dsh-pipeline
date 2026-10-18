@@ -310,4 +310,8 @@ export const EXTRA_SUITES = [
   //  · f28：P2 四处小修（human_relay 真实换行 / demo confirm 文档 / status fields 可用键+体积提示 / 拒绝文案替代形态）。
   { file: './f27-pipeline-wait-check.mjs', exportName: 'runF27PipelineWaitCheck', zh: '★ P2-11 pipeline_wait（只读长轮询：到状态/事件立即返回；超时给状态与建议；非法参数 0ms 拒绝；不改任务）' },
   { file: './f28-p2-polish-check.mjs', exportName: 'runF28P2PolishCheck', zh: '★ P2 小修批次（relay 真实换行 / demo confirm 文档 / status fields 可用键与体积提示 / 拒绝文案替代形态）' },
+  // ★★ 2026-10-18 第三批（P1-18）：按档位的产物矩阵 + `deferred_artifacts` 豁免。
+  //    矩阵单一出处 `lib/tiers/product-matrix.js`；关单读矩阵（缺产物且未豁免才拒）；
+  //    豁免必须写理由，批准人只能是 user / supervisor（supervisor 仅 L4+）。
+  { file: './f29-artifact-matrix-check.mjs', exportName: 'runF29ArtifactMatrixCheck', zh: '★ P1-18 档位产物矩阵（L0–L5 必需产物；deferred_artifacts 理由/批准人校验；关单缺产物拒→豁免后过；测试/审核类不可豁免）' },
 ]
