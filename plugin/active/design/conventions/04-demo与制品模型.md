@@ -48,6 +48,8 @@ planning ──demo_started──▶ demo_building ──demo_submitted──▶
 
 ## 3. P1-10：制品版本语义（"最后登记的那个" vs 整体交付快照）
 
+> **状态：已按推荐 B 落地**（2026-10-18，iles+sha256 快照 / erify / L3+ 关单强制，回归 30）。
+
 **现场**：三个编写席位分别登记 v1/v2/v3，`status` 显示"制品 v3"，审核绑定也是 v3，
 但 v3 只是 writer#3 那份产物的版本号；之后若有人登记 v4，v3 的审核 OK 是否还有效没有定义。
 

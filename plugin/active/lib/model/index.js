@@ -31,7 +31,17 @@
 
 export { makeTaskRecord, makeTaskCard } from './task.js'
 export { makeBaselineRecord } from './baseline.js'
-export { makeArtifactRecord } from './artifact.js'
+// ★ P1-10：制品快照（`files` + `snapshot_id` + 校验视图）的纯函数，单一出处。
+export {
+  SNAPSHOT_MAX_FILES,
+  makeArtifactRecord,
+  normalizeSnapshotPath,
+  snapshotIdOf,
+  makeArtifactSnapshotRecord,
+  artifactRecordOf,
+  isSnapshotRecord,
+  describeArtifactSnapshot,
+} from './artifact.js'
 export { makeCloseReport } from './close-report.js'
 export { buildHumanRequestEntry } from './human-request.js'
 

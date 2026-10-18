@@ -1968,7 +1968,7 @@ produced_by=self-provided 时 degraded 必须是 true。
 | `pipeline_wait` | 任何人 | ★ 只读长轮询：等到某状态/某历史动作（`until_state` / `until_event`，默认 60s 上限 120s）；超时给当前状态 + 最近动作 + 建议；不改状态、不写盘 —— 替代"主对话 sleep 轮询" |
 | `pipeline_roster_request` | 执行角色 | 提出角色增减申请 |
 | `pipeline_roster_review` | 编排 | 复核申请；批准即改写清单 |
-| `pipeline_artifact` | 编写 | 登记制品版本（v1、v2…）或回滚到历史版本 |
+| `pipeline_artifact` | 编写 | 登记制品版本（v1、v2…）或回滚到历史版本；可选 `files:[{path,sha256}]` 登记**整体交付快照**（`snapshot_id` + 逐文件校验），`action:"verify"` 可重算；L3+ 关单要求当前制品快照完整 |
 | `pipeline_selftest` | 任何人 | 当场跑正例 + 反例 + 分档，打印拒绝原文 |
 | `pipeline_switch` | 任何人 | **多 AI 协调功能的总开关**（与右上角 UI 按钮是同一个开关位）。不带参数 = 翻转；带 `on` = 显式设定 |
 | `pipeline_clarify_request` | **执行/顾问角色** | ★ 两级升级梯 ① 向上问需求分析（用户根本不用被打扰） |
@@ -2225,15 +2225,15 @@ DSH 0.2.1 起官方带「智能体团队」：根会话是 Lead，可以 `spawn_
 ```powershell
 cd <插件目录>
 $env:DSH_APP_ASAR = '<DSH 安装>\resources\app.asar'   # 预设/宿主 schema 类判据要读宿主安装
-node tests\run-all.mjs            # 119 套一起跑（3918 项，含残留检查）
+node tests\run-all.mjs            # 120 套一起跑（3950 项，含残留检查）
 node tests\run-all.mjs --quiet    # 只打结论，不贴完整拒绝原文
 ```
 
-**当前口径**：设了 `DSH_APP_ASAR` 时 **3918/3918 通过（119 套）**；不设时会有 3 条
+**当前口径**：设了 `DSH_APP_ASAR` 时 **3950/3950 通过（120 套）**；不设时会有 3 条
 "读不到宿主安装"的预置校验判红（环境面，不是代码面）。单套清单与每套的判据写在
 `tests/run-all.mjs` 与 `tests/registry.mjs` 里（新增能力用新套 + registry 一行登记）。
 
-按能力分组（不逐一列 119 套）：
+按能力分组（不逐一列 120 套）：
 
 | 分组 | 代表套件 | 内容 |
 |---|---|---|
@@ -2250,7 +2250,8 @@ node tests\run-all.mjs --quiet    # 只打结论，不贴完整拒绝原文
 | 修复批次（2026-10-18） | `f24-browser-profile-guard-check.mjs`、`f25-hashgate-attribution-check.mjs`、`f26-liveness-approval-check.mjs` | 长单实测反馈的三处判据缺口：①浏览器 Profile/凭证不得进工作区（写类工具 + shell 复制都拦，`security_check` 一等命中）；②hash 闸门区分「基线已有他人文件」与「本次新增未声明」（`foreign_paths_ack` 归属确认，不能洗自己/越界）；③liveness 识别「在等审批」而不是误判失联（`awaiting_approval`，不冻结；真死照旧判）（33 + 25 + 40 项） |
 | P2 批次（2026-10-18） | `f27-pipeline-wait-check.mjs`、`f28-p2-polish-check.mjs` | ①新增 `pipeline_wait` 只读长轮询（等到状态/事件，替代 sleep 轮询；非法参数立刻拒、超时给完整状态、不改任务，43 项）；②四级小修：`human_relay` 照抄块真实换行、`pipeline_demo confirm` 参数文档、`pipeline_status fields` 可用键清单 + 大体积提示、拒绝文案补"允许的替代形态"（27 项） |
 | P1-18 批次（2026-10-18） | `f29-artifact-matrix-check.mjs` | 按档位的产物矩阵（L0–L5 必需产物）+ `deferred_artifacts` 豁免：理由必填、批准人只能 `user`/`supervisor`（supervisor 仅 L4+），测试/审核/安全类不可豁免；关单缺产物且未豁免才拒；`pipeline_status` 显示"必需/已交/已豁免（理由、批准人）"（43 项） |
-| 回归专项 | `f1`–`f29`、`p1`–`p16`、`m1`–`m11` 等 | 每轮缺陷的判据化回归（一个缺陷一个套件） |
+| P1-10 批次（2026-10-18） | `f30-artifact-snapshot-check.mjs` | 制品 = 整体交付快照：`files+sha256` 登记算 `snapshot_id`、逐文件校验；`action:"verify"` 重算并写回；L3+ 关单要求当前制品快照完整（L0–L2 不强制，legacy 只拦关单）（32 项） |
+| 回归专项 | `f1`–`f30`、`p1`–`p16`、`m1`–`m11` 等 | 每轮缺陷的判据化回归（一个缺陷一个套件） |
 
 报告落到 `tests/last-run.txt`。
 

@@ -29,8 +29,12 @@ import {
   deferralLine,
   deferredArtifactsOf,
   isProductDeferred,
+  normalizeTier,
   requiredProductsOf,
+  tierAtLeast,
 } from '../tiers.js'
+// ★★ P1-10：当前有效制品的**快照状态**（与 `pipeline_status` 展示**同一份**派生）。
+import { describeArtifactSnapshot } from '../model/artifact.js'
 // ★★ P4 接线（`WIRING.md` §W3）：DEMO 两个闸门的**名字**从闸门模块取，不手抄字符串。
 import { DEMO_GATE_GUARD, DEMO_ROUND_GUARD } from '../guard/demo-gate.js'
 
@@ -52,6 +56,19 @@ export const CLOSE_GATE_GUARDS = Object.freeze([
   'security_attested',
   'diagram_delivered',
   'role_products_delivered',
+  /**
+   * ★★ P1-10（设计档 `04-demo与制品模型.md` §3「推荐 B」）：**L3+ 的制品快照必须完整**。
+   *
+   * 判据：当前有效制品（`currentArtifactVersion`）在 `task.artifacts[]` 里的那份登记
+   * 必须带 `snapshot.complete === true`（`files` 逐条核对过磁盘、无 missing 无 mismatch）。
+   *   · **仅 L3+** 强制；L0–L2 不强制（轻量，不误伤）；
+   *   · legacy（旧登记没有 snapshot）在 L3+ **视为不完整**并给出"重登记 / verify 修复"的出路；
+   *   · 排序放在产物矩阵之后：先把"缺产物"说清，再说"产物内容有没有被登记后改动"。
+   *
+   * 为什么放在关单闸而不是登记时：快照的价值是"**审核绑的那一版**到底是不是现在盘上这份" ——
+   * 只有关单那一刻才真正需要这个保证；登记时强制会让 L0–L2 也跟着重起来。
+   */
+  'artifact_snapshot_complete',
   // ★ T-20261011-56a37e：第④道（审核通过 → 主管+需求位**双确认**）。排在最后是刻意的：
   //   先让既有的四道闸把话说清楚，再报"还缺谁的确认"。
   'hub_station_review_confirm',
@@ -869,6 +886,83 @@ export function preconditionMethods(ctx) {
                 ? ''
                 : `已豁免的产物（${deferred.length} 项，关单闸已放行）：\n` + deferred.map((d) => `  · ${deferralLine(d)}`).join('\n'),
           }
+        }
+
+        /**
+         * ★★ P1-10：**L3+ 关单要求当前有效制品带完整快照**。
+         *
+         * 现场（设计档 `04-demo与制品模型.md` §3）：三个编写席各登记 v1/v2/v3，
+         * `status` 说"制品 v3"、审核也绑 v3，但 v3 只是 writer#3 那份产物的版本号；
+         * 之后有没有人再改过那批文件，没有任何判据能回答。
+         *
+         * 判据（与 `pipeline_status` 展示**同一份**派生：`describeArtifactSnapshot`）：
+         *   ① 仅 **L3+** 强制（L0–L2 轻量：不强制、不误伤）；
+         *   ② 当前有效制品在 `task.artifacts[]` 里必须有一份登记；
+         *   ③ 那份登记必须带 `snapshot`（`files` 落过、`snapshot_id` 算过）；
+         *   ④ `snapshot.complete === true`（无 missing 无 mismatch）。
+         *
+         * 三条拒绝各有各的下一步（不合并成一句"快照不完整"）：
+         *   · 无登记 / 无快照（legacy）⇒ **重登记**带 files 的版本，再把流程绑过去；
+         *   · 有快照但不完整 ⇒ `pipeline_artifact { action: "verify" }` 看明细：
+         *     文件还原后重跑 verify 会把快照标回完整（verify 是修复入口）。
+         */
+        case 'artifact_snapshot_complete': {
+          // 档位先归一（大小写 / 空白不敏感，与产物矩阵同一个 `normalizeTier`）。
+          const tier = normalizeTier(task.roster?.tier)
+          // ★ 仅 L3+：低档不强制（用户拍板「L0–L2 轻量」），未编排 / 认不出的档位也不猜着误伤。
+          if (!tierAtLeast(tier, 'L3')) break
+          const version = currentArtifactVersion(task)
+          const view = describeArtifactSnapshot(task, version)
+          if (view.complete === true) break
+
+          const nextSteps =
+            '下一步（两条出路）：\n' +
+            '  ① 先看明细：`pipeline_artifact { task_id, action: "verify"' +
+            (version === null ? '' : `, version: "${version}"`) +
+            ' }` —— 它会按盘上实际哈希重算，逐条给出 missing / mismatch；\n' +
+            '     **文件恢复成登记时的内容后重跑一次 verify，快照会被标回完整**（verify 就是修复入口）；\n' +
+            '  ② 内容确实要改：重新登记一版带 `files: [{ path, sha256? }]` 的制品（服务端会逐条核对磁盘、算 snapshot_id），' +
+            '再让编写重交 dev_to_test / 测试重验 / 审核重绑新版本（审核绑定键仍是 artifact_version）。\n' +
+            '★ L0–L2 不强制这条；本任务是 **' + (tier || '未编排') + '** 档（L3+）。'
+
+          if (version === null) {
+            return deny(
+              'ARTIFACT_SNAPSHOT_INCOMPLETE',
+              `拒绝关单：本任务是 ${tier} 档（L3+ 要求**当前有效制品的完整快照**），但任务里**还没有当前有效制品**。\n` +
+                '判据：当前有效制品 = 最近一次 dev_to_test 的 artifact_version；它的登记必须带 complete:true 的快照。\n' +
+                nextSteps,
+            )
+          }
+          if (view.registered !== true) {
+            return deny(
+              'ARTIFACT_SNAPSHOT_INCOMPLETE',
+              `拒绝关单：当前有效制品 **${version} 没有任何登记记录**（task.artifacts[] 里找不到它），无法核对快照。\n` +
+                '★ 这比 legacy 更严重：审核绑的是一个"没有登记过"的版本号 —— 快照无从谈起。\n' +
+                nextSteps,
+            )
+          }
+          if (view.has_snapshot !== true) {
+            // ★ legacy：旧登记没有 snapshot —— 用户口径「L3+ 视为不完整」，拒绝时**说清**这是旧数据。
+            return deny(
+              'ARTIFACT_SNAPSHOT_INCOMPLETE',
+              `拒绝关单：当前有效制品 ${version} 的登记是 **legacy 旧登记**（没有 files 快照）—— L3+ 视为**不完整**。\n` +
+                '★ 这不是"文件一定有问题"，而是"没有任何记录能证明审核绑的那一版就是现在盘上的这一版"。\n' +
+                '★ legacy 不追溯改旧数据：旧记录原样保留可查阅，但 L3+ 关单要求当前版本有一份**新的**完整快照。\n' +
+                nextSteps,
+            )
+          }
+          return deny(
+            'ARTIFACT_SNAPSHOT_INCOMPLETE',
+            `拒绝关单：当前有效制品 ${version} 的快照**不完整**（${view.file_count} 个文件里，缺失 ${view.missing_count} 个 / 哈希不一致 ${view.mismatch_count} 个）。\n` +
+              (view.missing_count > 0
+                ? `  · 缺失：${view.missing.slice(0, 10).map((f) => f.path).join('、')}${view.missing_count > 10 ? ' …' : ''}\n`
+                : '') +
+              (view.mismatch_count > 0
+                ? `  · 不一致：${view.mismatch.slice(0, 10).map((f) => f.path).join('、')}${view.mismatch_count > 10 ? ' …' : ''}\n`
+                : '') +
+              `★ 快照登记于 ${view.verified_at ?? '(未知时间)'}（snapshot_id ${String(view.snapshot_id).slice(0, 16)}…）。\n` +
+              nextSteps,
+          )
         }
 
         case 'rework_budget': {

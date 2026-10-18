@@ -314,4 +314,6 @@ export const EXTRA_SUITES = [
   //    矩阵单一出处 `lib/tiers/product-matrix.js`；关单读矩阵（缺产物且未豁免才拒）；
   //    豁免必须写理由，批准人只能是 user / supervisor（supervisor 仅 L4+）。
   { file: './f29-artifact-matrix-check.mjs', exportName: 'runF29ArtifactMatrixCheck', zh: '★ P1-18 档位产物矩阵（L0–L5 必需产物；deferred_artifacts 理由/批准人校验；关单缺产物拒→豁免后过；测试/审核类不可豁免）' },
+  // ★★ 2026-10-18 第四批（P1-10）：制品快照（files+sha256 / snapshot_id / verify / L3+ 关单强制）。
+  { file: './f30-artifact-snapshot-check.mjs', exportName: 'runF30ArtifactSnapshotCheck', zh: '★ P1-10 制品快照（files+sha256 登记、verify 重算、L3+ 关单要求完整快照；L0–L2 不强制、legacy 只拦关单）' },
 ]

@@ -4,6 +4,13 @@
  * 从 `lib/store.js` 拆出来的一部分（代码原样搬过来，行为未改）；
  * 对外仍经 `lib/store.js` 转出，调用方不需要改 import。
  *
+ * ★★ P1-10（设计档 `design/conventions/04-demo与制品模型.md` §3「推荐 B」，2026-10-18）：
+ *   `registerArtifact` 支持可选 `files: [{ path, sha256? }]` —— 把**整体交付快照**
+ *   （`snapshot_id` / `complete` / missing / mismatch）一起记进这一版；同一工具新增
+ *   `verifyArtifactVersion`（`pipeline_artifact { action: "verify" }`）重算校验。
+ *   **磁盘核对**（读盘算 hash / missing / mismatch）在 `lib/store/artifact-snapshot.js`；
+ *   **关单判据**在 `lib/store/precondition.js` 的 `artifact_snapshot_complete`（仅 L3+）。
+ *
  * @module dsh-pipeline/lib/store/review
  */
 
@@ -14,8 +21,11 @@ import { ROLE, roleLabel } from '../roles.js'
 // ★ E3：关单是"语义上完整的时刻" —— 记忆域在这里把该任务的记忆综合进项目活文档（设计 04 §3.1）。
 import { refreshLiveDocForTask } from '../memory/live-doc-write.js'
 // ★ 领域对象集中：制品版本记录与关单报告的形状在 `lib/model/` 下。
-import { makeArtifactRecord } from '../model/artifact.js'
+import { artifactRecordOf, isSnapshotRecord, makeArtifactRecord } from '../model/artifact.js'
 import { makeCloseReport } from '../model/close-report.js'
+// ★★ P1-10：制品快照的**磁盘核对**（files 规整 / 逐条 hash / missing·mismatch / snapshot_id）
+//    在 `lib/store/artifact-snapshot.js` —— 本文件只做"登记 / 校验"这条业务链，判据不在这里手抄。
+import { buildArtifactSnapshot, checkSnapshotAgainstDisk, renderSnapshotCheckLines } from './artifact-snapshot.js'
 
 /**
  * 任务存储 · 交接物核对、打回、关单、制品
@@ -385,12 +395,29 @@ export function reviewMethods(ctx) {
 
     /**
      * 登记一个制品版本（编写角色的动作）。制品版本化 + 可回滚。
+     *
+     * ★★ P1-10：可选 `files: [{ path, sha256? }]` —— 给了就把这次的**整体交付快照**
+     *   一起记进这一版（`rec.snapshot`）；不给 = 与改前**逐字节相同**的旧行为。
+     *
+     * ★ 快照的**核对**（读盘算哈希）发生在任何写盘动作**之前** ——
+     *   files 不合法时直接拒收，不会留下"半截登记"。
      */
     async registerArtifact(input) {
       const task = await loadTask(input.taskId)
       if (task === null) return deny('TASK_NOT_FOUND', `找不到任务 ${input.taskId}。`)
       if (input.actorRole !== ROLE.WRITER) {
         return deny('ROLE_NOT_ALLOWED', `只有编写角色能登记代码制品，当前调用方是「${roleLabel(input.actorRole)}」。`)
+      }
+      /**
+       * ★ P1-10：先把快照核对出来（纯读）—— 不合法就在这里拒，版本号计数器与磁盘都不动。
+       * ★ `files: []` 视为"没给"（保持旧行为）；只有真的列了文件才记快照。
+       */
+      const fileList = Array.isArray(input.files) ? input.files : []
+      let snapshot = null
+      if (fileList.length > 0) {
+        const built = await buildArtifactSnapshot(task, fileList, now)
+        if (built.ok !== true) return built
+        snapshot = built.snapshot
       }
       const content = String(input.content ?? '')
       task.artifact_version_counter += 1
@@ -400,12 +427,165 @@ export function reviewMethods(ctx) {
       const file = join(dir, input.fileName ?? 'artifact.txt')
       await writeFile(file, content, 'utf8')
       // 制品版本记录的形状集中在 `lib/model/artifact.js`。
-      const rec = makeArtifactRecord({ version, file, content, note: input.note, now })
+      const rec = makeArtifactRecord({ version, file, content, note: input.note, now, snapshot })
       task.artifacts.push(rec)
-      const entry = await audit(task.id, ROLE.WRITER, 'artifact:register', { version, sha256: rec.sha256, bytes: rec.bytes, agent: input.actorAgentId })
+      const entry = await audit(task.id, ROLE.WRITER, 'artifact:register', {
+        version,
+        sha256: rec.sha256,
+        bytes: rec.bytes,
+        ...(rec.snapshot === undefined
+          ? {}
+          : {
+              snapshot_id: rec.snapshot.snapshot_id,
+              snapshot_complete: rec.snapshot.complete,
+              snapshot_files: rec.snapshot.files.length,
+              snapshot_missing: rec.snapshot.missing.length,
+              snapshot_mismatch: rec.snapshot.mismatch.length,
+            }),
+        agent: input.actorAgentId,
+      })
       task.history.push(entry)
       await persist(task)
-      return { ok: true, task, artifact: rec, summary: `制品已登记：${version}（${rec.bytes} 字节，sha256 ${rec.sha256.slice(0, 16)}…）。` }
+      /**
+       * 摘要里把快照状况说清（**完整/不完整/缺几个/不一致几个**）——
+       * 登记成功不等于快照完整：不完整时调用方要立刻知道（L3+ 关单会被它拦住）。
+       */
+      const snapNote =
+        rec.snapshot === undefined
+          ? ''
+          : rec.snapshot.complete
+            ? `\n快照：${rec.snapshot.files.length} 个文件全部核对一致（snapshot_id ${rec.snapshot.snapshot_id.slice(0, 16)}…）。`
+            : `\n⚠ 快照**不完整**：${rec.snapshot.missing.length} 个文件缺失 / ${rec.snapshot.mismatch.length} 个哈希不一致。` +
+              `\n  下一步：用 pipeline_artifact { action: "verify", version: "${version}" } 看明细；` +
+              '把文件补齐/还原后重跑 verify 可标回完整（L3+ 关单要求快照完整）。'
+      return {
+        ok: true,
+        task,
+        artifact: rec,
+        snapshot: rec.snapshot ?? null,
+        summary: `制品已登记：${version}（${rec.bytes} 字节，sha256 ${rec.sha256.slice(0, 16)}…）。${snapNote}`,
+      }
+    },
+
+    /**
+     * ★★ P1-10：**重算校验**一个版本的快照（`pipeline_artifact { action: "verify" }` 的实现）。
+     *
+     * 判据（与登记时同源：`snapshotIdOf` + 逐文件磁盘哈希）：
+     *   · 按 `snapshot.files` 逐条读盘算哈希 ⇒ `missing[]` / `mismatch[]` 明细；
+     *   · 用**磁盘实际哈希**重算 `current_snapshot_id`，与登记时的 `snapshot_id` 比 ——
+     *     `same = 完整且 id 一致`（这就是"登记后又被改过"的判据）；
+     *   · 本次结论**写回登记记录**（`verified_at` / `complete` / missing / mismatch）——
+     *     所以文件被还原后重跑一次 verify，就能把快照标回**完整**（"verify 修复"）；
+     *   · 没有快照的 legacy 登记：**明确说"无法校验"**并给出重登记的出路（不假装验过）。
+     *
+     * @param {object} input
+     * @param {string} input.taskId
+     * @param {string} [input.version] - 缺省 = 当前有效制品版本
+     * @param {string} [input.actorRole] - writer / human（与工具守门同一口径）
+     */
+    async verifyArtifactVersion(input) {
+      const task = await loadTask(input.taskId)
+      if (task === null) return deny('TASK_NOT_FOUND', `找不到任务 ${input.taskId}。`)
+      if (input.actorRole !== ROLE.WRITER && input.actorRole !== ROLE.HUMAN) {
+        return deny(
+          'ROLE_NOT_ALLOWED',
+          `只有编写角色或人工能校验制品快照，当前调用方是「${roleLabel(input.actorRole)}」。`,
+        )
+      }
+      const version =
+        typeof input.version === 'string' && input.version.length > 0 ? input.version : currentArtifactVersion(task)
+      const emptyExtra = { version: version ?? '', snapshot_id: '', snapshot_complete: false, verified: false, same: false, missing: [], mismatch: [], snapshot: null }
+      if (typeof version !== 'string' || version.length === 0) {
+        return deny(
+          'ARTIFACT_NOT_FOUND',
+          `任务 ${task.id} 还没有**当前有效制品**（最近一次 dev_to_test 没带 artifact_version）。\n` +
+            '先让编写登记制品 → 交 dev_to_test（artifact_version 指向它），再谈快照校验。',
+          emptyExtra,
+        )
+      }
+      const rec = artifactRecordOf(task, version)
+      if (rec === null) {
+        const known = (Array.isArray(task.artifacts) ? task.artifacts : []).map((a) => a.version)
+        return deny(
+          'ARTIFACT_NOT_FOUND',
+          `任务 ${task.id} 里没有制品版本 ${version} 的登记记录（已有登记：${known.join(', ') || '（无）'}）。\n` +
+            '★ 当前有效制品版本来自最近一次 dev_to_test 的声明；没有登记记录就没法核对快照。',
+          emptyExtra,
+        )
+      }
+      const snap = isSnapshotRecord(rec.snapshot) ? rec.snapshot : null
+      if (snap === null) {
+        return deny(
+          'ARTIFACT_SNAPSHOT_LEGACY',
+          `拒绝校验：制品 ${version} 是 **legacy 登记**（没有 files 快照），没有可比对的哈希。\n` +
+            '★ L3+ 关单要求当前有效制品的登记带完整快照 —— legacy 会被视为不完整。\n' +
+            '出路：重新登记一个带 files 的制品版本（pipeline_artifact { files: [{ path }] }），' +
+            '再让编写重交 dev_to_test / 测试重验 / 审核重绑新版本。',
+          emptyExtra,
+        )
+      }
+
+      // ---- 逐文件重算：与登记时**同一份**实现（`checkSnapshotAgainstDisk`）--------
+      const check = await checkSnapshotAgainstDisk(task, snap, now)
+      const { missing, mismatch, currentSnapshotId, complete, same } = check
+
+      // ---- 把本次校验结论写回（verify 就是"修复"入口：文件还原后重跑一次即回完整）----
+      rec.snapshot = {
+        ...snap,
+        complete,
+        verified_at: check.verifiedAt,
+        missing,
+        mismatch,
+      }
+      const entry = await audit(task.id, String(input.actorRole ?? ROLE.WRITER), 'artifact:verify', {
+        version,
+        snapshot_id: snap.snapshot_id,
+        current_snapshot_id: currentSnapshotId,
+        same,
+        complete,
+        missing: missing.length,
+        mismatch: mismatch.length,
+        agent: input.actorAgentId,
+      })
+      task.history.push(entry)
+      await persist(task)
+
+      let summary
+      if (same) {
+        summary =
+          `制品 ${version} 的快照校验**通过**：${snap.files.length} 个文件与登记哈希全部一致` +
+          `（snapshot_id ${snap.snapshot_id.slice(0, 16)}…，校验时间 ${rec.snapshot.verified_at}）。`
+      } else if (complete) {
+        summary =
+          `制品 ${version} 的文件**全部对得上**，但重算出的 snapshot_id 与登记时不同` +
+          `（登记 ${snap.snapshot_id.slice(0, 16)}… / 重算 ${currentSnapshotId.slice(0, 16)}…）—— 登记记录可能被手改过。\n` +
+          '出路：重新登记一个带 files 的制品版本。'
+      } else {
+        summary =
+          `制品 ${version} 的快照校验**不通过**。\n` +
+          renderSnapshotCheckLines({ missing, mismatch }).join('\n') +
+          '\n两条出路（选一条）：\n' +
+          '  ① 把文件恢复成登记时的内容，然后重跑 `pipeline_artifact { action: "verify", version: "' + version + '" }` —— ' +
+          '文件对得上就会把快照标回**完整**；\n' +
+          '  ② 内容确实要改：重新登记带 files 的新版本（pipeline_artifact { files: [...] }），' +
+          '再让编写重交 dev_to_test / 测试重验 / 审核重绑新版本（审核绑定键仍是 artifact_version）。\n' +
+          '★ 在这一步之前，L3+ 的关单会被 artifact_snapshot_complete 判据拦住。'
+      }
+      return {
+        ok: same,
+        task,
+        version,
+        artifact: rec,
+        snapshot: rec.snapshot,
+        snapshot_id: snap.snapshot_id,
+        current_snapshot_id: currentSnapshotId,
+        snapshot_complete: complete,
+        verified: same,
+        same,
+        missing,
+        mismatch,
+        summary,
+      }
     },
 
     /**
@@ -422,7 +602,7 @@ export function reviewMethods(ctx) {
         return deny('NOT_FOUND', `没有制品版本 ${input.version}；已有版本：${task.artifacts.map((a) => a.version).join(', ') || '（无）'}`)
       }
       const content = await readFile(src.file, 'utf8')
-      return this.registerArtifact({
+      const res = await this.registerArtifact({
         taskId: input.taskId,
         actorRole: ROLE.WRITER,
         content,
@@ -430,6 +610,14 @@ export function reviewMethods(ctx) {
         note: `回滚自 ${src.version}`,
         actorAgentId: input.actorAgentId,
       })
+      // ★ P1-10：回滚**不复制快照** —— 快照描述的是"那一版交付的 files"，原样搬到新版本号上
+      //   会得到一个"从没被核对过却声称完整"的快照。旧版本上的快照仍留在旧版本上可追溯。
+      if (res.ok === true) {
+        res.summary +=
+          `\n★ 回滚登记**不带快照**（旧版 ${src.version} 的快照仍留在它自己那一版上）。` +
+          '若本任务是 L3+，关单前请用 `files` 重新登记一版完整的制品快照。'
+      }
+      return res
     },
   }
 }

@@ -276,6 +276,47 @@ export function buildStatusTools(ctx) {
   }
 
   /**
+   * ★★ **P1-10：当前制品快照的一行紧凑摘要**（`pipeline_status` 的「制品快照」区块）。
+   *
+   * 要求原话：「显示当前制品的快照状态（版本、是否完整、文件数、校验时间；紧凑档一行）」。
+   * 判据与关单闸 `artifact_snapshot_complete` **同源**（`describeArtifactSnapshot`），
+   * 不在状态这层重新判一遍。
+   */
+  function snapshotBriefLine(snap) {
+    if (snap === null || snap === undefined) return '制品快照：无可核对信息（尚无当前有效制品）'
+    const head = `制品快照 ${snap.version ?? '（无当前制品）'}`
+    if (snap.version === null) return `${head}：还没有当前有效制品（dev_to_test 没带 artifact_version）`
+    if (snap.complete === true) {
+      return (
+        `${head}：**完整** ✓（${snap.file_count} 个文件，校验于 ${snap.verified_at ?? '（未记录）'}；` +
+        `snapshot_id ${String(snap.snapshot_id).slice(0, 12)}…）`
+      )
+    }
+    if (snap.legacy === true) {
+      return `${head}：**不完整**（legacy 旧登记——没有 files 快照；L3+ 关单前需重登记带 files 的版本）`
+    }
+    if (snap.registered !== true) {
+      return `${head}：**无登记记录**（无法核对快照；L3+ 关单前需先登记带 files 的制品）`
+    }
+    return (
+      `${head}：**不完整**（缺 ${snap.missing_count} 个 / 哈希不一致 ${snap.mismatch_count} 个；` +
+      `校验于 ${snap.verified_at ?? '（未记录）'}）→ 用 pipeline_artifact action=verify 看明细`
+    )
+  }
+
+  /** ★ P1-10：非紧凑档的制品快照细节（不完整时把缺失/不一致的文件列出来）。 */
+  function snapshotFullLines(snap) {
+    const L = [snapshotBriefLine(snap)]
+    if (snap !== null && snap !== undefined && Array.isArray(snap.missing) && snap.missing.length > 0) {
+      L.push(`  · 缺失：${snap.missing.slice(0, 10).map((f) => f.path).join('、')}${snap.missing.length > 10 ? ' …' : ''}`)
+    }
+    if (snap !== null && snap !== undefined && Array.isArray(snap.mismatch) && snap.mismatch.length > 0) {
+      L.push(`  · 哈希不一致：${snap.mismatch.slice(0, 10).map((f) => f.path).join('、')}${snap.mismatch.length > 10 ? ' …' : ''}`)
+    }
+    return L
+  }
+
+  /**
    * 紧凑档正文（`summary` / `count`）。
    *
    * ★ 每个**数**都在这里算好；`count` 只是把 `summary` 再压成一行。
@@ -306,6 +347,8 @@ export function buildStatusTools(ctx) {
         countLine,
         // ★ P1-18：产物矩阵一行（必需 / 已交 / 已豁免 / 缺）—— 紧凑档也只多这一行。
         productBriefLine(opts.products ?? null),
+        // ★ P1-10：当前制品快照一行（版本 / 完整 / 文件数 / 校验时间）。
+        snapshotBriefLine(res.artifact_snapshot ?? null),
         `★ 要摘要版：detail="summary"；要全文：detail="full"；只要某几个字段：fields=[…]。`,
       ].join('\n')
     }
@@ -326,6 +369,8 @@ export function buildStatusTools(ctx) {
     L.push(countLine)
     // ★ P1-18：产物矩阵一行（必需 / 已交 / 已豁免（理由）/ 缺）—— 紧凑档别撑体积。
     L.push(productBriefLine(opts.products ?? null))
+    // ★ P1-10：当前制品快照一行（版本 / 是否完整 / 文件数 / 校验时间）—— 紧凑档一行。
+    L.push(snapshotBriefLine(res.artifact_snapshot ?? null))
     const sc = res.scope_conformance ?? null
     if (sc !== null) {
       L.push(
@@ -384,6 +429,13 @@ export function buildStatusTools(ctx) {
        *   `{ tier, known, required:[{kind,zh,role,exemptible,delivered,deferred}], delivered[], deferred:[{kind,why,accepted_by}], missing[], non_exemptible[] }`
        */
       products: SNullable('object', '★ 产物矩阵视图 { tier, required[], delivered[], deferred[]（理由/批准人）, missing[] }（与关单闸同源）', { additionalProperties: true }),
+      /**
+       * ★★ **P1-10：当前有效制品的快照状态**（与关单闸 `artifact_snapshot_complete` 同源）。
+       *   `{ version, registered, has_snapshot, legacy, complete, snapshot_id, file_count,
+       *      verified_at, missing[], mismatch[], missing_count, mismatch_count }`
+       *   `legacy=true` = 旧登记没有 files 快照（L3+ 关单视为不完整）。
+       */
+      artifact_snapshot: SNullable('object', '★ 当前制品快照状态 { version, complete, file_count, verified_at, legacy, missing[], mismatch[] }（与关单闸同源）', { additionalProperties: true }),
       /**
        * ★★ **主管枢纽视图**（T-20261011-56a37e）。
        *   `enabled=false` = 本任务未启用枢纽（走既有链）。
@@ -813,6 +865,8 @@ export function buildStatusTools(ctx) {
           ? `角色边界卡：${res.role_boundaries.map((b) => b.role).join(' / ')}（派活时按它派）`
           : '',
         `制品版本：${res.artifact_version ?? '（尚无）'}${res.artifacts.length > 0 ? `（历史：${res.artifacts.map((a) => a.version).join(', ')}）` : ''}`,
+        // ★★ P1-10：当前有效制品的快照状态（版本 / 完整 / 文件数 / 校验时间；不完整时列文件）。
+        ...snapshotFullLines(res.artifact_snapshot ?? null),
         // ★★ P1-18：产物矩阵（必需 / 已交 / 已豁免（理由、批准人）/ 缺）—— 与关单闸同源。
         ...productFullLines(products),
         `打回计数：编写 ${res.rework.dev}/${res.rework.budget}，测试 ${res.rework.test}/${res.rework.budget}`,
@@ -921,6 +975,8 @@ export function buildStatusTools(ctx) {
         hash_gate: res.hash_gate ?? null,
         // ★★ P1-18：产物矩阵视图（必需 / 已交 / 已豁免（理由、批准人）/ 缺）—— 与关单闸同源
         products: products ?? null,
+        // ★★ P1-10：当前制品快照状态（版本 / 完整 / 文件数 / 校验时间）—— 与关单闸同源
+        artifact_snapshot: res.artifact_snapshot ?? null,
         /**
          * ★★ **主管枢纽视图**（T-20261011-56a37e）。
          *   用户口径③要「待机**要能看出来**」，验收 5 要「每道站点各自留痕」——

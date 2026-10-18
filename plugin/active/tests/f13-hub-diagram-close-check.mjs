@@ -174,8 +174,23 @@ async function buildScene(h) {
     H('perf_report', { from: 'performance' }),
   ]
   task.history = []
+  // ★ P1-10（2026-10-18）：L3+ 关单要求"当前有效制品的快照完整"。
+  //   本夹具手摆 handoffs、从不调 pipeline_artifact，因此在写盘前把版本计数器摆到 1，
+  //   写盘后**用真工具登记一次 v2 快照**（文件真实落在项目根内）—— 与真机形状一致：
+  //   编写交付声明 v2、制品登记也是 v2 且快照完整。
+  task.artifact_version_counter = 1
+  await mkdir(join(h.projectRoot, 'src', 'all'), { recursive: true })
+  await writeFile(join(h.projectRoot, 'src', 'all', 'a.js'), 'export const a = 1\n', 'utf8')
   await writeFile(join(h.projectRoot, '.pipeline', taskId, 'task.json'), JSON.stringify(task, null, 2), 'utf8')
   h.indexTask(taskId, task)
+  const reg = await h.store.registerArtifact({
+    taskId,
+    actorRole: 'writer',
+    actorAgentId: 'f13-writer-fixture',
+    content: '夹具：v2 快照',
+    files: [{ path: 'src/all/a.js' }],
+  })
+  if (reg.ok !== true) throw new Error(`夹具：登记 v2 快照失败 ${reg.error}`)
   return { taskId, TK, diagramV1, diagramV2, scanRef }
 }
 

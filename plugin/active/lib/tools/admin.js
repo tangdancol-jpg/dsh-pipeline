@@ -10,7 +10,7 @@
 import { L5_EXTENSION_POOL } from '../tiers.js'
 // ★★ 关掉时的文案**唯一出处**（与启动日志同一份）—— 缺陷"开关只关一半"的措辞侧修复。
 import { offModeCopy } from '../switch/text.js'
-import { S, tool, resolveActor } from './kit.js'
+import { S, SNullable, tool, resolveActor } from './kit.js'
 
 /**
  * 角色变更、制品、自检、开关
@@ -118,7 +118,7 @@ export function buildAdminTools(ctx) {
   })
 
   // =========================================================================
-  // 12. pipeline_artifact —— 制品登记（版本化 + 可回滚）
+  // 12. pipeline_artifact —— 制品登记（版本化 + 可回滚 + P1-10 快照/校验）
   // =========================================================================
   const artifact = tool(deps, {
     name: 'pipeline_artifact',
@@ -126,24 +126,102 @@ export function buildAdminTools(ctx) {
     description:
       '【编写角色专用】登记一个代码制品版本（v1、v2…），落盘到 <项目>/.pipeline/<任务>/artifacts/vN/。' +
       '制品版本化是"审核的是不是同一个版本"的判定依据：测试报告与审核结论都要带上 artifact_version，' +
-      '对不上就拒绝。rollback_to 可以把某个历史版本重新登记为当前版本（旧版本不删）。',
+      '对不上就拒绝。rollback_to 可以把某个历史版本重新登记为当前版本（旧版本不删）。\n' +
+      '★ P1-10 制品快照：登记时可选 `files: [{ path, sha256? }]` 把**整体交付快照**一起记下 ——' +
+      '服务端逐条核对磁盘哈希、按 path 排序算 `snapshot_id`，记 `complete`（无缺失、无不一致）。' +
+      '路径相对任务 project_root；sha256 可省略（由服务端从磁盘算）。不传 files = 旧行为（不记快照）。\n' +
+      '★ `action: "verify"`：对当前（或指定 `version`）的登记重算校验，返回 missing / mismatch / ' +
+      '重算出的 snapshot_id 是否仍一致 + 可操作文案。L3+ 关单要求当前有效制品的快照 `complete:true`。',
     parameters: {
       task_id: S('string', '任务 ID'),
-      content: S('string', '制品内容（补丁或代码正文）'),
+      action: S('string', '★ 动作：register（默认）= 登记新版本；verify = 对当前/指定版本重算快照校验（不加新工具）', { enum: ['register', 'verify'] }),
+      content: S('string', '制品内容（补丁或代码正文；action=register 且非回滚时必填）'),
       file_name: S('string', '文件名（默认 artifact.txt）'),
+      /**
+       * ★ P1-10：**文件快照**（可选）。
+       * 形状：`[{ path, sha256? }]`；path 相对任务 project_root（也接受落在根内的绝对路径）。
+       * 不传 / 空数组 = 旧行为（只登记版本，不记快照）。
+       */
+      files: S('array', '★ 可选：本次交付包含的项目文件 [{ path, sha256? }]（路径相对 task.project_root；sha256 可省略，由服务端从磁盘算）。不传 = 旧行为（不记快照）', { items: { type: 'object', additionalProperties: true } }),
+      version: S('string', 'verify 用：要校验的版本号（默认 = 当前有效制品版本）'),
       note: S('string', '备注（可空）'),
       rollback_to: S('string', '回滚到某个版本号（给了就忽略 content）'),
       role_token: S('string', '角色令牌'),
     },
     output: {
-      ok: S('boolean', '是否成功'),
+      ok: S('boolean', '是否成功（verify 时 = 快照是否**仍一致**）'),
       summary: S('string', '给人看的摘要'),
-      version: S('string', '登记出的版本号'),
+      version: S('string', '登记/校验的版本号'),
       sha256: S('string', '内容哈希'),
+      /** ★ P1-10：快照面（没有快照时是空串 / false / 空数组 / null）。 */
+      snapshot_id: S('string', '快照 id（sha256，按 path 排序算；无快照为空串）'),
+      snapshot_complete: S('boolean', '快照是否完整 = 无 missing 无 mismatch'),
+      verified: S('boolean', 'verify 是否校验通过（登记时恒 false —— 登记只记录，不宣称验过）'),
+      current_snapshot_id: S('string', 'verify 用磁盘实际哈希重算出的 snapshot_id'),
+      missing: S('array', '缺失文件明细 [{ path, expected }]', { items: { type: 'object', additionalProperties: true } }),
+      mismatch: S('array', '哈希不一致明细 [{ path, expected, actual }]', { items: { type: 'object', additionalProperties: true } }),
+      snapshot: SNullable('object', '快照记录 { snapshot_id, files[], complete, verified_at, missing[], mismatch[] }', { additionalProperties: true }),
     },
     async run(args, exec) {
       const actor = resolveActor(args, exec, deps)
       if (actor.ok !== true) return { ok: false, summary: actor.error, version: '', sha256: '' }
+      const action = typeof args.action === 'string' && args.action.length > 0 ? args.action : 'register'
+
+      // ---- action=verify：重算校验（同一工具，不加工具数）---------------------
+      if (action === 'verify') {
+        const res = await store.verifyArtifactVersion({
+          taskId: String(args.task_id ?? ''),
+          version: typeof args.version === 'string' && args.version.length > 0 ? args.version : undefined,
+          actorRole: actor.role,
+          actorAgentId: actor.agentId,
+        })
+        // ★ 校验结论无论通过与否都**已经写回**登记记录（verify 是修复入口）——
+        //   拿到 task 就刷新同步索引，让守门与 status 立刻看到最新快照状态。
+        if (res.task !== undefined && res.task !== null) indexTask(res.task.id, res.task)
+        if (res.task === undefined) {
+          // 拒绝也要把**明细**带回去（legacy / 找不到登记时调用方要能看出差在哪）。
+          return {
+            ok: false,
+            summary: res.error,
+            version: res.version ?? '',
+            sha256: '',
+            snapshot_id: res.snapshot_id ?? '',
+            snapshot_complete: res.snapshot_complete === true,
+            verified: false,
+            current_snapshot_id: res.current_snapshot_id ?? '',
+            missing: Array.isArray(res.missing) ? res.missing : [],
+            mismatch: Array.isArray(res.mismatch) ? res.mismatch : [],
+            snapshot: res.snapshot ?? null,
+          }
+        }
+        return {
+          ok: res.ok === true,
+          version: res.version ?? '',
+          sha256: res.artifact?.sha256 ?? '',
+          snapshot_id: res.snapshot_id ?? '',
+          snapshot_complete: res.snapshot_complete === true,
+          verified: res.verified === true,
+          current_snapshot_id: res.current_snapshot_id ?? '',
+          missing: Array.isArray(res.missing) ? res.missing : [],
+          mismatch: Array.isArray(res.mismatch) ? res.mismatch : [],
+          snapshot: res.snapshot ?? null,
+          summary: res.summary,
+        }
+      }
+
+      if (action !== 'register') {
+        return { ok: false, summary: `未知 action「${action}」；合法值：register / verify。`, version: '', sha256: '' }
+      }
+      if (args.files !== undefined && args.files !== null && !Array.isArray(args.files)) {
+        return {
+          ok: false,
+          summary: 'files 必须是数组：`files: [{ path: "src/a.js" }, { path: "src/b.js", sha256: "<64 位十六进制>" }]`。',
+          version: '',
+          sha256: '',
+        }
+      }
+
+      const files = Array.isArray(args.files) ? args.files : undefined
       const res =
         typeof args.rollback_to === 'string' && args.rollback_to.length > 0
           ? await store.rollbackArtifact({
@@ -157,6 +235,7 @@ export function buildAdminTools(ctx) {
               content: String(args.content ?? ''),
               fileName: typeof args.file_name === 'string' && args.file_name.length > 0 ? args.file_name : undefined,
               note: typeof args.note === 'string' ? args.note : '',
+              files,
               actorRole: actor.role,
               actorAgentId: actor.agentId,
             })
@@ -166,6 +245,13 @@ export function buildAdminTools(ctx) {
         ok: true,
         version: res.artifact.version,
         sha256: res.artifact.sha256,
+        snapshot_id: res.snapshot?.snapshot_id ?? '',
+        snapshot_complete: res.snapshot?.complete === true,
+        verified: false,
+        current_snapshot_id: '',
+        missing: res.snapshot?.missing ?? [],
+        mismatch: res.snapshot?.mismatch ?? [],
+        snapshot: res.snapshot ?? null,
         summary: `${res.summary}\n落盘：${res.artifact.file}`,
       }
     },

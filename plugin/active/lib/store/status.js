@@ -24,6 +24,8 @@ import {
 import { ROLE } from '../roles.js'
 import { toStringArray } from '../util.js'
 import { hashGateEscalationPending } from '../hashgate.js'
+// ★★ P1-10：当前有效制品的快照状态（与关单闸 `artifact_snapshot_complete` **同一份**派生）。
+import { describeArtifactSnapshot, isSnapshotRecord } from '../model/artifact.js'
 
 /**
  * 任务存储 · 状态汇总
@@ -189,7 +191,33 @@ export function statusMethods(ctx) {
           escalation: task.hash_gate_escalation ?? null,
         },
         artifact_version: version,
-        artifacts: task.artifacts.map((a) => ({ version: a.version, bytes: a.bytes, sha256: a.sha256.slice(0, 16), note: a.note })),
+        /**
+         * ★★ P1-10：**当前有效制品的快照状态**（版本 / 是否完整 / 文件数 / 校验时间）。
+         *
+         * 与关单闸 `artifact_snapshot_complete` **同一份**派生（`describeArtifactSnapshot`）——
+         * status 说完整、close 说没有这种事不会发生。
+         * `registered=false` = 当前版本没有登记；`legacy=true` = 旧登记没快照（L3+ 视为不完整）。
+         */
+        artifact_snapshot: describeArtifactSnapshot(task, version),
+        artifacts: task.artifacts.map((a) => {
+          const snap = isSnapshotRecord(a.snapshot) ? a.snapshot : null
+          return {
+            version: a.version,
+            bytes: a.bytes,
+            sha256: a.sha256.slice(0, 16),
+            note: a.note,
+            snapshot: snap === null
+              ? null
+              : {
+                  snapshot_id: snap.snapshot_id,
+                  complete: snap.complete === true,
+                  file_count: Array.isArray(snap.files) ? snap.files.length : 0,
+                  verified_at: snap.verified_at ?? null,
+                  missing: Array.isArray(snap.missing) ? snap.missing.length : 0,
+                  mismatch: Array.isArray(snap.mismatch) ? snap.mismatch.length : 0,
+                },
+          }
+        }),
         review_ok: ok === null ? null : { handoff_id: ok.handoff_id, artifact_version: ok.artifact_version, at: ok.created_at },
         close_report: task.close_report,
         pending_roster_requests: task.roster_requests.filter((r) => r.status === 'pending').map((r) => ({ request_id: r.request_id, by: r.by, add: r.add, remove: r.remove })),

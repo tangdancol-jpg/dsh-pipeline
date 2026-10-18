@@ -28,6 +28,7 @@
 //   store/precondition.js 迁移前置条件                    store/roster.js     角色清单
 //   store/baseline.js     改动基线、席位写入台账、前后对比  store/seat-checks.js 席位归属、架构图交付、哈希闸门升级
 //   store/submit.js       提交交接物                      store/review.js     交接物与状态核对、打回、关单、制品
+//   store/artifact-snapshot.js 制品快照的磁盘核对（files → snapshot_id / verify；P1-10）
 //   store/amend.js        角色变更、授权面变更            store/fulltest.js   全量测试审批链
 //   store/records.js      需求档、分权落档、上下文水位、席位继任
 //   store/clarify.js      澄清请求与边界                  store/human.js      人工介入请求
