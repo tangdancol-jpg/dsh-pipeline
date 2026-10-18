@@ -23,7 +23,7 @@
 │       ├── index.js           ← 宿主侧入口：apply / 工具 / 守门 / HTTP 路由 / 客户端注册
 │       ├── lib/               ← 实现：按域拆子目录（含 panel/ 与 18 个客户端 chunk）
 │       ├── presets/           ← 16 个角色预设（src/ 是源，generated/ 是产物）
-│       ├── tests/             ← 自测：125 套，一文件一套
+│       ├── tests/             ← 自测：126 套，一文件一套
 │       ├── tools/             ← 仓库工具；install-items.json 是复制范围的唯一出处
 │       ├── design/            ← 开放设计记录（agent-teams / memory / panel）
 │       ├── locale/ skills/
@@ -167,13 +167,13 @@ node tests\run-all.mjs            # 全套；结果写到 tests\last-run.txt
 node tests\<套件>.mjs             # 单跑一套
 ```
 
-- 全套当前 **4074/4074** 通过（**125 套**）。面板相关五套：`client-check.mjs`（入口与 18 个
+- 全套当前 **4098/4098** 通过（**126 套**）。面板相关五套：`client-check.mjs`（入口与 18 个
   chunk 的装载契约、渲染与点击，30 项）、`panel-ui-check.mjs`（头部「批量 / 归档」点击回归，
   14 项）、`panel-portal-check.mjs`（弹层 portal 与 fixed 落点，3 项）、`panel-snapshot-check.mjs`
   （快照契约，74 项）、`panel-actions-check.mjs`（写动作 / 归档 / 置顶，99 项）。
 - 有少数套件依赖**宿主安装**：`DSH_APP_ASAR` 指向 `<DSH 安装>\resources\app.asar`，
   预置与宿主 schema 类判据要从里面读宿主包。拿不到判据时如实标注「跳过、不计入通过率」；
-  本机口径：设了 `DSH_APP_ASAR` 后 4074/4074，不设时 3 条预置校验会红（环境面，不是代码面）。
+  本机口径：设了 `DSH_APP_ASAR` 后 4098/4098，不设时 3 条预置校验会红（环境面，不是代码面）。
 - `tests/seat-liveness-wake-check.mjs` 没有注册进全套，内容已落后于现在的失联判据，单跑会失败。
 
 推送前的完整检查清单见 [`docs/release-checklist.md`](docs/release-checklist.md)。

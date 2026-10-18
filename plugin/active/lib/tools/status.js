@@ -291,8 +291,27 @@ export function collectStorageInfo(input = {}) {
   return storage
 }
 
+/**
+ * ★ P2-13 第二步：history 归档的**一行摘要**（归档文件数 / 已归档条数 / 当前窗口）。
+ *   没触发过归档 ⇒ 空串（正文不多一行噪音）。
+ *
+ * @param {object|null} archive - `task.history_archive`
+ * @returns {string}
+ */
+export function renderArchiveBrief(archive) {
+  if (archive === null || archive === undefined || typeof archive !== 'object' || Array.isArray(archive)) return ''
+  const files = Array.isArray(archive.files) ? archive.files : []
+  const total = Number(archive.archived_total) || 0
+  const windowSize = Number(archive.window) || 0
+  const err = archive.last_error !== null && typeof archive.last_error === 'object' ? archive.last_error : null
+  return (
+    `归档 ${files.length} 文件 / ${total} 条（窗口 ${windowSize}）` +
+    (err !== null ? `　⚠ 上次归档失败：${String(err.code ?? '?')}（未裁剪，见 audit:archive:failed）` : '')
+  )
+}
+
 /** 存储诊断的**一行摘要**（全文档用；有 hint 时接在同一行末尾，不额外占行）。 */
-export function renderStorageLine(storage) {
+export function renderStorageLine(storage, archive = null) {
   const s = storage ?? {}
   const parts = [`存储：task.json ${formatBytes(s.task_json_bytes)}`]
   if (s.baseline_bytes !== null && s.baseline_bytes !== undefined) parts.push(`baseline ${formatBytes(s.baseline_bytes)}`)
@@ -300,6 +319,8 @@ export function renderStorageLine(storage) {
   parts.push(`交接物 ${Number(s.handoff_count) || 0} 份`)
   parts.push(`历史 ${Number(s.history_count) || 0} 条`)
   parts.push(`审计 ${Number(s.audit_lines) || 0} 行`)
+  const arc = renderArchiveBrief(archive)
+  if (arc.length > 0) parts.push(arc)
   return `${parts.join(' · ')}${s.hint ? `　★ ${s.hint}` : ''}`
 }
 
@@ -307,10 +328,12 @@ export function renderStorageLine(storage) {
  * 紧凑档的存储摘要（**更短的一行**：紧凑档的立身之本是"省字节"，
  * 详细字节数在结构化 `storage` 里一个不少）。
  */
-export function renderStorageBriefLine(storage) {
+export function renderStorageBriefLine(storage, archive = null) {
   const s = storage ?? {}
+  const arc = renderArchiveBrief(archive)
   return (
     `存储：task.json ${formatBytes(s.task_json_bytes)} · 交接物 ${Number(s.handoff_count) || 0} / 历史 ${Number(s.history_count) || 0} / 审计 ${Number(s.audit_lines) || 0} 行` +
+    (arc.length > 0 ? ` · ${arc}` : '') +
     (s.hint ? '　★ 存储偏大：用 `page=` / `fields=` / `detail="summary"`（详见 `storage.hint`）' : '')
   )
 }
@@ -823,6 +846,12 @@ export function buildStatusTools(ctx) {
       total_human_requests: SNullable('number', '★ 人工介入请求总条数（不传 page 时为 null）'),
       total_audit: SNullable('number', '★ 审计日志总行数（不传 page 时为 null；分页但没 include_audit 时也给总数）'),
       storage: S('object', '★ P2-13 存储体积诊断（只读）{ task_json_bytes, baseline_bytes, artifacts_bytes, handoff_count, history_count, audit_lines, hint }', { additionalProperties: true }),
+      /**
+       * ★★ P2-13 第二步：history 归档账本（只读）。
+       *   `{ files:[{file,count,seq,from_iso,to_iso}], archived_total, window, last_at[, last_error] }`；
+       *   没触发过归档 ⇒ null。归档**不删数据**（原件逐条保序留在 `archive/history-<seq>.jsonl`）。
+       */
+      history_archive: SNullable('object', '★ history 归档账本 { files[], archived_total, window, last_at[, last_error] }（没触发过归档时为 null）', { additionalProperties: true }),
       /** ★ 席位失联视图（`lib/liveness.js`）：派出去的席位还在不在。 */
       liveness: SNullable('object', '★ 席位失联视图 { ok, silence_ms, state, seats[], silent[] }', { additionalProperties: true }),
     },
@@ -1219,10 +1248,16 @@ export function buildStatusTools(ctx) {
       const pagedAudit = paged !== null && auditLog !== null ? pageWindowOf(auditLog, paging.page, paging.page_size) : null
       /** ★ P2-13 存储体积诊断（只读；紧凑档/全文档都只占一行）。 */
       const storage = collectStorageInfo({ store, taskId, task: liveTask, taskJsonBytes })
+      /**
+       * ★ P2-13 第二步：history 归档账本（只读）。
+       *   紧凑档：并进存储那一行（文件数 / 条数 / 窗口）；
+       *   全文档：额外单独一行（`history 归档：…`），并作为结构化字段 `history_archive` 返回。
+       */
+      const archiveInfo = res.history_archive ?? null
       const lines = isBrief
         ? [
             renderStatusBrief(res, live, { mode: briefMode, products }),
-            renderStorageBriefLine(storage),
+            renderStorageBriefLine(storage, archiveInfo),
             ...(paged === null ? [] : [pagingBriefLineOf(paged, pagedAudit, paging, taskId)]),
             ...hubSeatLines,
             ...mainIdentityLines,
@@ -1262,8 +1297,17 @@ export function buildStatusTools(ctx) {
         // ★★ P1-18：产物矩阵（必需 / 已交 / 已豁免（理由、批准人）/ 缺）—— 与关单闸同源。
         ...productFullLines(products),
         `打回计数：编写 ${res.rework.dev}/${res.rework.budget}，测试 ${res.rework.test}/${res.rework.budget}`,
-        // ★★ P2-13：存储体积诊断（只读；一行，不撑体积）。
-        renderStorageLine(storage),        // ★ 哈希前置闸门的可见面（P13 之后它多了一半内容：连续计数 + 自动交人工）
+        // ★★ P2-13：存储体积诊断（只读；一行，不撑体积）+ history 归档账本（有则多一行）。
+        renderStorageLine(storage, archiveInfo),
+        ...(archiveInfo === null
+          ? []
+          : [
+              `history 归档：${(Array.isArray(archiveInfo.files) ? archiveInfo.files : []).length} 个文件 / 共 ${Number(archiveInfo.archived_total) || 0} 条（task.json 窗口 ${Number(archiveInfo.window) || 0}；最近 ${archiveInfo.last_at ?? '-'}）` +
+                (Array.isArray(archiveInfo.files) && archiveInfo.files.length > 0
+                  ? `\n  文件：${archiveInfo.files.map((f) => `${f.file}（${f.count} 条，${f.seq}）`).join(' / ')}`
+                  : '') +
+                (archiveInfo.last_error ? `\n  ⚠ **上次归档失败**（${archiveInfo.last_error.code ?? '?'}，${archiveInfo.last_error.at ?? '-'}）：${clamp(String(archiveInfo.last_error.note ?? ''), 300)}` : ''),
+            ]),
         res.hash_gate === null || res.hash_gate === undefined
           ? ''
           : `哈希前置闸门：${res.hash_gate.blocked ? '**卡着**' : '通过'}　连续不通过 ${res.hash_gate.streak}/${res.hash_gate.threshold}` +
@@ -1441,6 +1485,8 @@ export function buildStatusTools(ctx) {
               },
         // ★★ P2-13：存储体积诊断（只读；每次查状态都给）
         storage,
+        /** ★ P2-13 第二步：history 归档账本（只读；没触发过归档时为 null）。 */
+        history_archive: archiveInfo,
         /**
          * ★★ P2-13：**分页段 + 分页信封** —— 只在给了 `page` 时非 null。
          *   不传 page ⇒ 全部 null（与改前形状一致；正文也与改前逐字节一致）。

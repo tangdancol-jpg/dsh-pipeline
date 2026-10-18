@@ -2225,15 +2225,15 @@ DSH 0.2.1 起官方带「智能体团队」：根会话是 Lead，可以 `spawn_
 ```powershell
 cd <插件目录>
 $env:DSH_APP_ASAR = '<DSH 安装>\resources\app.asar'   # 预设/宿主 schema 类判据要读宿主安装
-node tests\run-all.mjs            # 125 套一起跑（4074 项，含残留检查）
+node tests\run-all.mjs            # 126 套一起跑（4098 项，含残留检查）
 node tests\run-all.mjs --quiet    # 只打结论，不贴完整拒绝原文
 ```
 
-**当前口径**：设了 `DSH_APP_ASAR` 时 **4074/4074 通过（125 套）**；不设时会有 3 条
+**当前口径**：设了 `DSH_APP_ASAR` 时 **4098/4098 通过（126 套）**；不设时会有 3 条
 "读不到宿主安装"的预置校验判红（环境面，不是代码面）。单套清单与每套的判据写在
 `tests/run-all.mjs` 与 `tests/registry.mjs` 里（新增能力用新套 + registry 一行登记）。
 
-按能力分组（不逐一列 125 套）：
+按能力分组（不逐一列 126 套）：
 
 | 分组 | 代表套件 | 内容 |
 |---|---|---|
@@ -2254,7 +2254,8 @@ node tests\run-all.mjs --quiet    # 只打结论，不贴完整拒绝原文
 | P1-7/8 批次（2026-10-18） | `f31-demo-stage-check.mjs`、`f32-demo-submit-check.mjs` | DEMO 显式阶段（`demo_building` / `demo_review` + 四条迁移边；L3+ 必经、L2 可跳过；round 请求必须本轮创建/已答复/未被消费；旧单兼容）+ `pipeline_demo_submit`（writer/architect/diagrammer 交付 DEMO 交付物，`pipeline_demo` 仍 main 专用；plan 自检拒收矛盾计划）（35 + 21 项） |
 | backlog 批次（2026-10-19） | `f33-demo-request-check.mjs`、`f34-ghost-role-check.mjs` | DEMO 审阅请求的生产通道（`pipeline_demo round` 自动建 `demo_review` 请求 → relay/reply → confirm，显式 id 沿用旧判据）+ 状态机投影过滤（不在册角色不展示事件；supervisor 仅 hub 启用且在册；原始边表不变）（23 + 18 项） |
 | P2-13 第一步（2026-10-19） | `f35-status-paging-check.mjs` | `pipeline_status` 大对象分页（`page`/`page_size`；不传 page 逐字节不变；越界不报错）+ 只读 `storage` 体积诊断（task.json/baseline/artifacts，>1 MiB 提示分页/fields/detail=summary；顺带修好旧体积提示在生产里从不触发的坑）（27 项） |
-| 回归专项 | `f1`–`f35`、`p1`–`p16`、`m1`–`m11` 等 | 每轮缺陷的判据化回归（一个缺陷一个套件） |
+| P2-13 第二步（2026-10-19） | `f36-history-archive-check.mjs` | history 超 700 触发、`task.json` 只留最近 500 条；更早条目**原样逐条**归档到 `archive/history-<seq>.jsonl`（不删数据）；失败不裁剪并留 `archive:failed`；status 显示归档摘要（24 项） |
+| 回归专项 | `f1`–`f36`、`p1`–`p16`、`m1`–`m11` 等 | 每轮缺陷的判据化回归（一个缺陷一个套件） |
 
 报告落到 `tests/last-run.txt`。
 
@@ -2303,6 +2304,9 @@ node examples\run-example.mjs
   或先 `pipeline_artifact {action:"verify"}` 看明细"。L0–L2 不强制；legacy 数据不改写。
 - **工具数 36→38**：新增 `pipeline_wait`（只读长轮询）与 `pipeline_demo_submit`（交付席位交 DEMO）；
   其它工具的调用形状未变。
+- **history 归档（P2-13）**：单张任务 history 超过 700 条后，更早条目**原样逐条**归档到
+  `.pipeline/<任务>/archive/history-*.jsonl`（不删除、可追溯），`task.json` 只留最近 500 条；
+  `pipeline_status` 的 storage 行显示「归档 N 文件 / M 条（窗口 500）」——看全量历史去归档文件里取。
 
 ---
 

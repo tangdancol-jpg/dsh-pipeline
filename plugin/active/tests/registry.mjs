@@ -324,4 +324,6 @@ export const EXTRA_SUITES = [
   { file: './f34-ghost-role-check.mjs', exportName: 'runF34GhostRoleCheck', zh: '★ P2-17 状态机投影过滤（不在册角色不展示其事件；supervisor 仅 hub 启用且在册；原始边表与状态机判据不变）' },
   // ★★ 2026-10-19 P2-13 第一步：status 大对象分页 + 存储体积诊断（不动盘上数据）。
   { file: './f35-status-paging-check.mjs', exportName: 'runF35StatusPagingCheck', zh: '★ P2-13 status 分页与体积诊断（page/page_size 分页 handoffs/history/dispatch_slots；不传 page 逐字节不变；storage 块 + >1MiB 提示）' },
+  // ★★ 2026-10-19 P2-13 第二步：history 超 500 条归档（不删数据；归档文件逐条保序可追溯）。
+  { file: './f36-history-archive-check.mjs', exportName: 'runF36HistoryArchiveCheck', zh: '★ P2-13 history 归档（>700 触发、保留最近 500；归档 JSONL 逐条保序、零丢失；失败则不裁剪；audit 不动；status 显示归档摘要）' },
 ]

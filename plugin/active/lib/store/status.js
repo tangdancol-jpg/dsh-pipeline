@@ -537,6 +537,15 @@ export function statusMethods(ctx) {
         }),
         handoffs: task.handoffs.map((h) => (redact ? summarizeHandoff(h) : h)),
         history_tail: task.history.slice(-20),
+        /**
+         * ★★ P2-13 第二步：history 归档账本（只读）。
+         *   形状：`{ files:[{file,count,seq,from_iso,to_iso}], archived_total, window, last_at[, last_error] }`；
+         *   没触发过归档 ⇒ null。旧数据（没有这个键）也照旧工作。
+         */
+        history_archive:
+          task.history_archive !== null && typeof task.history_archive === 'object' && !Array.isArray(task.history_archive)
+            ? task.history_archive
+            : null,
       }
     },
   }

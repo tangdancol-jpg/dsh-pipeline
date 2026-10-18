@@ -16,6 +16,8 @@ import { resolveScopeAnchor } from '../guard/seats.js'
 import { resetHashGateOrigin } from '../hashgate.js'
 import { DEFAULT_SEAT_SILENCE_MS } from '../liveness.js'
 import { writeJsonAtomic, appendJsonl, readJson, buildHumanRequestEntry } from './shared.js'
+// ★★ P2-13 第二步：history 溢出归档（写盘前同步完成；写失败 ⇒ 不裁剪）。实现与阈值都在该模块。
+import { HISTORY_ARCHIVE_WINDOW, archiveHistoryOverflow, discardArchivedFile } from './archive.js'
 
 /**
  * 任务存储 · 配置、缓存与读写落盘
@@ -417,6 +419,58 @@ const relKey = (root, abs) => relative(root, abs).replace(/\\/g, '/')
    */
   async function persist(task) {
     task.updated_at = nowIso(now())
+    /**
+     * ★★ P2-13 第二步（Lead 拍板 N=500 / HIGH=700）：**写 task.json 之前**先做
+     * `task.history` 溢出归档。
+     *
+     * 三条纪律（都在 `store/archive.js` 里实现，这里只负责接线与留痕）：
+     *   ① 只在 history > HIGH 时动作，把最老的 `len - WINDOW` 条**原样**写进
+     *      `<任务目录>/archive/history-<seq>.jsonl`，成功后才从内存窗口移出；
+     *   ② **写失败 ⇒ 不裁剪**（宁可不缩、不许丢）—— task.json 照旧写未裁剪的 history，
+     *      并把失败记进 `audit.jsonl`（`archive:failed`）与 `task.history_archive.last_error`；
+     *   ③ 归档发生在**重试循环之外**：写盘重试不会重复归档；
+     *      若最终写盘失败、内存回滚，则把刚写出的归档文件删掉（内存与盘保持一致）。
+     */
+    let archivedFile = null
+    try {
+      const ar = archiveHistoryOverflow(task, { taskDir: taskDir(task.id), now })
+      if (ar.ok === true) {
+        if (typeof ar.abs_file === 'string' && ar.abs_file.length > 0) archivedFile = ar.abs_file
+      } else {
+        const prev = task.history_archive !== null && typeof task.history_archive === 'object' && !Array.isArray(task.history_archive) ? task.history_archive : null
+        task.history_archive = {
+          files: Array.isArray(prev?.files) ? prev.files : [],
+          archived_total: Number.isInteger(prev?.archived_total) ? prev.archived_total : 0,
+          window: Number.isInteger(prev?.window) ? prev.window : HISTORY_ARCHIVE_WINDOW,
+          last_at: typeof prev?.last_at === 'string' ? prev.last_at : null,
+          last_error: { at: nowIso(now()), code: ar.code ?? 'ARCHIVE_FAILED', note: String(ar.note ?? '') },
+        }
+        try {
+          await audit(task.id, 'store', 'archive:failed', {
+            code: ar.code ?? null,
+            note: ar.note ?? '',
+            history_length: Array.isArray(task.history) ? task.history.length : 0,
+          })
+        } catch {
+          /* 审计写失败不该让主流程失败 */
+        }
+      }
+    } catch (err) {
+      // 归档器自己抛了 ⇒ 同样按"不裁剪 + 可见失败"处理（不吞）
+      const prev = task.history_archive !== null && typeof task.history_archive === 'object' && !Array.isArray(task.history_archive) ? task.history_archive : null
+      task.history_archive = {
+        files: Array.isArray(prev?.files) ? prev.files : [],
+        archived_total: Number.isInteger(prev?.archived_total) ? prev.archived_total : 0,
+        window: Number.isInteger(prev?.window) ? prev.window : HISTORY_ARCHIVE_WINDOW,
+        last_at: typeof prev?.last_at === 'string' ? prev.last_at : null,
+        last_error: { at: nowIso(now()), code: String(err?.code ?? 'ARCHIVE_THREW'), note: String(err?.message ?? err) },
+      }
+      try {
+        await audit(task.id, 'store', 'archive:failed', { code: String(err?.code ?? 'ARCHIVE_THREW'), note: String(err?.message ?? err) })
+      } catch {
+        /* 同上 */
+      }
+    }
     const rollback = lastGood.get(task.id) ?? null
     let lastErr = null
     for (let attempt = 1; attempt <= PERSIST_RETRIES; attempt++) {
@@ -436,6 +490,12 @@ const relKey = (root, abs) => relative(root, abs).replace(/\\/g, '/')
     }
 
     // --- 重试用尽 ⇒ **回滚内存**，绝不留"内存改了、盘上没改"的半截现场 ----------
+    /**
+     * ★ P2-13 第二步：归档先于写盘 ⇒ 写盘最终失败时，把刚写出的归档文件删掉。
+     *   否则内存会回滚成"未归档"（数据还在内存里），而归档文件留在盘上，
+     *   下一次 persist 会把同一批**再归档一次**（重复但不算丢；这里干脆不留）。
+     */
+    if (archivedFile !== null) discardArchivedFile(archivedFile)
     if (rollback === null) {
       cache.delete(task.id)
       cacheStamp.delete(task.id)
