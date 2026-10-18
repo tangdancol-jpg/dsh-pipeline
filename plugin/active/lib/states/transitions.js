@@ -339,6 +339,104 @@ export function availableTransitions(from) {
   return out
 }
 
+// ---------------------------------------------------------------------------
+// ★★ P2-17（2026-10-19）：**状态机投影 —— 不在册的角色不展示其事件**
+// ---------------------------------------------------------------------------
+//
+// 现场：`ready_test` 等状态下 `pipeline_status` 的「下一步合法事件」会列出 `supervisor`
+//   —— 可本档的计划**根本没派主管**（`roster` 里没有它），调度者照着那一行去点只会被拒。
+//   根因：`'*'` 那几条侧路边（`clarification_request` / `human_request`）的 `by` 是一张
+//   **角色全集**，投影时直接把全集当成了"这一刻谁都能点"。
+//
+// 判据（**唯一出处就是本文件**，各调用点不许再各写一份）：
+//   · `main` / `human` 恒在（主对话与用户不是"被派的席位"）；
+//   · `supervisor` —— **hub 已启用 且 主管席位在册** 才展示（P2-17 点名的幽灵角色）；
+//   · `rule-engine` —— 只在 `roster.orchestrator_mode === 'rule-engine'`（L0）时展示；
+//   · 其它角色 —— 看 `roster.conversations`（**名单四槽面**＝"谁在册"的唯一事实来源，
+//     与 `store/precondition.js` 的 `hub_initiate_required` 同一份数据）；
+//     `roster` 还没产出（null）⇒ **不做角色过滤**（还没有"册"可比，保持原有可见性）。
+//
+// ★ 只影响**展示投影**：状态机本身（`TRANSITIONS` / `applyTransition`）与守门判据
+//   一个字节没动 —— 被过滤掉的事件如果真被调用，照旧由状态机的 `by` 名单拒。
+
+/** 不参与"在册"过滤的角色：主对话与用户。 */
+const ALWAYS_PROJECTED_ROLES = Object.freeze([ROLE.MAIN, ROLE.HUMAN])
+
+/** 读任务上的**在册名单**（`roster.conversations`）；还没编排 ⇒ null。 */
+function rosterConversationsOf(task) {
+  const r = task?.roster
+  if (r === null || typeof r !== 'object' || Array.isArray(r)) return null
+  return Array.isArray(r.conversations) ? r.conversations : null
+}
+
+/** 枢纽账本的只读事实（与 `store/hub.js` 的 hubEnabled / hubSeatPresent 同源同口径）。 */
+function hubFactsOf(task) {
+  const h = task?.hub
+  const enabled = h !== null && typeof h === 'object' && !Array.isArray(h) && h.enabled === true
+  const req = task?.hub_requirement
+  const forcedSeat =
+    req !== null && typeof req === 'object' && !Array.isArray(req) && req.forced === true && (req.revoked_at ?? null) === null
+  return { enabled, forcedSeat }
+}
+
+/**
+ * 这个角色在**本任务的投影面**上算不算"在册"（P2-17 的唯一判据）。
+ *
+ * @param {object} task
+ * @param {string} role
+ * @returns {boolean}
+ */
+export function projectedRoleVisible(task, role) {
+  const r = String(role ?? '')
+  if (r.length === 0) return false
+  if (ALWAYS_PROJECTED_ROLES.includes(r)) return true
+
+  const convs = rosterConversationsOf(task)
+  // ★ 主管是"只读角色"：`execution_roles` 里本来就没有它 ⇒ 必须单独按枢纽账本判。
+  if (r === ROLE.SUPERVISOR) {
+    const hub = hubFactsOf(task)
+    if (hub.enabled !== true) return false
+    if (convs !== null && convs.includes(ROLE.SUPERVISOR)) return true
+    // 没写进名单、但枢纽账本里有"先设后撤"留下的席位 ⇒ 仍算在册（与 hubSeatPresent 同源）。
+    return hub.forcedSeat
+  }
+  // L0 的规则引擎不是被派的角色，是"编排模式"。
+  if (r === 'rule-engine') return task?.roster?.orchestrator_mode === 'rule-engine'
+  // 名单还没产出 ⇒ 没有"册"可比：保持原有可见性（不假装知道谁在册）。
+  if (convs === null) return true
+  return convs.includes(r)
+}
+
+/**
+ * ★ **状态机投影**：该状态下合法、且**本任务真的可能有人执行**的边（`by` 已按在册过滤）。
+ *
+ * @param {object} task
+ * @returns {Array<{from:string,event:string,to:string,by:string[],guard?:string,note:string}>}
+ */
+export function projectedTransitions(task) {
+  const from = typeof task?.state === 'string' ? task.state : ''
+  if (from.length === 0) return []
+  return availableTransitions(from)
+    .map((t) => ({ ...t, by: (Array.isArray(t.by) ? t.by : []).filter((r) => projectedRoleVisible(task, r)) }))
+    .filter((t) => t.by.length > 0)
+}
+
+/**
+ * ★ **下一步合法事件**（`pipeline_status` / 醒文共用的投影产物）。
+ *
+ * @param {object} task
+ * @returns {Array<{event:string,to:string,to_zh:string,by:string[],note:string}>}
+ */
+export function projectedNextEvents(task) {
+  return projectedTransitions(task).map((t) => ({
+    event: t.event,
+    to: t.to,
+    to_zh: STATE_LABEL[t.to] ?? t.to,
+    by: t.by,
+    note: t.note,
+  }))
+}
+
 /**
  * 人话版的"为什么这个动作被拒"。
  *

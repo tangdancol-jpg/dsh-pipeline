@@ -319,4 +319,7 @@ export const EXTRA_SUITES = [
   // ★★ 2026-10-18 第五批（P1-7 / P1-8）：DEMO 显式阶段（demo_building/demo_review）+ 交付工具拆分。
   { file: './f31-demo-stage-check.mjs', exportName: 'runF31DemoStageCheck', zh: '★ P1-7 DEMO 显式阶段（四条迁移边；L3+ 必经、L2 可跳过；round 请求“本轮创建/已答/未消费”；旧单兼容）' },
   { file: './f32-demo-submit-check.mjs', exportName: 'runF32DemoSubmitCheck', zh: '★ P1-8 pipeline_demo_submit（writer/architect/diagrammer 交 DEMO 交付物；main 的 round 可定稿；plan 自检拒收矛盾计划）' },
+  // ★★ 2026-10-19 backlog（P1-7 遗留 + P2-17）：DEMO 请求生产通道 + 状态机投影过滤幽灵角色。
+  { file: './f33-demo-request-check.mjs', exportName: 'runF33DemoRequestCheck', zh: '★ DEMO 审阅请求生产通道（round 自动建 demo_review 请求 → relay/reply → confirm 全链；显式 id 沿用旧判据；多轮各起一条）' },
+  { file: './f34-ghost-role-check.mjs', exportName: 'runF34GhostRoleCheck', zh: '★ P2-17 状态机投影过滤（不在册角色不展示其事件；supervisor 仅 hub 启用且在册；原始边表与状态机判据不变）' },
 ]

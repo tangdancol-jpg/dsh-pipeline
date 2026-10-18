@@ -238,6 +238,11 @@ export function demoPhaseAnchorOf(task) {
  *   没有 `created_at` ⇒ 视为 legacy，只做"存在 + 未被消费"的弱判据 ——
  *   否则升级会把旧单直接判死（任务书要求旧单不因改名/加判据而红）。
  *
+ * ★ **机制代发的请求**（`entry.auto_created === true`，由 `pipeline_demo round` 自动登记）：
+ *   它创建于"定稿那一刻"，此刻必然 `pending` ⇒ **"已 answered"这一条推迟到
+ *   `demoConfirm` / `demoGate` 两个出口判**；这里只判"本轮创建（不早于锚点）+ 未被别的轮消费"。
+ *   否则 `demo_submitted` 的 `demo_round_ok` 闸门会把每一次自动通道都判死（死锁）。
+ *
  * @param {object} task
  * @param {{human_request_id?:string, round_index?:number}} input
  * @returns {{ok:true, request:object, strict:boolean, request_created_at:string}
@@ -282,6 +287,51 @@ export function checkDemoRoundRequest(task, input = {}) {
           '不能拿旧请求冒充"本轮询问过用户"。\n' +
           '★ 判据：`round` 的 `human_request_id` 必须**本轮创建**（一条请求只能服务一轮）。\n' +
           '下一步：为本轮新起一条 `pipeline_human_request`，主对话转告、记回用户答复，再改挂新请求 id。',
+      }
+    }
+    /**
+     * ★★ P1-7 遗留缺口（2026-10-19）：**机制代发的 DEMO 审阅请求**。
+     *
+     * `pipeline_demo round` 没拿到 `human_request_id` 时会**自己创建**一条
+     * `reason_kind=demo_review` 的请求（`entry.auto_created === true`）。它创建于
+     * **定稿那一刻**，所以此刻必然是 `pending` —— "已 answered"这条判据不能在这里判，
+     * 否则 `demo_submitted` 这条边永远过不去（死锁）。
+     *
+     * 口径：**创建时间**在这里判（仍是本轮新建的）；**answered / 被谁消费**在
+     * `demoConfirm` 与 `demo_gate` 那两个出口判（那时用户确实已经答复）。
+     * 显式传 id 的旧调用方一个字节不变（没有 `auto_created` 标记 ⇒ 走下面的原判据）。
+     */
+    if (req.auto_created === true) {
+      if (req.consumed === true) {
+        const sameRound = Number.isInteger(input?.round_index) && req.consumed_by_round === input.round_index
+        if (!sameRound) {
+          const by = Number.isInteger(req.consumed_by_round) ? `第 ${req.consumed_by_round} 轮` : '别的轮次'
+          return {
+            ok: false,
+            code: 'DEMO_REQUEST_CONSUMED',
+            error:
+              `拒绝：本轮请求 \`${rid}\` **已经被${by}消费过** —— 一条请求只能用一次。\n` +
+              '下一步：为本轮新起一条请求（并重新拿到用户答复），再定稿这一轮。',
+          }
+        }
+      }
+      const reuserAuto = recordedRoundsOf(task).find(
+        (r) => r?.human_request_id === rid && !(Number.isInteger(input?.round_index) && r.index === input.round_index),
+      )
+      if (reuserAuto !== undefined) {
+        return {
+          ok: false,
+          code: 'DEMO_REQUEST_REUSED',
+          error: `拒绝：请求 \`${rid}\` **已经挂在第 ${reuserAuto.index} 轮上**（同一轮才能共用那一条请求）。\n下一步：为本轮新起一条请求，再定稿。`,
+        }
+      }
+      return {
+        ok: true,
+        request: req,
+        strict,
+        request_created_at: String(req.created_at),
+        /** ★ 机制代发：answered 由 `demoConfirm` / `demoGate` 在后一个出口判。 */
+        answered_deferred: true,
       }
     }
     if (req.status !== 'answered') {

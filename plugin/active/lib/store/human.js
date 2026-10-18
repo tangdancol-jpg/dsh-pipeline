@@ -133,6 +133,66 @@ export function humanMethods(ctx) {
     },
 
     /**
+     * ★★ **DEMO 审阅请求的生产创建通道**（P1-7 遗留缺口 · 2026-10-19）。
+     *
+     * 现场：`pipeline_demo round`（main）要求本轮挂一条「本轮创建 + 已 answered + 未消费」
+     * 的人工请求，但**工具自己不创建**它；而执行角色直接发 `pipeline_human_request` 会被
+     * **两级梯跳级闸**拦（roster 有独立 orchestrator 时不许跳级）⇒ 生产链跑不通，
+     * 只有测试夹具手工注入。修法：`pipeline_demo round` 定稿一轮时**自己登记**这一条。
+     *
+     * ★ 形状与 `pipeline_human_request` 建出来的登记**完全同源**
+     *   （唯一构造 = `buildHumanRequestEntry`），区别只有三点：
+     *   · `reason_kind = "demo_review"`（新取值，见 `HUMAN_REASON_KINDS`）；
+     *   · 由**机制**代发（`auto_created = true`），不走两级梯 —— DEMO 审阅本来就是
+     *     主对话在调度，而交付席位没有直接向用户提问的通道；
+     *   · 创建时**只登记、不推状态**：它紧接着走既有 relay → reply → confirm，
+     *     状态由 DEMO 阶段自己的边（`demo_submitted` / `demo_passed`）负责。
+     *
+     * ★ 纯构造、不落盘：调用方（`demoRound`）负责把它 push 进 `task.human_requests`
+     *   并与轮次记录**同一次** persist —— 免得留下"定了稿、请求却没登记"的半截现场。
+     *
+     * @param {object} task
+     * @param {{roundIndex:number, ref?:string, deliverables?:object[], digest?:string, at:string}} input
+     * @returns {object} 与 `task.human_requests[]` 其它条目同形的登记
+     */
+    createDemoReviewEntry(task, input = {}) {
+      const roundIndex = Number.isInteger(input.roundIndex) && input.roundIndex >= 1 ? input.roundIndex : 0
+      const ref = String(input.ref ?? '').trim()
+      const deliverables = Array.isArray(input.deliverables) ? input.deliverables : []
+      const digest = String(input.digest ?? '')
+      const at = typeof input.at === 'string' && input.at.length > 0 ? input.at : nowIso(now())
+      /**
+       * 合成一个**稳定**的 handoff_id（只用于 request_id 派生与追溯，不落 handoff 文件）：
+       * 同一任务的同一轮得到同一个 request_id ⇒ 重复调用不会刷出第二条请求。
+       */
+      const handoffId = `DEMO-ROUND-${roundIndex}-${digest.slice(0, 12) || 'nodigest'}`
+      const payload = {
+        task_id: task.id,
+        from_role: ROLE.MAIN,
+        created_at: at,
+        reason_kind: 'demo_review',
+        question_for_human:
+          `第 ${roundIndex} 轮 DEMO 已经可以看了${ref.length > 0 ? `（${ref}）` : ''}。` +
+          '请确认这一版是否符合预期？',
+        context_for_human:
+          `主对话已把交付席位交上来的 ${deliverables.length} 份内容定稿为第 ${roundIndex} 轮 DEMO。\n` +
+          '你确认（approve）⇒ 任务进「待开发」；要改（reject）⇒ 说明改哪里，我们再交一轮（不设轮次上限）。',
+        blocking: true,
+        blocked_stage: `DEMO 审阅（第 ${roundIndex} 轮）`,
+        urgency: 'normal',
+        decision_kind: 'approve_reject',
+        timeout_behavior: 'stay_blocked',
+        timeout_at: null,
+      }
+      const entry = buildHumanRequestEntry(task, { handoff_id: handoffId }, payload, timeoutHours)
+      entry.auto_created = true
+      entry.created_by = 'pipeline_demo.round'
+      /** 幂等：同一轮已经登记过（同 request_id）就原样复用，不刷第二条。 */
+      const existing = (Array.isArray(task.human_requests) ? task.human_requests : []).find((r) => r.request_id === entry.request_id)
+      return existing !== undefined ? existing : entry
+    },
+
+    /**
      * ★ **兜底（事后补）**：从「交接物 + 状态」反推出缺的那条登记。
      *
      * 实现是工厂级的 `reconcileHumanRequests`（`loadTask` 读盘时也要用它，
@@ -464,7 +524,9 @@ export function humanMethods(ctx) {
           : `按事前声明的策略处理：${entry.answer.applied_policy}${entry.answer.applied_option ? `（选项：${entry.answer.applied_option}）` : ''}`,
         `决定：${JSON.stringify(entry.answer.decision ?? entry.answer.applied_option ?? null)}`,
         resumed === null
-          ? '（这条请求是非阻塞的，或任务已不在「等待人工答复」，状态未变。）'
+          ? entry.auto_created === true
+            ? `（这是 DEMO 审阅请求：状态由 DEMO 阶段自己管 —— 当前 ${STATE_LABEL[task.state]}，确认后由主对话触发 \`demo_passed\`。）`
+            : '（这条请求是非阻塞的，或任务已不在「等待人工答复」，状态未变。）'
           : `任务状态：${STATE_LABEL[resumed.from]} → ${STATE_LABEL[resumed.to]}`,
         '',
         '四步留痕（都在 audit.jsonl 与 task.json 里）：',
@@ -473,7 +535,9 @@ export function humanMethods(ctx) {
         `  ③ 答复  human:reply    ${entry.answered_at}  source=${entry.answer_source}`,
         resumed === null ? '  ④ 恢复  （本请求未阻塞，无需恢复）' : `  ④ 恢复  human:resume   ${entry.resolved_at}  → ${entry.resumed_to}`,
         '',
-        `下一步：把结果回投给「${entry.from_role}」那个角色 —— 用 pipeline_dispatch 重新派活即可（状态已经回到它该在的地方）。`,
+        entry.auto_created === true
+          ? `下一步：这是 \`pipeline_demo round\` 自动发起的 DEMO 审阅请求 —— 用 \`pipeline_demo { action: "confirm", round_index, human_request_id: "${entry.request_id}" }\` 记下用户对这版的确认。`
+          : `下一步：把结果回投给「${entry.from_role}」那个角色 —— 用 pipeline_dispatch 重新派活即可（状态已经回到它该在的地方）。`,
       ]
       return { ok: true, task, request: { ...entry }, resumed, summary: lines.join('\n') }
     },

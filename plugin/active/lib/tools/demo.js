@@ -80,7 +80,10 @@ export function buildDemoTools(ctx) {
       '· `action: "plan"` —— 算档位策略：**L0–L1 可跳 / L2 询问 / L3+ 必须出**；tier 未知按 L2 保守，非法 tier 直接拒。' +
       'L2 的 `ask` 可带 `decision: "demo"|"skip"` 记下用户决定（L3+ 不许 skip）。\n' +
       '· `action: "round"` —— **定稿一轮** DEMO：交付席位先用 `pipeline_demo_submit` 交内容，这里按 `round_index` 引用；' +
-      '**无轮次硬上限**；三条软约束：每轮必须是**新交付物**、本轮挂一条**本轮创建且已 answered、未被别的轮消费**的人工请求、`cancel` 出口始终可用。\n' +
+      '**无轮次硬上限**；三条软约束：每轮必须是**新交付物**、本轮挂一条人工请求、`cancel` 出口始终可用。\n' +
+      '  ★ **生产通道**：不给 `human_request_id` 时，本动作会**自己登记**一条 `reason_kind=demo_review` 的人工请求（blocking，' +
+      '询问用户"这一轮 DEMO 是否可以"）并挂到本轮；随后走既有 `pipeline_human_relay` → `pipeline_human_reply` → `pipeline_demo confirm`。' +
+      '给了 `human_request_id` 则沿用旧判据（本轮创建 / 已 answered / 未被别的轮消费，兼容旧夹具）。\n' +
       '· `action: "confirm"` —— 记下用户对**某一轮**的确认（**必填 `round_index` + `human_request_id`**；请求必须已 `answered`；转告 ≠ 答复）。' +
       '确认之后由主对话触发 `pipeline_transition { event: "demo_passed" }`。\n' +
       '· `action: "status"` —— 看账本与闸门现状（只读）。\n' +
@@ -99,8 +102,9 @@ export function buildDemoTools(ctx) {
       deliverable_content: S('string', '本轮 DEMO 的正文（与 ref 一起算指纹，用来判"是不是原地重交"）'),
       human_request_id: S(
         'string',
-        '★ 挂在这轮 DEMO 上的人工请求 id：`action:"round"` 时**必填**（软约束②；没挂 ⇒ 这一轮不算数；' +
-          'P1-7 起要求**本轮创建**、已 answered、未被别的轮消费）；`action:"confirm"` 时也**必填**（必须与那一轮挂的 id 一致）。',
+        '★ `action:"round"` 可选：不给 ⇒ **自动创建**一条 `demo_review` 人工请求并挂到本轮（生产路径，推荐）；' +
+          '给了 ⇒ 沿用旧判据（必须**本轮创建**、已 answered、未被别的轮消费，兼容旧夹具）。' +
+          '`action:"confirm"` 时**必填**（必须与那一轮挂的 id 一致）。',
       ),
       round_index: S('number', '`round`：要定稿的草稿轮次（`pipeline_demo_submit` 交上来的那一轮）；`confirm` 动作**必填**：要确认的是**第几轮**（必须存在于账本里）'),
       answer: S('string', '`confirm` 用：用户答复的原话/摘要'),

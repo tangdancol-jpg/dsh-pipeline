@@ -478,7 +478,19 @@ export function buildHumanTools(ctx) {
       //   用户已裁定：**不要求自动补一个新席位**顶上 —— 但原来那个必须被叫醒；
       //   叫不醒时**报出看得见的失败**（`wakeResumedSeat` 会把失败原文与等价路径拼进 summary），
       //   任务也不许停在半路。
-      const woken = await wakeResumedSeat(
+      //
+      // ★ DEMO 审阅请求（`auto_created === true`，由 `pipeline_demo round` 自动登记）**不唤醒**：
+      //   它的"发起席位"是机制自己（from_role=main），没有任何席位在等这条答复 ——
+      //   硬唤醒只会报一句"叫不醒 main"的假失败。下一步由主对话接着走 `pipeline_demo confirm`。
+      const woken =
+        res.request?.auto_created === true
+          ? {
+              ok: true,
+              line:
+                '（本条是 `pipeline_demo round` 自动发起的 **DEMO 审阅请求**：不需要唤醒任何席位 —— ' +
+                '下一步 `pipeline_demo { action: "confirm", round_index, human_request_id }` 记确认即可。）',
+            }
+          : await wakeResumedSeat(
         res.task,
         String(res.request?.from_role ?? ''),
         res.request?.from_seat ?? null,

@@ -12,11 +12,14 @@
  *   拆到 `human_requests` / `history` / 别处，就没有一个地方能一次答完。
  *
  * ---------------------------------------------------------------------------
- * P1-7 / P1-8（2026-10-18）后的四条写路径
+ * P1-7 / P1-8（2026-10-18）后的写路径
  * ---------------------------------------------------------------------------
  *   · `demoPlan`   —— 记档位策略（require / ask / skip）与用户决定（`decision`）；主对话专用；
  *   · `demoSubmit` —— **交付席位**把本轮 DEMO 交付物挂进 `rounds[i]`（草稿 `status:'submitted'`）；
  *   · `demoRound`  —— **主对话**把草稿定稿成"已交一轮"，挂住人工请求并推进 `demo_submitted`；
+ *     ★ 生产通道（2026-10-19）：**没给 `human_request_id` 时由本方法自己登记**一条
+ *       `reason_kind=demo_review` 的人工请求（走 `store/human.js` 的 `createDemoReviewEntry`），
+ *       之后照旧 relay → reply → confirm；显式给 id 时沿用旧判据（兼容旧夹具）。
  *   · `demoConfirm`—— **主对话**记下用户对某一轮的确认（之后由 main 触发 `demo_passed`）。
  *
  * ★ 判据全部委托 `demo-rounds.js` / `demo-gate.js`（纯函数）；本文件只负责
@@ -52,6 +55,8 @@ export const DEMO_ACTIONS = Object.freeze({
   PLAN: 'demo:plan',
   SUBMIT: 'demo:submit',
   ROUND: 'demo:round',
+  /** ★ 生产通道：`round` 定稿时自动登记的「请用户审阅这轮 DEMO」请求。 */
+  REQUEST: 'demo:request',
   CONFIRM: 'demo:confirm',
 })
 
@@ -267,18 +272,30 @@ export function demoMethods(ctx) {
     /**
      * ★★ **主对话定稿一轮 DEMO**（P1-7：`demo_building --demo_submitted--> demo_review`）。
      *
-     * 三条判据（缺一不可；旧数据缺字段时按 legacy 放宽，见 `checkDemoRoundRequest`）：
+     * 判据（缺一不可；旧数据缺字段时按 legacy 放宽，见 `checkDemoRoundRequest`）：
      *   ① 本轮有**新交付物**（草稿由交付席位交上来；原地重交被拒）；
-     *   ② 本轮挂的 `human_request` 是**本轮创建**、**已 answered**、**未被别的轮消费**（一条请求只能用一次）；
-     *   ③ 定稿后推进 `demo_submitted`（store 拿得到 `transition` 时自动推。
+     *   ② 本轮挂的 `human_request` 是**本轮创建**、**未被别的轮消费**（一条请求只能用一次）；
+     *      **已 answered** 只在"显式传 id"的兼容路径上要求；自动创建的请求此刻必然 pending
+     *      （answered 由 `demoConfirm` / `demo_passed` 闸门在后一个出口判，见 `demo-rounds.js`）；
+     *   ③ 定稿后推进 `demo_submitted`（store 拿得到 `transition` 时自动推）。
+     *
+     * ★ 生产通道（2026-10-19）：`human_request_id` 可省略 —— 省略时本方法用
+     *   `this.createDemoReviewEntry(...)` **自己登记**一条 `demo_review` 请求并挂到本轮，
+     *   于是 `round` 不再依赖"谁来先发一条 human_request"（执行角色会被两级梯跳级闸拦住）。
      *
      * @param {string} taskId
-     * @param {{round_index?:number, deliverable?:{ref?:string,content?:string}, human_request_id:string, by?:string, note?:string}} input
+     * @param {{round_index?:number, deliverable?:{ref?:string,content?:string}, human_request_id?:string, by?:string, note?:string}} input
      * @returns {Promise<object>}
      */
     async demoRound(taskId, input = {}) {
       const task = await loadTask(taskId)
       if (task === null) return deny('TASK_NOT_FOUND', `找不到任务 ${taskId}。`)
+      if (!Array.isArray(task.human_requests)) task.human_requests = []
+      /**
+       * ★ 显式给了请求 id ⇒ 沿用旧判据（本轮创建 / 已 answered / 未消费），兼容旧夹具与旧调用方；
+       * 没给 ⇒ 走**生产通道**：定稿时由本方法自己登记一条 `demo_review` 人工请求。
+       */
+      const explicitRid = String(input.human_request_id ?? '').trim()
 
       // ---- ① 本轮要有新交付物（草稿优先；也兼容老的"直接给 deliverable"调用）----
       const explicitIndex = Number.isInteger(input.round_index) && input.round_index >= 1 ? input.round_index : null
@@ -300,7 +317,8 @@ export function demoMethods(ctx) {
         }
       } else {
         // ★ legacy 路（P4 / 旧调用）：主对话直接给 deliverable。保留，不破坏既有调用方。
-        const gate = checkDemoRound(task, { deliverable: input.deliverable, human_request_id: input.human_request_id })
+        //   没给显式请求 id 时传占位串 —— `checkDemoRound` 只判"非空"，真正的请求在下面创建/校验。
+        const gate = checkDemoRound(task, { deliverable: input.deliverable, human_request_id: explicitRid.length > 0 ? explicitRid : '(auto)' })
         if (gate.ok !== true) return deny(gate.code, gate.error)
         digest = gate.digest
         ref = String(input.deliverable?.ref ?? '').trim()
@@ -316,9 +334,14 @@ export function demoMethods(ctx) {
         ]
       }
 
-      // ---- ② 请求三条（本轮创建 / 已 answered / 未被消费）；legacy 缺字段时放宽 ----
-      const reqCheck = checkDemoRoundRequest(task, input)
-      if (reqCheck.ok !== true) return deny(reqCheck.code, reqCheck.error)
+      // ---- ② 显式请求的三条判据（本轮创建 / 已 answered / 未被消费）----
+      //   ★ 自动创建的那条不在这里判 answered —— 它创建于"定稿那一刻"，必然是 pending；
+      //     answered / 消费在 `demoConfirm` 与 `demo_passed` 闸门那两个出口判（见 demo-rounds.js）。
+      let reqCheck = null
+      if (explicitRid.length > 0) {
+        reqCheck = checkDemoRoundRequest(task, input)
+        if (reqCheck.ok !== true) return deny(reqCheck.code, reqCheck.error)
+      }
 
       // ---- ③ 编号：草稿用它的号；legacy 取下一轮 ----
       const index = targetDraft !== null ? targetDraft.index : nextRoundIndex(task)
@@ -333,6 +356,39 @@ export function demoMethods(ctx) {
       }
 
       const at = nowIso(now())
+      /**
+       * ---- ③b ★★ 生产通道：自动创建「请用户审阅这轮 DEMO」的人工请求 ----
+       *
+       * 只在**没显式给 id** 时创建，并且放在所有拒绝判据之后（免得被判拒的调用白登记一条）。
+       * 登记与轮次记录**同一次 persist** —— 不留"定了稿、请求却没登记"的半截现场。
+       */
+      let autoRequest = null
+      if (reqCheck === null) {
+        if (typeof this.createDemoReviewEntry !== 'function') {
+          return deny(
+            'DEMO_REVIEW_CHANNEL_MISSING',
+            '拒绝定稿：本任务的 store 没有「DEMO 审阅请求创建通道」（插件装配不完整，这是内部错误）。\n' +
+              '下一步：重装/重启插件后重试；临时可改用显式 `human_request_id`（旧行为）。',
+          )
+        }
+        const built = this.createDemoReviewEntry(task, { roundIndex: index, ref, deliverables, digest, at })
+        const existing = task.human_requests.find((r) => r !== null && typeof r === 'object' && r.request_id === built.request_id)
+        autoRequest = existing !== undefined ? existing : built
+        if (existing === undefined) task.human_requests.push(autoRequest)
+        if (audit !== null) {
+          task.history.push(
+            await audit(task.id, ROLE.MAIN, DEMO_ACTIONS.REQUEST, {
+              round_index: index,
+              request_id: autoRequest.request_id,
+              reason_kind: autoRequest.reason_kind,
+              blocking: autoRequest.blocking,
+              auto_created: true,
+            }),
+          )
+        }
+        reqCheck = { ok: true, request: autoRequest, strict: true, request_created_at: autoRequest.created_at, answered_deferred: true }
+      }
+
       const d = ensureDemo(task)
       const round =
         targetDraft !== null
@@ -351,7 +407,9 @@ export function demoMethods(ctx) {
       round.status = 'recorded'
       round.digest = digest
       round.ref = ref
-      round.human_request_id = String(input.human_request_id).trim()
+      /** ★ 显式 id 沿用旧口径；否则就是本方法刚登记的那条 `demo_review` 请求。 */
+      round.human_request_id = explicitRid.length > 0 ? explicitRid : String(reqCheck?.request?.request_id ?? '')
+      round.auto_request = autoRequest !== null
       round.at = at
       round.by = round.by || String(input.by ?? '')
       round.note = String(input.note ?? round.note ?? '')
@@ -395,8 +453,17 @@ export function demoMethods(ctx) {
         summary:
           `已定稿第 ${index} 轮 DEMO（无轮次上限）。\n` +
           `  · 交付物：${ref || '(只给了正文)'}（指纹 ${digest.slice(0, 12)}…，${deliverables.length} 份）\n` +
-          `  · 人工请求：${round.human_request_id}（本轮创建；已 answered；已消费标记）\n` +
+          `  · 人工请求：${round.human_request_id}（` +
+          (autoRequest !== null ? '**由本轮自动创建**：reason_kind=demo_review，blocking，等 relay → reply' : '本轮创建；已 answered；已消费标记') +
+          '）\n' +
           '  · 上一轮的确认（若有）已作废 —— 确认认的是具体哪一版。\n' +
+          (autoRequest !== null
+            ? '下一步：pipeline_human_relay 转告用户 → pipeline_human_reply 记答复 → pipeline_demo { action: "confirm", round_index: ' +
+              index +
+              ', human_request_id: "' +
+              round.human_request_id +
+              '" }。\n'
+            : '') +
           advanceLines(advanced).join('\n'),
       }
     },

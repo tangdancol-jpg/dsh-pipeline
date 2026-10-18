@@ -59,6 +59,19 @@ export const HUMAN_REASON_KINDS = {
    *    并记进 `task.hash_gate_escalation` 与审计 `gate:hash_escalate`。
    */
   hash_gate_escalation: '哈希前置闸门连续不通过（同一任务连续 N 次提交都没过这道闸，机制自动交人工）',
+  /**
+   * ★ P1-7 遗留缺口（2026-10-19）：**DEMO 审阅请求的生产通道**。
+   *
+   * 现场：`pipeline_demo round`（main）要求本轮挂一条"本轮创建 + 已 answered + 未消费"的
+   * 人工请求，但工具自己不创建它；而执行角色直接发 `pipeline_human_request` 会被**两级梯
+   * 跳级闸**拦（roster 有独立 orchestrator 时不许跳级）⇒ 生产链根本跑不通，只有测试夹具
+   * 手工注入。修法：由 `pipeline_demo round` 定稿时**自己登记**一条 `demo_review` 请求
+   * （紧接着走既有 relay → reply → confirm），所以这个取值归机制使用。
+   *
+   * 与 `approval_needed` 的区别：后者是泛化的"需要人放行"；这一条**专指 DEMO 轮次审阅**，
+   * 审阅对象是"第几轮 DEMO"（答复形状是 approve_reject）。
+   */
+  demo_review: 'DEMO 审阅（这一轮 DEMO 已可操作，请用户确认或要求改；由 pipeline_demo round 自动发起）',
   other: '其它（必须在 question_for_human 里说清楚）',
 }
 

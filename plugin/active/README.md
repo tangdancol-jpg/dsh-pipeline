@@ -2225,15 +2225,15 @@ DSH 0.2.1 起官方带「智能体团队」：根会话是 Lead，可以 `spawn_
 ```powershell
 cd <插件目录>
 $env:DSH_APP_ASAR = '<DSH 安装>\resources\app.asar'   # 预设/宿主 schema 类判据要读宿主安装
-node tests\run-all.mjs            # 122 套一起跑（4006 项，含残留检查）
+node tests\run-all.mjs            # 124 套一起跑（4047 项，含残留检查）
 node tests\run-all.mjs --quiet    # 只打结论，不贴完整拒绝原文
 ```
 
-**当前口径**：设了 `DSH_APP_ASAR` 时 **4006/4006 通过（122 套）**；不设时会有 3 条
+**当前口径**：设了 `DSH_APP_ASAR` 时 **4047/4047 通过（124 套）**；不设时会有 3 条
 "读不到宿主安装"的预置校验判红（环境面，不是代码面）。单套清单与每套的判据写在
 `tests/run-all.mjs` 与 `tests/registry.mjs` 里（新增能力用新套 + registry 一行登记）。
 
-按能力分组（不逐一列 122 套）：
+按能力分组（不逐一列 124 套）：
 
 | 分组 | 代表套件 | 内容 |
 |---|---|---|
@@ -2252,7 +2252,8 @@ node tests\run-all.mjs --quiet    # 只打结论，不贴完整拒绝原文
 | P1-18 批次（2026-10-18） | `f29-artifact-matrix-check.mjs` | 按档位的产物矩阵（L0–L5 必需产物）+ `deferred_artifacts` 豁免：理由必填、批准人只能 `user`/`supervisor`（supervisor 仅 L4+），测试/审核/安全类不可豁免；关单缺产物且未豁免才拒；`pipeline_status` 显示"必需/已交/已豁免（理由、批准人）"（43 项） |
 | P1-10 批次（2026-10-18） | `f30-artifact-snapshot-check.mjs` | 制品 = 整体交付快照：`files+sha256` 登记算 `snapshot_id`、逐文件校验；`action:"verify"` 重算并写回；L3+ 关单要求当前制品快照完整（L0–L2 不强制，legacy 只拦关单）（32 项） |
 | P1-7/8 批次（2026-10-18） | `f31-demo-stage-check.mjs`、`f32-demo-submit-check.mjs` | DEMO 显式阶段（`demo_building` / `demo_review` + 四条迁移边；L3+ 必经、L2 可跳过；round 请求必须本轮创建/已答复/未被消费；旧单兼容）+ `pipeline_demo_submit`（writer/architect/diagrammer 交付 DEMO 交付物，`pipeline_demo` 仍 main 专用；plan 自检拒收矛盾计划）（35 + 21 项） |
-| 回归专项 | `f1`–`f32`、`p1`–`p16`、`m1`–`m11` 等 | 每轮缺陷的判据化回归（一个缺陷一个套件） |
+| backlog 批次（2026-10-19） | `f33-demo-request-check.mjs`、`f34-ghost-role-check.mjs` | DEMO 审阅请求的生产通道（`pipeline_demo round` 自动建 `demo_review` 请求 → relay/reply → confirm，显式 id 沿用旧判据）+ 状态机投影过滤（不在册角色不展示事件；supervisor 仅 hub 启用且在册；原始边表不变）（23 + 18 项） |
+| 回归专项 | `f1`–`f34`、`p1`–`p16`、`m1`–`m11` 等 | 每轮缺陷的判据化回归（一个缺陷一个套件） |
 
 报告落到 `tests/last-run.txt`。
 
@@ -2288,7 +2289,19 @@ node examples\run-example.mjs
 5. **测试席位的浏览器 profile 是真实数据**：`reports/tester/edge-*` 里有 Cookies / Login Data 等；
    收尾必须清理（P0-2 修复后，把它们复制进工作区会被守门拦下）。清理只删**本单的临时残留**。
 6. **L5 不要贪**：一个静态页/小工具用 L2/L3 就够；L5 会拉满 10 个角色、产物矩阵大一倍以上，
-   其中相当一部分是仪式性产物（P1-18 正在设计 `deferred_artifacts`）。
+   其中仪式性产物现在可以用 `deferred_artifacts` 豁免（理由 + 人/主管批准，P1-18）。
+
+### 旧单兼容（2026-10-18 这批改动之后）
+
+- **DEMO 阶段（P1-7）**：只有**从「计划中」出发**的新单才可能进入 `demo_building/demo_review`；
+  已经到 `ready_dev` 及之后的旧单不受影响（旧状态 `demo_confirm` 与旧事件保留兼容边）。
+- **产物矩阵（P1-18）**：L0–L3 不受新矩阵影响；L4/L5 旧单若在册角色没交产物，关单会多报一条
+  `MISSING_ROLE_PRODUCT`（原来由 `MISSING_DIAGRAM` 拦，结论不变、文案更全）。补交产物，
+  或在计划阶段就写 `deferred_artifacts`（旧单只能重交计划或用 `pipeline_scope_amend` 的既有通道）。
+- **制品快照（P1-10）**：L3+ 旧单的制品登记没有 `snapshot` ⇒ 关单会要求"重新登记带 `files` 的快照，
+  或先 `pipeline_artifact {action:"verify"}` 看明细"。L0–L2 不强制；legacy 数据不改写。
+- **工具数 36→38**：新增 `pipeline_wait`（只读长轮询）与 `pipeline_demo_submit`（交付席位交 DEMO）；
+  其它工具的调用形状未变。
 
 ---
 

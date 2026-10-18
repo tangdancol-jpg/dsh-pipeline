@@ -18,7 +18,8 @@ import {
   ST,
   STATE_LABEL,
   WAITING_STATES,
-  availableTransitions,
+  // ★ P2-17：下一步事件改走**状态机投影**（不在册的角色不展示）——单一出处见 states/transitions.js。
+  projectedNextEvents,
   hubConfirmersOf,
 } from '../states.js'
 import { ROLE } from '../roles.js'
@@ -326,7 +327,12 @@ export function statusMethods(ctx) {
             stale: version !== null && dg.payload?.based_on_artifact_version !== version,
           }
         })(),
-        next_events: availableTransitions(task.state).map((t) => ({ event: t.event, to: t.to, to_zh: STATE_LABEL[t.to], by: t.by, note: t.note })),
+        /**
+         * ★ P2-17：**状态机投影**（判据单一出处 = `states/transitions.js` 的
+         *   `projectedNextEvents`）：不在册的角色（典型：没派 supervisor 的任务）其事件
+         *   **不展示**；`by` 名单也收敛到"在册且能执行"的那些。状态机本身与守门判据没动。
+         */
+        next_events: projectedNextEvents(task),
         /**
          * ★★ **主管枢纽视图**（T-20261011-56a37e）—— 只读、按站点给出**当前缺什么**。
          *
