@@ -1964,7 +1964,7 @@ produced_by=self-provided 时 degraded 必须是 true。
 | `pipeline_transition` | 主对话 / 人工 | 状态迁移与异常出口（block / unblock / cancel） |
 | `pipeline_rework` | 测试 / 审核 / 安全 | 打回，带次数预算 |
 | `pipeline_close` | 主对话 | 关单。**必须已有有效审核 OK**；按**档位产物矩阵**检查必需产物（测试/审核/安全类不可豁免），`deferred_artifacts` 可豁免仪式性产物（理由 + 批准人）；失败时附**完整缺口清单**，支持 `dry_run:true` 只预演 |
-| `pipeline_status` | 任何人 | 查询状态、角色清单、制品、OK、打回计数、下一步合法事件、审计流水 |
+| `pipeline_status` | 任何人 | 查询状态、角色清单、制品、OK、打回计数、下一步合法事件、审计流水；`page`/`page_size` 可对 handoffs/history/dispatch_slots 分页（不传 `page` 输出不变），返回只读 `storage`（task.json/baseline/artifacts 体积 + 超 1 MiB 提示） |
 | `pipeline_wait` | 任何人 | ★ 只读长轮询：等到某状态/某历史动作（`until_state` / `until_event`，默认 60s 上限 120s）；超时给当前状态 + 最近动作 + 建议；不改状态、不写盘 —— 替代"主对话 sleep 轮询" |
 | `pipeline_roster_request` | 执行角色 | 提出角色增减申请 |
 | `pipeline_roster_review` | 编排 | 复核申请；批准即改写清单 |
@@ -2225,15 +2225,15 @@ DSH 0.2.1 起官方带「智能体团队」：根会话是 Lead，可以 `spawn_
 ```powershell
 cd <插件目录>
 $env:DSH_APP_ASAR = '<DSH 安装>\resources\app.asar'   # 预设/宿主 schema 类判据要读宿主安装
-node tests\run-all.mjs            # 124 套一起跑（4047 项，含残留检查）
+node tests\run-all.mjs            # 125 套一起跑（4074 项，含残留检查）
 node tests\run-all.mjs --quiet    # 只打结论，不贴完整拒绝原文
 ```
 
-**当前口径**：设了 `DSH_APP_ASAR` 时 **4047/4047 通过（124 套）**；不设时会有 3 条
+**当前口径**：设了 `DSH_APP_ASAR` 时 **4074/4074 通过（125 套）**；不设时会有 3 条
 "读不到宿主安装"的预置校验判红（环境面，不是代码面）。单套清单与每套的判据写在
 `tests/run-all.mjs` 与 `tests/registry.mjs` 里（新增能力用新套 + registry 一行登记）。
 
-按能力分组（不逐一列 124 套）：
+按能力分组（不逐一列 125 套）：
 
 | 分组 | 代表套件 | 内容 |
 |---|---|---|
@@ -2253,7 +2253,8 @@ node tests\run-all.mjs --quiet    # 只打结论，不贴完整拒绝原文
 | P1-10 批次（2026-10-18） | `f30-artifact-snapshot-check.mjs` | 制品 = 整体交付快照：`files+sha256` 登记算 `snapshot_id`、逐文件校验；`action:"verify"` 重算并写回；L3+ 关单要求当前制品快照完整（L0–L2 不强制，legacy 只拦关单）（32 项） |
 | P1-7/8 批次（2026-10-18） | `f31-demo-stage-check.mjs`、`f32-demo-submit-check.mjs` | DEMO 显式阶段（`demo_building` / `demo_review` + 四条迁移边；L3+ 必经、L2 可跳过；round 请求必须本轮创建/已答复/未被消费；旧单兼容）+ `pipeline_demo_submit`（writer/architect/diagrammer 交付 DEMO 交付物，`pipeline_demo` 仍 main 专用；plan 自检拒收矛盾计划）（35 + 21 项） |
 | backlog 批次（2026-10-19） | `f33-demo-request-check.mjs`、`f34-ghost-role-check.mjs` | DEMO 审阅请求的生产通道（`pipeline_demo round` 自动建 `demo_review` 请求 → relay/reply → confirm，显式 id 沿用旧判据）+ 状态机投影过滤（不在册角色不展示事件；supervisor 仅 hub 启用且在册；原始边表不变）（23 + 18 项） |
-| 回归专项 | `f1`–`f34`、`p1`–`p16`、`m1`–`m11` 等 | 每轮缺陷的判据化回归（一个缺陷一个套件） |
+| P2-13 第一步（2026-10-19） | `f35-status-paging-check.mjs` | `pipeline_status` 大对象分页（`page`/`page_size`；不传 page 逐字节不变；越界不报错）+ 只读 `storage` 体积诊断（task.json/baseline/artifacts，>1 MiB 提示分页/fields/detail=summary；顺带修好旧体积提示在生产里从不触发的坑）（27 项） |
+| 回归专项 | `f1`–`f35`、`p1`–`p16`、`m1`–`m11` 等 | 每轮缺陷的判据化回归（一个缺陷一个套件） |
 
 报告落到 `tests/last-run.txt`。
 

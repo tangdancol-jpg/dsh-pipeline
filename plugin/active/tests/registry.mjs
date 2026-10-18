@@ -322,4 +322,6 @@ export const EXTRA_SUITES = [
   // ★★ 2026-10-19 backlog（P1-7 遗留 + P2-17）：DEMO 请求生产通道 + 状态机投影过滤幽灵角色。
   { file: './f33-demo-request-check.mjs', exportName: 'runF33DemoRequestCheck', zh: '★ DEMO 审阅请求生产通道（round 自动建 demo_review 请求 → relay/reply → confirm 全链；显式 id 沿用旧判据；多轮各起一条）' },
   { file: './f34-ghost-role-check.mjs', exportName: 'runF34GhostRoleCheck', zh: '★ P2-17 状态机投影过滤（不在册角色不展示其事件；supervisor 仅 hub 启用且在册；原始边表与状态机判据不变）' },
+  // ★★ 2026-10-19 P2-13 第一步：status 大对象分页 + 存储体积诊断（不动盘上数据）。
+  { file: './f35-status-paging-check.mjs', exportName: 'runF35StatusPagingCheck', zh: '★ P2-13 status 分页与体积诊断（page/page_size 分页 handoffs/history/dispatch_slots；不传 page 逐字节不变；storage 块 + >1MiB 提示）' },
 ]

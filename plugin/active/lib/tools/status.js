@@ -10,7 +10,9 @@
 import { ROLE, ROLES, roleLabel } from '../roles.js'
 import { NO_CODE_READ_ROLES } from '../guard.js'
 // ★ task.json 体积提示（P2 文案小修）：只 stat 一次、只影响 `detail="full"` 的正文，不改任何判据。
-import { statSync } from 'node:fs'
+// ★★ P2-13（2026-10-19）：分页 + 存储体积诊断 —— 只读；**不改盘上数据、不裁剪任何内容**。
+import { closeSync, existsSync, openSync, readSync, readdirSync, statSync } from 'node:fs'
+import { join } from 'node:path'
 // ★ 会话身份（`exec.agent.id`）—— A 件的主对话身份自查要拿它与盘上记录逐字比。
 import { agentIdOf } from '../guard/seats.js'
 import { DEFAULT_SEAT_SILENCE_MS, describeApprovalWait, describeSilentSeats, nextActionsFor, seatLiveness, summarizeApprovalWait } from '../liveness.js'
@@ -50,6 +52,266 @@ export function taskJsonSizeHint(bytes) {
   return (
     `★ 提示：本任务的 task.json 已有 **${mb} MB** —— 全文输出会又大又慢。` +
     '建议改用 `detail="summary"`（紧凑档）或 `fields=[…]`（只取需要的字段）。'
+  )
+}
+
+// ---------------------------------------------------------------------------
+// ★★ P2-13 第一步（2026-10-19）：分页 + 存储体积诊断（**只读**）
+// ---------------------------------------------------------------------------
+//
+// 现场：长单的 `task.json` 到 MB 级（实测 5.3 MB），`pipeline_status` 一次把
+// `handoffs` / `history` / `dispatch_slots` / `human_requests` 全倒出来 ——
+// 既慢又贵，而且**没有任何"这段之外还有多少、下一段怎么取"的口径**。
+//
+// 本节的三个约束（与 P2-13 的"第一步"一致）：
+//   ① **只在显式给 `page` 时才分页**：不传 page ⇒ 正文逐字节与改前相同（既有断言不打红）；
+//   ② **页码越界不报错**：返回空数组 + `_pagination` 说明（`out_of_range`），不抛；
+//   ③ **不动盘上数据**：只 stat / 只读，不做任何裁剪或重写（体积治理是第二步的事）。
+
+/** 分页默认段长（与 E 路既有 `BRIEF_PAGE_SIZE` 同一口径）。 */
+export const STATUS_PAGE_SIZE_DEFAULT = 20
+/** 分页段长上限（防止一次要 10 万条把返回撑爆）。 */
+export const STATUS_PAGE_SIZE_MAX = 200
+/** 存储体积提示阈值：任一字节数超过 1 MiB ⇒ 给 hint。 */
+export const STORAGE_HINT_BYTES = 1024 * 1024
+
+/**
+ * 归一化分页入参（**纯函数**）。
+ *
+ * - 只有 `page` 显式给了（非 undefined / null / 空串）才 `enabled=true`；
+ * - `page` 非法（<1 / 非数）按 1 处理；**不在这里报错**（越界由 `pageWindowOf` 报）；
+ * - `page_size` 默认 20，夹到 [1, 200]。
+ *
+ * @param {object} args
+ * @returns {{enabled:boolean, page:number, page_size:number}}
+ */
+export function normalizePaging(args = {}) {
+  const hasPage = args?.page !== undefined && args?.page !== null && String(args.page).trim() !== ''
+  const rawPage = Number(args?.page)
+  const page = Number.isFinite(rawPage) && rawPage >= 1 ? Math.floor(rawPage) : 1
+  const rawSize = Number(args?.page_size)
+  const pageSize = Number.isFinite(rawSize)
+    ? Math.min(STATUS_PAGE_SIZE_MAX, Math.max(1, Math.floor(rawSize)))
+    : STATUS_PAGE_SIZE_DEFAULT
+  return { enabled: hasPage, page, page_size: pageSize }
+}
+
+/**
+ * 切一段（**不钳位**：页码越界返回空数组 + `out_of_range`，不报错）。
+ *
+ * @param {unknown} list
+ * @param {number} page
+ * @param {number} pageSize
+ * @returns {{slice:any[], page:number, page_size:number, total_pages:number, total_items:number, out_of_range:boolean}}
+ */
+export function pageWindowOf(list, page, pageSize) {
+  const arr = Array.isArray(list) ? list : []
+  const size = Number.isInteger(pageSize) && pageSize >= 1 ? Math.min(STATUS_PAGE_SIZE_MAX, pageSize) : STATUS_PAGE_SIZE_DEFAULT
+  const p = Number.isInteger(page) && page >= 1 ? page : 1
+  const total = arr.length
+  const totalPages = total === 0 ? 0 : Math.max(1, Math.ceil(total / size))
+  const outOfRange = total > 0 && p > totalPages
+  const start = (p - 1) * size
+  return {
+    slice: outOfRange ? [] : arr.slice(start, start + size),
+    page: p,
+    page_size: size,
+    total_pages: totalPages,
+    total_items: total,
+    out_of_range: outOfRange,
+  }
+}
+
+/** 一段的 `_pagination` 信封（字段与 P2-13 规格逐字一致；越界时补说明）。 */
+export function paginationRecordOf(section, win) {
+  return {
+    section: String(section),
+    page: win.page,
+    page_size: win.page_size,
+    total_pages: win.total_pages,
+    total_items: win.total_items,
+    ...(win.out_of_range === true
+      ? { out_of_range: true, note: `页码越界：有效范围 1..${win.total_pages || 0}；本段返回空数组（不报错）` }
+      : {}),
+  }
+}
+
+/** 人类可读的字节数。 */
+export function formatBytes(n) {
+  const v = Number(n)
+  if (!Number.isFinite(v) || v < 0) return '—'
+  if (v < 1024) return `${Math.round(v)} B`
+  if (v < 1024 * 1024) return `${(v / 1024).toFixed(1)} KB`
+  return `${(v / (1024 * 1024)).toFixed(1)} MB`
+}
+
+/**
+ * 递归算一个目录下文件的字节数（**有上限**：最多看 `cap` 个目录项）。
+ *
+ * 为什么有上限：状态查询不该变成磁盘扫描器；超大目录只统计到上限并标 `truncated`。
+ *
+ * @param {string} dir
+ * @param {number} [cap]
+ * @returns {{bytes:number, truncated:boolean, entries:number}}
+ */
+export function dirBytesOf(dir, cap = 4000) {
+  const out = { bytes: 0, truncated: false, entries: 0 }
+  const stack = [String(dir ?? '')].filter((d) => d.length > 0)
+  while (stack.length > 0) {
+    const cur = stack.pop()
+    let entries = []
+    try {
+      entries = readdirSync(cur, { withFileTypes: true })
+    } catch {
+      continue
+    }
+    for (const e of entries) {
+      out.entries += 1
+      if (out.entries > cap) {
+        out.truncated = true
+        return out
+      }
+      const abs = join(cur, e.name)
+      if (e.isDirectory()) {
+        stack.push(abs)
+        continue
+      }
+      try {
+        out.bytes += statSync(abs).size
+      } catch {
+        /* 读不到就跳过（诊断字段，不因它失败） */
+      }
+    }
+  }
+  return out
+}
+
+/**
+ * 数一个文本文件的行数（**分块读**，不把大审计日志整个读进内存）。
+ *
+ * @param {string} filePath
+ * @returns {number}
+ */
+export function countFileLines(filePath) {
+  if (typeof filePath !== 'string' || filePath.length === 0) return 0
+  let fd = null
+  try {
+    fd = openSync(filePath, 'r')
+  } catch {
+    return 0
+  }
+  try {
+    const buf = Buffer.allocUnsafe(1024 * 1024)
+    let lines = 0
+    let total = 0
+    let lastByte = null
+    for (;;) {
+      const n = readSync(fd, buf, 0, buf.length, null)
+      if (n <= 0) break
+      total += n
+      lastByte = buf[n - 1]
+      for (let i = 0; i < n; i += 1) {
+        if (buf[i] === 10) lines += 1
+      }
+    }
+    return total > 0 && lastByte !== 10 ? lines + 1 : lines
+  } catch {
+    return 0
+  } finally {
+    try {
+      closeSync(fd)
+    } catch {
+      /* 关不上不影响结论 */
+    }
+  }
+}
+
+/**
+ * ★ **存储体积诊断**（只读；不裁剪、不改盘）。
+ *
+ * @param {object} input
+ * @param {object} input.store
+ * @param {string} input.taskId
+ * @param {object|null} input.task
+ * @param {number|null} [input.taskJsonBytes]
+ * @param {number|null} [input.auditLines]
+ * @returns {{task_json_bytes:number|null, baseline_bytes:number|null, artifacts_bytes:number|null,
+ *            handoff_count:number, history_count:number, audit_lines:number, hint:string|null}}
+ */
+export function collectStorageInfo(input = {}) {
+  const { store, taskId, task } = input
+  const rawJsonBytes = input.taskJsonBytes
+  const jsonBytes = rawJsonBytes === null || rawJsonBytes === undefined || !Number.isFinite(Number(rawJsonBytes)) ? null : Number(rawJsonBytes)
+
+  /** baseline 就住在 task.json 里（`task.baselines[]`）—— 量它占了多少。 */
+  let baselineBytes = null
+  if (Array.isArray(task?.baselines) && task.baselines.length > 0) {
+    try {
+      baselineBytes = Buffer.byteLength(JSON.stringify(task.baselines), 'utf8')
+    } catch {
+      baselineBytes = null
+    }
+  }
+
+  /** artifacts：优先量磁盘目录；目录还没有记录时退回 `task.artifacts[].bytes` 之和。 */
+  let artifactsBytes = null
+  try {
+    const taskDir = typeof store?.taskDir === 'function' ? store.taskDir(taskId) : ''
+    const artDir = taskDir.length > 0 ? join(taskDir, 'artifacts') : ''
+    if (artDir.length > 0 && existsSync(artDir)) {
+      artifactsBytes = dirBytesOf(artDir).bytes
+    } else if (Array.isArray(task?.artifacts)) {
+      artifactsBytes = task.artifacts.reduce((sum, a) => sum + (Number.isFinite(a?.bytes) ? a.bytes : 0), 0)
+    }
+  } catch {
+    artifactsBytes = null
+  }
+
+  const auditLines = Number.isFinite(Number(input.auditLines))
+    ? Number(input.auditLines)
+    : countFileLines(typeof store?.auditFile === 'function' ? store.auditFile(taskId) : '')
+
+  const storage = {
+    task_json_bytes: jsonBytes,
+    baseline_bytes: baselineBytes,
+    artifacts_bytes: artifactsBytes,
+    handoff_count: Array.isArray(task?.handoffs) ? task.handoffs.length : 0,
+    history_count: Array.isArray(task?.history) ? task.history.length : 0,
+    audit_lines: auditLines,
+  }
+
+  const big = []
+  if (Number.isFinite(jsonBytes) && jsonBytes > STORAGE_HINT_BYTES) big.push(`task.json ${formatBytes(jsonBytes)}`)
+  if (Number.isFinite(baselineBytes) && baselineBytes > STORAGE_HINT_BYTES) big.push(`baseline ${formatBytes(baselineBytes)}`)
+  if (Number.isFinite(artifactsBytes) && artifactsBytes > STORAGE_HINT_BYTES) big.push(`artifacts ${formatBytes(artifactsBytes)}`)
+  storage.hint =
+    big.length === 0
+      ? null
+      : `存储偏大（${big.join(' / ')}）。用 page=… 分页取 / fields=[…] 只取需要的字段 / detail="summary" 紧凑档；baseline 体积另见 P2-13 第二步。`
+  return storage
+}
+
+/** 存储诊断的**一行摘要**（全文档用；有 hint 时接在同一行末尾，不额外占行）。 */
+export function renderStorageLine(storage) {
+  const s = storage ?? {}
+  const parts = [`存储：task.json ${formatBytes(s.task_json_bytes)}`]
+  if (s.baseline_bytes !== null && s.baseline_bytes !== undefined) parts.push(`baseline ${formatBytes(s.baseline_bytes)}`)
+  parts.push(`artifacts ${formatBytes(s.artifacts_bytes)}`)
+  parts.push(`交接物 ${Number(s.handoff_count) || 0} 份`)
+  parts.push(`历史 ${Number(s.history_count) || 0} 条`)
+  parts.push(`审计 ${Number(s.audit_lines) || 0} 行`)
+  return `${parts.join(' · ')}${s.hint ? `　★ ${s.hint}` : ''}`
+}
+
+/**
+ * 紧凑档的存储摘要（**更短的一行**：紧凑档的立身之本是"省字节"，
+ * 详细字节数在结构化 `storage` 里一个不少）。
+ */
+export function renderStorageBriefLine(storage) {
+  const s = storage ?? {}
+  return (
+    `存储：task.json ${formatBytes(s.task_json_bytes)} · 交接物 ${Number(s.handoff_count) || 0} / 历史 ${Number(s.history_count) || 0} / 审计 ${Number(s.audit_lines) || 0} 行` +
+    (s.hint ? '　★ 存储偏大：用 `page=` / `fields=` / `detail="summary"`（详见 `storage.hint`）' : '')
   )
 }
 
@@ -388,6 +650,82 @@ export function buildStatusTools(ctx) {
     return L.join('\n')
   }
 
+  /**
+   * ★★ P2-13：**分页段**的正文渲染（`handoffs` / `human_requests` / `history` / `dispatch_slots` / `audit` 共用）。
+   *
+   * 只在调用方显式给了 `page` 时才走（不传 page 的路径保持改前逐字节一致）。
+   * 每段末尾**必须**给 `_pagination` 信封与"下一段怎么取" —— 否则调用方只能靠
+   * "看起来像完了"判断（然后重跑一遍 = 再付一次）。
+   *
+   * @param {string} section - 段名（写进 `_pagination.section`）
+   * @param {string} title - 正文小节标题
+   * @param {object} win - `pageWindowOf()` 的返回
+   * @param {(item:any)=>string} mapLine - 单条渲染
+   * @param {string} taskId
+   * @returns {string[]}
+   */
+  function pagedSectionLines(section, title, win, mapLine, taskId) {
+    const L = ['', `${title}：`]
+    if (win.total_items === 0) {
+      L.push('  （无）')
+    } else if (win.out_of_range === true) {
+      L.push(`  （本段为空 —— 页码越界：有效范围 1..${win.total_pages}；**不报错**，换一页再取）`)
+    } else {
+      for (const item of win.slice) L.push(mapLine(item))
+    }
+    const next =
+      win.out_of_range === true
+        ? ''
+        : win.total_items === 0
+          ? '；该段无条目'
+          : win.total_pages > 0 && win.page < win.total_pages
+            ? `；下一段：\`pipeline_status { task_id: "${taskId}", page: ${win.page + 1}, page_size: ${win.page_size} }\``
+            : '；已是最后一段'
+    L.push(`（_pagination ${section}：page ${win.page}/${win.total_pages}，page_size ${win.page_size}，total ${win.total_items}${next}）`)
+    return L
+  }
+
+  /** 交接物单条（与改前逐字同格式）。 */
+  const handoffToListLine = (h) => `  [${h.kind_zh}] ${h.from_role}→${h.to_role}  ${h.artifact_version ?? '-'}  ${h.handoff_id}`
+
+  /** 人工请求单条（分页段的紧凑渲染；问题正文用 clamp 截断）。 */
+  const humanRequestToListLine = (r) =>
+    `  [${r.status}] ${r.request_id}  ${r.from_role}  ${r.reason_zh ?? r.reason_kind ?? ''}  blocked=${r.blocked_stage || '-'}` +
+    `${typeof r.question_for_human === 'string' && r.question_for_human.length > 0 ? `\n      ${clamp(r.question_for_human, 120)}` : ''}`
+
+  /** 历史单条（与 audit 内联同一套渲染口径：只给事件与一截 detail）。 */
+  const historyToListLine = (e) =>
+    `  ${e?.at ?? '?'}  ${e?.actor ?? '?'}  ${e?.action ?? '?'}  ` +
+    clamp(JSON.stringify({ ...(e ?? {}), at: undefined, task_id: undefined, actor: undefined, action: undefined }), 200)
+
+  /** 派活四槽单条。 */
+  const dispatchSlotToListLine = (s) => `  ${clamp(JSON.stringify(s ?? null), 240)}`
+
+  /**
+   * ★ 紧凑档的分页摘要（一行）：告诉调用方"各段第几页 / 共几条 / 下一段怎么取"。
+   */
+  function pagingBriefLineOf(paged, pagedAudit, paging, taskId) {
+    const secs = [
+      ['交接物', paged.handoffs],
+      ['人工请求', paged.human_requests],
+      ['历史', paged.history],
+      ['派活四槽', paged.dispatch_slots],
+      ...(pagedAudit !== null ? [['审计', pagedAudit]] : []),
+    ]
+    const shown = secs.map(([name, w]) =>
+      w.total_items === 0
+        ? `${name} 0 条`
+        : `${name} ${w.out_of_range === true ? `第 ${w.page} 页越界(空)` : `${w.page}/${w.total_pages}`}（本段 ${w.slice.length} / 共 ${w.total_items}）`,
+    )
+    const more = secs.some(([, w]) => w.out_of_range !== true && w.total_pages > 0 && w.page < w.total_pages)
+    return (
+      `分页：page=${paging.page} · page_size=${paging.page_size} —— ${shown.join(' · ')}` +
+      (more
+        ? `；下一段：\`pipeline_status { task_id: "${taskId}", page: ${paging.page + 1}, page_size: ${paging.page_size} }\``
+        : '；已是最后一段')
+    )
+  }
+
   const status = tool(deps, {
     name: 'pipeline_status',
     description:
@@ -416,7 +754,8 @@ export function buildStatusTools(ctx) {
        */
       detail: S('string', '★ 输出档（**不传 = 与改前逐字节相同**）：summary = 紧凑档（状态 + 卡点 + 下一步该谁 + 算好的计数）｜count = 只回结论与计数｜full = 现状全文（task.json 过大时会附体积提示）', { enum: ['summary', 'count', 'full'] }),
       fields: S('array', '★ 只回**点名的字段**（投影，省字节）：如 ["state","hash_gate","liveness"]；`ok` 永远保留。不传 = 回人读摘要。**未知字段名会回 `_unknown_fields` + `_available_fields` 可用键清单**', { items: { type: 'string' } }),
-      page: S('number', '★ 分段取长清单（1 起；不传 = 不分页，与改前一致）。截断时摘要里会写明 page/total 与下一段怎么取'),
+      page: S('number', '★ 分段取长清单（1 起；**不传 = 不分页，正文与改前逐字节一致**）。给 page 时对 handoffs / history / dispatch_slots / human_requests（含 include_audit 的 audit）分段，每段带 `_pagination` 信封；页码越界返回空数组 + 说明，不报错'),
+      page_size: S('number', '★ 每段条数（默认 20，范围 1–200；只在给了 `page` 时生效）'),
       role_token: S('string', '角色令牌（查询也建议带上，便于按角色脱敏）'),
     },
     output: {
@@ -466,6 +805,24 @@ export function buildStatusTools(ctx) {
        *   提交内容正文不给（与 `handoffs` 同一条规矩）。
        */
       rejected_deliveries: S('array', '★ 被拒收的交付留档（A13）[{ delivery_id, at, kind, kind_zh, code, reason, from_role, from_seat, state_at_submit, payload_chars, payload }]（主对话脱敏：payload 不给正文）', { items: { type: 'object', additionalProperties: true } }),
+      /**
+       * ★★ **P2-13 第一步：分页段 + 分页信封 + 存储体积诊断**（只读）。
+       *
+       * 铁律：**不传 `page` ⇒ 这些字段一律为 null**（正文也与改前逐字节一致）；
+       * 给 `page` 才返回**本段**（不是全量）。越界给空数组 + `_pagination.out_of_range`，不报错。
+       */
+      handoffs: SNullable('array', '★ 交接物**本段**（仅在给了 `page` 时非 null；不传 page 时为 null）', { items: { type: 'object', additionalProperties: true } }),
+      history: SNullable('array', '★ 动作历史**本段**（仅在给了 `page` 时非 null；不传 page 时为 null）', { items: { type: 'object', additionalProperties: true } }),
+      dispatch_slots: SNullable('array', '★ 派活四槽记录**本段**（仅在给了 `page` 时非 null；不传 page 时为 null）', { items: { type: 'object', additionalProperties: true } }),
+      human_requests: SNullable('array', '★ 人工介入请求**本段**（仅在给了 `page` 时非 null；不传 page 时为 null）', { items: { type: 'object', additionalProperties: true } }),
+      audit: SNullable('array', '★ 审计日志**本段**（仅在给了 `page` 且 `include_audit=true` 时非 null）', { items: { type: 'object', additionalProperties: true } }),
+      _pagination: SNullable('object', '★ 每段的分页信封：{ <section>: { section, page, page_size, total_pages, total_items[, out_of_range, note] } }（不传 page 时为 null）', { additionalProperties: true }),
+      total_handoffs: SNullable('number', '★ 交接物总条数（不传 page 时为 null；分页时与实际总数一致）'),
+      total_history: SNullable('number', '★ 动作历史总条数（不传 page 时为 null）'),
+      total_dispatch_slots: SNullable('number', '★ 派活四槽总条数（不传 page 时为 null）'),
+      total_human_requests: SNullable('number', '★ 人工介入请求总条数（不传 page 时为 null）'),
+      total_audit: SNullable('number', '★ 审计日志总行数（不传 page 时为 null；分页但没 include_audit 时也给总数）'),
+      storage: S('object', '★ P2-13 存储体积诊断（只读）{ task_json_bytes, baseline_bytes, artifacts_bytes, handoff_count, history_count, audit_lines, hint }', { additionalProperties: true }),
       /** ★ 席位失联视图（`lib/liveness.js`）：派出去的席位还在不在。 */
       liveness: SNullable('object', '★ 席位失联视图 { ok, silence_ms, state, seats[], silent[] }', { additionalProperties: true }),
     },
@@ -663,7 +1020,18 @@ export function buildStatusTools(ctx) {
        */
       let taskJsonBytes = null
       try {
-        if (typeof store.taskFile === 'function') taskJsonBytes = statSync(store.taskFile(taskId)).size
+        /**
+         * ★ 公开 store 只暴露 `taskDir` / `auditFile`，**没有** `taskFile`（那是内部闭包）；
+         *   这里对两种形状都认（自测夹具/旧装配可能挂 `taskFile`），否则悄悄退化成 null。
+         *   —— 这是 P2-13 复查时发现的既有小坑（`task.json` 体积提示此前实际取不到大小）。
+         */
+        const taskJsonPath =
+          typeof store.taskFile === 'function'
+            ? store.taskFile(taskId)
+            : typeof store.taskDir === 'function'
+              ? join(store.taskDir(taskId), 'task.json')
+              : ''
+        if (taskJsonPath.length > 0) taskJsonBytes = statSync(taskJsonPath).size
       } catch {
         taskJsonBytes = null
       }
@@ -831,10 +1199,34 @@ export function buildStatusTools(ctx) {
        */
       const briefMode = typeof args.detail === 'string' ? String(args.detail) : ''
       const isBrief = briefMode === 'summary' || briefMode === 'count'
-      /** ★ 显式给了 `page` 才分页（不传 ⇒ 与改前逐字节一致；紧凑档自己给计数，不分页）。 */
-      const handoffPage = !isBrief && args.page !== undefined && args.page !== null ? paginate(res.handoffs, args.page) : null
+      /**
+       * ★★ P2-13：**只有显式给了 `page` 才分页**。不传 ⇒ 下面的分页段全部 `null`，
+       *   正文与结构化字段保持改前形状（既有断言不打红）。
+       */
+      const paging = normalizePaging(args)
+      const paged =
+        paging.enabled === true
+          ? {
+              handoffs: pageWindowOf(res.handoffs, paging.page, paging.page_size),
+              human_requests: pageWindowOf(res.human_requests, paging.page, paging.page_size),
+              history: pageWindowOf(liveTask?.history, paging.page, paging.page_size),
+              dispatch_slots: pageWindowOf(liveTask?.dispatch_slots, paging.page, paging.page_size),
+            }
+          : null
+      /** 审计日志只读一次：分页时切段，不分页时照旧整段内联（读盘与改前同一条路径）。 */
+      const wantAudit = args.include_audit === true && !isBrief
+      const auditLog = wantAudit ? await store.auditLog(taskId) : null
+      const pagedAudit = paged !== null && auditLog !== null ? pageWindowOf(auditLog, paging.page, paging.page_size) : null
+      /** ★ P2-13 存储体积诊断（只读；紧凑档/全文档都只占一行）。 */
+      const storage = collectStorageInfo({ store, taskId, task: liveTask, taskJsonBytes })
       const lines = isBrief
-        ? [renderStatusBrief(res, live, { mode: briefMode, products }), ...hubSeatLines, ...mainIdentityLines]
+        ? [
+            renderStatusBrief(res, live, { mode: briefMode, products }),
+            renderStorageBriefLine(storage),
+            ...(paged === null ? [] : [pagingBriefLineOf(paged, pagedAudit, paging, taskId)]),
+            ...hubSeatLines,
+            ...mainIdentityLines,
+          ]
         : [
         `任务 ${res.task_id}：${res.state_zh}(${res.state})`,
         `原始需求：${clamp(res.requirement, 300)}`,
@@ -870,7 +1262,8 @@ export function buildStatusTools(ctx) {
         // ★★ P1-18：产物矩阵（必需 / 已交 / 已豁免（理由、批准人）/ 缺）—— 与关单闸同源。
         ...productFullLines(products),
         `打回计数：编写 ${res.rework.dev}/${res.rework.budget}，测试 ${res.rework.test}/${res.rework.budget}`,
-        // ★ 哈希前置闸门的可见面（P13 之后它多了一半内容：连续计数 + 自动交人工）
+        // ★★ P2-13：存储体积诊断（只读；一行，不撑体积）。
+        renderStorageLine(storage),        // ★ 哈希前置闸门的可见面（P13 之后它多了一半内容：连续计数 + 自动交人工）
         res.hash_gate === null || res.hash_gate === undefined
           ? ''
           : `哈希前置闸门：${res.hash_gate.blocked ? '**卡着**' : '通过'}　连续不通过 ${res.hash_gate.streak}/${res.hash_gate.threshold}` +
@@ -889,15 +1282,29 @@ export function buildStatusTools(ctx) {
           ? ['  （无 —— 终态）']
           : res.next_events.map((e) => `  ${e.event} → ${e.to_zh}（${e.by.join('/')}）：${e.note}`)),
         '',
-        `交接物（${res.handoffs.length} 份）：`,
-        ...(res.handoffs.length === 0
-          ? ['  （无）']
-          : (handoffPage === null ? res.handoffs : handoffPage.slice).map((h) => `  [${h.kind_zh}] ${h.from_role}→${h.to_role}  ${h.artifact_version ?? '-'}  ${h.handoff_id}`)),
-        // ★ E 路 ②：**分页只在显式给了 `page` 时才有**，且截断**必须**给出续页口径。
-        handoffPage === null
-          ? ''
-          : `（交接物本段 ${handoffPage.page}/${handoffPage.pages}，共 ${handoffPage.total} 份` +
-            `${handoffPage.more ? `；下一段：\`pipeline_status { task_id: "${taskId}", page: ${handoffPage.page + 1} }\`` : ''}）`,
+        /**
+         * ★★ P2-13：交接物清单。
+         *   · 不传 page ⇒ **与改前逐字节一致**（全量、无脚注）；
+         *   · 传 page   ⇒ 只印本段 + `_pagination` 信封与"下一段怎么取"。
+         */
+        ...(paged === null
+          ? [
+              `交接物（${res.handoffs.length} 份）：`,
+              ...(res.handoffs.length === 0 ? ['  （无）'] : res.handoffs.map(handoffToListLine)),
+            ]
+          : pagedSectionLines('handoffs', `交接物（共 ${paged.handoffs.total_items} 份）`, paged.handoffs, handoffToListLine, taskId)),
+        /** ★ P2-13：人工请求段（只在分页时单独铺开；不分页时与改前一样不铺开）。 */
+        ...(paged === null
+          ? []
+          : pagedSectionLines('human_requests', `人工请求（共 ${paged.human_requests.total_items} 条）`, paged.human_requests, humanRequestToListLine, taskId)),
+        /** ★ P2-13：动作历史段（同上：只在分页时出现）。 */
+        ...(paged === null
+          ? []
+          : pagedSectionLines('history', `动作历史（共 ${paged.history.total_items} 条）`, paged.history, historyToListLine, taskId)),
+        /** ★ P2-13：派活四槽段（同上：只在分页时出现）。 */
+        ...(paged === null
+          ? []
+          : pagedSectionLines('dispatch_slots', `派活四槽（共 ${paged.dispatch_slots.total_items} 条）`, paged.dispatch_slots, dispatchSlotToListLine, taskId)),
         // ★★ **A13：被拒收的交付** —— `recall` 字段指的就是这一节（改前它并不存在）。
         //   只在**真有**留档时印；**不印正文**（与上面的交接物同一条脱敏规矩）。
         ...(Array.isArray(res.rejected_deliveries) && res.rejected_deliveries.length > 0
@@ -943,14 +1350,27 @@ export function buildStatusTools(ctx) {
        * ★ E 路 ②：紧凑档**不追加**审计日志与完整交接物 —— 那正是它要省掉的部分
        *   （`detail` 与 `include_audit` / `full` 同时给时以 `detail` 为准：
        *    调用方已经明说"我要紧凑的"；要全文就 `detail="full"`）。
+       * ★★ P2-13：给了 `page` 时，审计日志也只印**本段** + `_pagination` 信封。
        */
-      if (args.include_audit === true && !isBrief) {
-        const log = await store.auditLog(taskId)
-        lines.push('', `审计日志（${log.length} 条）：`, ...log.map((e) => `  ${e.at}  ${e.actor}  ${e.action}  ${clamp(JSON.stringify({ ...e, at: undefined, task_id: undefined, actor: undefined, action: undefined }), 200)}`))
+      if (wantAudit && auditLog !== null) {
+        if (pagedAudit === null) {
+          lines.push('', `审计日志（${auditLog.length} 条）：`, ...auditLog.map(historyToListLine))
+        } else {
+          lines.push(...pagedSectionLines('audit', `审计日志（共 ${pagedAudit.total_items} 条）`, pagedAudit, historyToListLine, taskId))
+        }
       }
 
       if (args.full === true && !isMain && !isBrief) {
-        lines.push('', '完整交接物：', '```json', JSON.stringify(res.handoffs, null, 2), '```')
+        /** ★ P2-13：分页时"完整交接物"也只印本段（不再把整份全量 JSON 倒出来）。 */
+        const handoffsForJson = paged === null ? res.handoffs : paged.handoffs.slice
+        lines.push('', '完整交接物：', '```json', JSON.stringify(handoffsForJson, null, 2), '```')
+        if (paged !== null) {
+          lines.push(
+            `（_pagination handoffs：page ${paged.handoffs.page}/${paged.handoffs.total_pages}，page_size ${paged.handoffs.page_size}，` +
+              `total ${paged.handoffs.total_items}；本段只印 ${handoffsForJson.length} 份` +
+              `${paged.handoffs.out_of_range === true ? '；**页码越界**（返回空数组，不报错）' : ''}）`,
+          )
+        }
       } else if (!isBrief && (isMain || actor.ok !== true)) {
         lines.push('', '（主对话看到的是脱敏摘要：补丁正文、失败日志正文、运行命令正文已隐去。）')
       }
@@ -958,6 +1378,20 @@ export function buildStatusTools(ctx) {
       // ★ P2 文案小修：全文路才提示体积（紧凑档与 fields 投影不会走到这里）。
       const sizeHint = isBrief ? '' : taskJsonSizeHint(taskJsonBytes)
       if (sizeHint.length > 0) lines.push('', sizeHint)
+
+      /**
+       * ★★ P2-13：分页信封（**每段一条**，字段与规格逐字一致）。
+       *   `page=null`（没给 page）⇒ `_pagination` 为 null、分页段字段一律 null —— 与改前同形状。
+       */
+      const pagination = paged === null
+        ? null
+        : {
+            handoffs: paginationRecordOf('handoffs', paged.handoffs),
+            human_requests: paginationRecordOf('human_requests', paged.human_requests),
+            history: paginationRecordOf('history', paged.history),
+            dispatch_slots: paginationRecordOf('dispatch_slots', paged.dispatch_slots),
+            ...(pagedAudit === null ? {} : { audit: paginationRecordOf('audit', pagedAudit) }),
+          }
 
       return {
         ok: true,
@@ -1005,6 +1439,25 @@ export function buildStatusTools(ctx) {
                 /** ★ 主对话下一步可以**直接调**的动作（重派 / 换班 / 人工 / 取消）。 */
                 next_actions: nextActionsFor(live.silent, { taskId }),
               },
+        // ★★ P2-13：存储体积诊断（只读；每次查状态都给）
+        storage,
+        /**
+         * ★★ P2-13：**分页段 + 分页信封** —— 只在给了 `page` 时非 null。
+         *   不传 page ⇒ 全部 null（与改前形状一致；正文也与改前逐字节一致）。
+         *   越界 ⇒ 该段空数组 + `_pagination.<section>.out_of_range/note`，不报错。
+         */
+        handoffs: paged === null ? null : paged.handoffs.slice,
+        human_requests: paged === null ? null : paged.human_requests.slice,
+        history: paged === null ? null : paged.history.slice,
+        dispatch_slots: paged === null ? null : paged.dispatch_slots.slice,
+        audit: paged === null || pagedAudit === null ? null : pagedAudit.slice,
+        _pagination: pagination,
+        /** ★ 分页时**仍然给 total_***（调用方不用自己数；也回答"这段之外还有多少"）。 */
+        total_handoffs: paged === null ? null : paged.handoffs.total_items,
+        total_human_requests: paged === null ? null : paged.human_requests.total_items,
+        total_history: paged === null ? null : paged.history.total_items,
+        total_dispatch_slots: paged === null ? null : paged.dispatch_slots.total_items,
+        total_audit: paged === null ? null : auditLog === null ? storage.audit_lines : pagedAudit.total_items,
         /**
          * ★★ **"没人领的事件"清单**（2026-10-16 补 · 唤醒投递失败的兜底出口）。
          *
