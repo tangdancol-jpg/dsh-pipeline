@@ -285,4 +285,10 @@ export const EXTRA_SUITES = [
   //    ⇒ 按语义拆成两条（各测一件事），**判据一条不丢**；共用夹具在 `tests/panel-ui-fixtures.mjs`
   //    （**不是测试**，刻意不登记 —— 它没有断言）。
   { file: './panel-portal-check.mjs', exportName: 'runPanelPortalCheck', zh: '★ 自建面板 · 弹层 portal（createPortal 到 document.body / fixed 落点与收边 / 无 react-dom 回退 / 点外面判据）' },
+  // ★★ **文件规模闸**（`CONVENTIONS.md §4/§5` 的机器执行）：把"不写大文件"从文档变成会红的判据。
+  //    扫描 `index.js / lib / presets / tools / tests`，四条判据：未登记超限必红 / 未登记顶格（390–400）
+  //    必红 / 登记的既有大文件只降不升 / 登记不得过期。登记表是唯一输入：
+  //    `tests/file-size-exceptions.json`（每条必须写 `why` 自证）；设计与存量债见
+  //    `design/conventions/01-文件规模闸.md`。
+  { file: './file-size-check.mjs', exportName: 'runFileSizeCheck', zh: '★ 文件规模闸（§4/§5 机器执行：超限 / 顶格凑数 / 大文件增长 / 过期登记）' },
 ]

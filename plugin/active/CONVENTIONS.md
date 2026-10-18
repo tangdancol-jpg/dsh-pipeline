@@ -184,6 +184,23 @@ plugin/active/
   与「惰性 CJS 模型」两段（本机在 `<DSH 安装>/resources/app.asar` 内的
   `dsh/node_modules/@deepseek-ai/dsh-client-modules/README.zh.md`）。
 
+### 4.1 机器闸：本节的规矩由 `tests/file-size-check.mjs` 执行（不是只写在文档里）
+
+> 文档不会红。出现过两次真实事故：`lib/client.js` 被硬塞到正好 400（"删到最后刚好不超"）、
+> 面板测试文件涨到 962 行才被拆。所以本节配一套**可执行的闸**。
+
+- 闸：`tests/file-size-check.mjs`（登记在 `tests/registry.mjs`，`run-all` 每轮必跑）；
+- 唯一输入：`tests/file-size-exceptions.json`（登记表：`limit` / `paddingBand` / 扫描范围 / 例外 + `maxLines` + `why`）；
+- 四条判据：
+  1. **未登记**文件必须 ≤400（超限 = 红）；
+  2. **未登记**文件不得落在 390–400（顶格凑数 = 红）；
+  3. 登记文件**只降不升**（当前行数 ≤ `maxLines`；`maxLines` 只允许下调）；
+  4. 登记项不得过期（指向的文件必须存在）。
+- 真有 §4 ①②③④ 必要性 ⇒ 在登记表里登记并写 `why`（那是"自证"的机器可读形态）；
+  拆分使文件变小 ⇒ 顺手**下调 `maxLines`**，别让债记大。
+- 设计与存量债（88 个既有文件一次性登记、之后只降不升）见
+  [`design/conventions/01-文件规模闸.md`](design/conventions/01-文件规模闸.md)。
+
 ## 5. 禁止往既有大文件堆叠
 
 **这条是本规范的核心。**

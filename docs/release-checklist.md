@@ -11,8 +11,8 @@
 |---|---|
 | 客户端入口 | `plugin/active/lib/client.js` **375 行** |
 | 客户端 chunk | **18 个** `client.panel-*.js`；入口 + chunk 共 **19 个文件、4743 行** |
-| 单文件行数 | 每个 ≤400 行，且**没有任何文件落在 390–400** |
-| 全量自测 | **3674/3674**、**111 套**（设了 `DSH_APP_ASAR`） |
+| 单文件行数 | 每个 ≤400 行，且**没有任何文件落在 390–400**（机器闸 `tests/file-size-check.mjs`，登记 `tests/file-size-exceptions.json`） |
+| 全量自测 | **3688/3688**、**112 套**（设了 `DSH_APP_ASAR`） |
 | 面板相关套件 | `client-check` 30 / `panel-ui-check` 14 / `panel-portal-check` 3 / `panel-snapshot-check` 74 / `panel-actions-check` 99 |
 
 ---
@@ -23,7 +23,7 @@
 $patterns = [ordered]@{
   '375'       = '375'
   '4743'      = '4743'
-  '3674'      = '3674/3674'
+  '3688'      = '3688/3688'
   '111'       = '111'
   '18 chunk'  = '18\s*(个|個|chunks?|chunk)'
   '19 files'  = '19\s*(个文件|個のファイル|ファイル|files?|файл)'
@@ -36,7 +36,7 @@ foreach ($f in 'README.md','README.en-US.md','README.ja.md','README.ru.md') {
 }
 ```
 
-- 通过标准：四份都出现 `375`、`4743`、`18 chunk`、`19 files`、`3674/3674`、`111`、`390–400` 的说明；
+- 通过标准：四份都出现 `375`、`4743`、`18 chunk`、`19 files`、`3688/3688`、`111`、`390–400` 的说明；
   章节编号一致（部署 / 插件源码 / 控制面板 / DSH 插件声明 / 文档 / 校验 / 开源协议与出处 / 文档索引）。
 - 同时反查旧说法是否还有残留：
 
@@ -118,7 +118,7 @@ $env:DSH_APP_ASAR = '<DSH 安装>\resources\app.asar'   # 预设 / 宿主 schema
 node tests\run-all.mjs
 ```
 
-- 通过标准：`3674/3674 通过（111 套）`，退出码 0；结果落在 `tests/last-run.txt`。
+- 通过标准：`3688/3688 通过（112 套）`，退出码 0；结果落在 `tests/last-run.txt`。
 - 不设 `DSH_APP_ASAR` 时会有 3 条预置校验判红（环境面）；这类红要在 PR 里写明，不能当成通过。
 - 单套复跑：`node tests\client-check.mjs` / `node tests\panel-ui-check.mjs` /
   `node tests\panel-portal-check.mjs` / `node tests\panel-snapshot-check.mjs` /
@@ -126,6 +126,21 @@ node tests\run-all.mjs
 
 ---
 
+## 6b. 文件规模闸（CONVENTIONS §4/§5 的机器执行）
+
+```powershell
+cd plugin/active
+node tests\file-size-check.mjs
+```
+
+- 通过标准：**14/14**、退出码 0；输出里 `登记 88 项`；红项（未登记超限 / 未登记顶格 390–400 /
+  大文件增长 / 过期登记）必须为 0。
+- 修法（红项自带提示）：按职责拆文件；确有 §4 ①②③④ 必要性 ⇒ 在 `tests/file-size-exceptions.json`
+  登记并写 `why`（`maxLines` = 当前行数，只允许以后下调）；拆分后文件变小 ⇒ 顺手下调 `maxLines`。
+- 设计与存量债（88 个既有文件一次性登记、之后只降不升）：
+  [`plugin/active/design/conventions/01-文件规模闸.md`](../plugin/active/design/conventions/01-文件规模闸.md)。
+
+---
 ## 7. 安装副本与仓库一致（装过的机器）
 
 回到仓库根目录再执行：
