@@ -658,6 +658,31 @@ export async function runPlanCheck() {
     )
   }
   {
+    // ★★ 2026-10-18 测试报告 P0-1：授权面里的每条路径必须"有主"（分区覆盖或 owner_role）。
+    const h = await createHarness()
+    open.push(h)
+    const g = await toReadyPlan(h, {})
+    await dispatchPlanner(h, g.taskId, g.tokens, g.agents)
+    const uncovered = await callTool(
+      h,
+      'pipeline_plan',
+      planArgs(g.taskId, g.tokens.planner, {
+        change_scope: [...CHANGE_SCOPE, { id: 'CS9', path: 'README.md', action: 'modify', why: '文档也要改' }],
+      }),
+      g.agents.planner,
+    )
+    expectDenied(rec, 'D 按层分工', '★ 反例⑥ 授权面有路径没有编写分区覆盖 → 拒（不会分配 AI）', uncovered, ['没有主人', 'scope_paths', 'owner_role'])
+    const docs = await callTool(
+      h,
+      'pipeline_plan',
+      planArgs(g.taskId, g.tokens.planner, {
+        change_scope: [...CHANGE_SCOPE, { id: 'CS9', path: 'README.md', action: 'modify', why: '文档由 docs 落盘', owner_role: 'docs' }],
+      }),
+      g.agents.planner,
+    )
+    expectDenied(rec, 'D 按层分工', '★ 反例⑦ `owner_role: docs` 也拒（docs 写面是 own-dir，覆盖不了仓库文档）', docs, ['写面', '覆盖不了这条路径'])
+  }
+  {
     // 反例：count 与层数不一致
     const h = await createHarness()
     open.push(h)
@@ -741,6 +766,8 @@ export async function runPlanCheck() {
           partitions: six.map((l, i) => ({ seat: `writer#${i + 1}`, layer: l, scope_paths: [`src/${l}`] })),
           reason: '六个层，六个席位（本轮硬上限 6）',
         },
+        // ★ 2026-10-18：授权面必须与分区对齐（新的分区覆盖校验）；否则就是"授权了却没人能写"。
+        change_scope: six.map((l, i) => ({ id: `CS${i + 1}`, path: `src/${l}`, action: 'modify', why: `夹具：${l} 层的改动就在这个目录下` })),
       }),
       g.agents.planner,
     )

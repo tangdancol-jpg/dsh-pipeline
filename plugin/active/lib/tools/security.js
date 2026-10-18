@@ -31,10 +31,13 @@ export function buildSecurityTools(ctx) {
     mutating: false,
     description:
       '★ 对本任务工作区做**安全确认扫描**：本地泄密面（密钥/凭证/隐私是否出现在制品、报告、日志、收据、audit.jsonl 里）' +
+      '+ **凭证落盘面**（工作区里是否躺着浏览器 Profile 的凭证库 / 隐私数据：Cookies / Login Data / Web Data / ' +
+      'Local State / History / Bookmarks / Vpn Tokens / *.sqlite / edge-profile* / User Data）' +
       '+ 网络面（产物/脚本里有没有外联地址、有没有**未解释**的外联、有没有凭证出现在出网请求里）。' +
       '产出结构化 JSON + **脱敏**的人可读摘要。' +
       '★ 扫描范围**只限本任务工作区**（.pipeline/<taskId>/ 与显式给出且落在项目根内的路径）—— 不遍历用户其它目录。' +
-      '★ 结果里**不回显命中原文**，只写"哪个文件第几行命中哪一类"+ 打码片段（工具自身不得成为泄密渠道）。' +
+      '★ 结果里**不回显命中原文**，只写"哪个文件第几行命中哪一类"+ 打码片段（工具自身不得成为泄密渠道）；' +
+      '凭证落盘命中只给**路径与类型**（那些文件是二进制，本来就不读内容）。' +
       '审核把它返回的 checks_ref 与结论填进 review_verdict.security。',
     parameters: {
       task_id: S('string', '任务 ID'),
@@ -101,13 +104,20 @@ export function buildSecurityTools(ctx) {
       if (sBrief === 'summary' || sBrief === 'count') {
         const sPage = paginate(scan.network.findings, args.page, 10)
         const hosts = scan.network.hosts ?? []
+        /** ★ P0-2：凭证落盘（按路径认的浏览器 profile / 凭证库）—— 一等命中。 */
+        const credHits = Array.isArray(scan.credential_store?.findings) ? scan.credential_store.findings : []
         const sL = [
           `安全确认扫描：任务 ${scan.task_id}`,
           `扫描范围：${scan.scope.roots.join('、')}　文件 ${scan.scope.files_scanned} 个 / ${(scan.scope.bytes_scanned / 1024).toFixed(1)} KB` +
             `${scan.scope.rejected_paths.length > 0 ? `　⚠ 被拒路径 ${scan.scope.rejected_paths.length} 条（越界，未扫）` : ''}`,
-          `计数（算好的）：合计 ${scan.finding_count} 处　·　本地泄密面 ${scan.local_leak.findings.length} 处　·　网络面 ${scan.network.findings.length} 处（外联主机 ${hosts.length} 个${hosts.some((h) => h.withCredential) ? '，其中**伴随凭证**' : ''}）`,
+          `计数（算好的）：合计 ${scan.finding_count} 处　·　本地泄密面 ${scan.local_leak.findings.length} 处　·　凭证落盘 ${credHits.length} 处　·　网络面 ${scan.network.findings.length} 处（外联主机 ${hosts.length} 个${hosts.some((h) => h.withCredential) ? '，其中**伴随凭证**' : ''}）`,
         ]
         if (sBrief === 'summary') {
+          if (credHits.length > 0) {
+            sL.push('【凭证落盘】前若干条（★ 只给路径与类型，不回显内容）：')
+            for (const f of credHits.slice(0, 10)) sL.push(`  ✗ ${f.file} 命中 ${f.type}（${f.severity}）`)
+            if (credHits.length > 10) sL.push(`  …（还有 ${credHits.length - 10} 条）`)
+          }
           if (scan.local_leak.findings.length > 0) {
             sL.push('【本地泄密面】前若干条（★ 不回显原文）：')
             for (const f of scan.local_leak.findings.slice(0, 10)) sL.push(`  · ${f.file} 第 ${f.line} 行命中 ${f.type}（${f.severity}）`)
@@ -147,6 +157,8 @@ export function buildSecurityTools(ctx) {
         digest,
         finding_count: scan.finding_count,
         local_leak: scan.local_leak.findings.length,
+        // ★ P0-2：凭证落盘（浏览器 profile / 凭证库）单独计数 —— 事后可核"这次扫出来几处"。
+        credential_store: Array.isArray(scan.credential_store?.findings) ? scan.credential_store.findings.length : 0,
         network: scan.network.findings.length,
         files_scanned: scan.scope.files_scanned,
         rejected_paths: scan.scope.rejected_paths.length,

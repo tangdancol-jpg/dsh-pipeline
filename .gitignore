@@ -75,3 +75,5 @@ plugin/active/**/demo-project/
 # 工作树里的文件保留不动，需要时仍可查阅。
 *.out
 *.err
+
+docs/issues/   # 内部审计/缺陷清单：只留本地，不进公开仓库

@@ -70,6 +70,14 @@ export {
   renderGateRejection,
 } from './hashgate/verdict.js'
 
+// ★★ P1-9：多编写席位并行时「别的席位先写进工作区」的变化 —— 显式确认归属他人
+//   （`dev_to_test.foreign_paths_ack`）。判据本体见模块注释。
+export {
+  FOREIGN_ACK_CODES,
+  FOREIGN_ACK_MAX,
+  vetForeignPathsAck,
+} from './hashgate/foreign-ack.js'
+
 export {
   HASH_GATE_ESCALATION_OPTIONS,
   hashGateBlocksTests,

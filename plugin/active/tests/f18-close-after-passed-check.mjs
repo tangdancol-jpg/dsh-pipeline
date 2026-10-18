@@ -110,6 +110,31 @@ export async function runF18CloseAfterPassedCheck() {
       const reworks = (t.history ?? []).filter((e) => /rework|reject_review/.test(String(e.action)))
       rec.add(G, '★ 全程没有打回记录，打回计数不动', reworks.length === 0 && (t.rework?.dev ?? 0) === 0 && (t.rework?.test ?? 0) === 0, JSON.stringify({ reworks: reworks.map((e) => e.action), rework: t.rework }))
     }
+
+    {
+      // ★★ 2026-10-18 测试报告 P1-6：关单失败要**一次列全**所有缺口（改前一次只报一个，
+      //    主对话要往返 3 轮、每轮新派一个席位等 3–10 分钟）。
+      const G = '⑬-D 关单缺口一次列全'
+      const t = await taskAt(h, 'T-F18G', 'passed')
+      const gaps = await h.store.closeGaps(t)
+      rec.add(
+        G,
+        '★★ `store.closeGaps` 一次返回**全部**缺口（不早退、顺序与 close_gates 一致）',
+        gaps.length >= 3 && gaps.every((g) => typeof g.code === 'string' && g.code.length > 0),
+        `缺口 ${gaps.length} 项：${gaps.map((g) => `[${g.code}]`).join(' ')}`,
+      )
+      const tok = h.tokens.mint({ taskId: 'T-F18G', role: 'main', agentId: 'f18-main', note: 'f18-close-gaps' })
+      const dry = await h.byName.get('pipeline_close').execute({ task_id: 'T-F18G', dry_run: true, role_token: tok.token }, { agent: { id: 'f18-main' } })
+      const summary = String(dry?.summary ?? '')
+      rec.add(
+        G,
+        '★★ `pipeline_close { dry_run: true }` 返回完整缺口清单（`完整缺口清单` + 逐项 code）',
+        dry?.ok !== true && summary.includes('完整缺口清单') && summary.includes(dry?.summary?.match(/\[[A-Z_]+\]/)?.[0] ?? '\u0000'),
+        summary.split('\n').slice(0, 4).join('\n'),
+      )
+      const after = h.store.peek('T-F18G')
+      rec.add(G, '★ dry_run **不改状态、不写 close_report**', after.state === 'passed' && (after.close_report === undefined || after.close_report === null), `state=${after.state} close_report=${String(after.close_report)}`)
+    }
   } catch (err) {
     rec.add('!! 执行异常', `夹具执行中途抛出：${String(err?.message ?? err)}`, false, String(err?.stack ?? '').split('\n').slice(0, 6).join('\n'))
   } finally {

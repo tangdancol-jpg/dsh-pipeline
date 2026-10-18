@@ -711,6 +711,7 @@ export function buildFlowTools(ctx) {
       task_id: S('string', '任务 ID'),
       note: S('string', '关单备注（可空）'),
       role_token: S('string', '角色令牌'),
+      dry_run: S('boolean', '★ 只查缺口、不关单：一次列全所有前置条件缺口（关单失败时也会自动附上完整清单）'),
     },
     output: {
       ok: S('boolean', '是否成功'),
@@ -721,13 +722,52 @@ export function buildFlowTools(ctx) {
     async run(args, exec) {
       const actor = resolveActor(args, exec, deps)
       if (actor.ok !== true) return { ok: false, summary: actor.error, artifact_version: '', review_ok: '' }
+      const taskId = String(args.task_id ?? '')
+
+      // ★★ **缺口清单的两种用法**（2026-10-18 测试报告 P1-6）：
+      //   · `dry_run:true` ⇒ 只预演，不关单、不改状态；
+      //   · 关单失败时 ⇒ 把"完整缺口清单"附在拒绝理由后（改前一次只报一个缺口，
+      //     主对话要往返 3 轮、每轮新派一个席位等 3–10 分钟）。
+      //   判据只有一个来源：`store.closeGaps`（内部复用 `close_gates` 的同一份闸门清单）。
+      const firstLine = (s) => String(s ?? '').split('\n').find((x) => x.trim().length > 0) ?? ''
+      const formatGaps = (gaps) =>
+        gaps.length === 0
+          ? '（没有缺口）'
+          : `\n\n★ **完整缺口清单（一次列全，共 ${gaps.length} 项）**：\n` +
+            gaps.map((g, i) => `  ${i + 1}) [${g.code}] ${firstLine(g.error)}`).join('\n') +
+            '\n（逐条照着补：每项都带它自己的下一步；补完再调一次即可。）'
+
+      const task0 = await load(taskId)
+      if (args.dry_run === true) {
+        if (task0 === null) return { ok: false, summary: `找不到任务 ${taskId}。`, artifact_version: '', review_ok: '' }
+        const gaps = await store.closeGaps(task0)
+        return {
+          ok: gaps.length === 0,
+          artifact_version: '',
+          review_ok: '',
+          summary:
+            gaps.length === 0
+              ? `预演：任务 ${task0.id} 的关单前置条件**全部满足**，可以直接 pipeline_close。`
+              : `预演：任务 ${task0.id} 现在**还关不了单** —— 还缺 ${gaps.length} 项前置条件。` + formatGaps(gaps),
+        }
+      }
+
       const res = await store.close({
-        taskId: String(args.task_id ?? ''),
+        taskId,
         actorRole: actor.role,
         note: typeof args.note === 'string' ? args.note : '',
         actorAgentId: actor.agentId,
       })
-      if (res.ok !== true) return { ok: false, summary: res.error, artifact_version: '', review_ok: '' }
+      if (res.ok !== true) {
+        let gaps = []
+        try {
+          const t = task0 ?? (await load(taskId))
+          if (t !== null) gaps = await store.closeGaps(t)
+        } catch {
+          gaps = []
+        }
+        return { ok: false, summary: String(res.error) + formatGaps(gaps), artifact_version: '', review_ok: '' }
+      }
       indexTask(res.task.id, res.task)
       const n = tokens.revokeTask(res.task.id)
       return {

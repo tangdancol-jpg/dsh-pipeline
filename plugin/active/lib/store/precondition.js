@@ -29,6 +29,24 @@ import { DEMO_GATE_GUARD, DEMO_ROUND_GUARD } from '../guard/demo-gate.js'
  * 返回的方法由 `createTaskStore` 原位展开进同一个对象，方法里的 `this` 仍指向那个对象。
  * @param {object} ctx - `createTaskStore` 闭包里本组用到的名字（由 `lib/store.js` 原位传入）
  */
+/**
+ * ★★ **关单的全部闸门清单**（顺序有讲究：安全否决排在最前 —— 它优先于审核 OK）。
+ *
+ * 为什么抽成常量：`pipeline_close` 失败时要把**所有**缺口一次列全（2026-10-18 测试报告 P1-6：
+ * 改前一次只报一个缺口，主对话要往返 3 次、每次新派一个席位）。单个清单既是执行顺序，
+ * 也是 {@link closeGaps} 的遍历来源 —— 两处**同一份**，不会漂移。
+ */
+export const CLOSE_GATE_GUARDS = Object.freeze([
+  'review_ok_exists',
+  'security_not_blocked',
+  'security_attested',
+  'diagram_delivered',
+  'role_products_delivered',
+  // ★ T-20261011-56a37e：第④道（审核通过 → 主管+需求位**双确认**）。排在最后是刻意的：
+  //   先让既有的四道闸把话说清楚，再报"还缺谁的确认"。
+  'hub_station_review_confirm',
+])
+
 export function preconditionMethods(ctx) {
   const {
     maxRework,
@@ -599,17 +617,14 @@ export function preconditionMethods(ctx) {
         case 'close_gates': {
           // 顺序是有讲究的：**安全否决排在最前** —— 它优先于审核 OK，那也该最先判。
           // （否则一份"审核说没问题"的结论会先撞上别的闸，反而看不到真正的原因。）
-          for (const g of ['review_ok_exists', 'security_not_blocked', 'security_attested', 'diagram_delivered', 'role_products_delivered',
-            // ★ T-20261011-56a37e：第④道（审核通过 → 主管+需求位**双确认**）。
-            //   排在最后是刻意的：先让既有的四道闸把话说清楚，再报"还缺谁的确认" ——
-            //   否则一份还没审完的单会先撞上"确认不齐"，看到的理由就错了。
-            //   对未启用枢纽的任务它是**弃权**的（既有链强度一个字节没减）。
-            'hub_station_review_confirm']) {
+          // ★ 清单在模块常量 {@link CLOSE_GATE_GUARDS}（`closeGaps` 用同一份）。
+          for (const g of CLOSE_GATE_GUARDS) {
             const r = await this.checkPrecondition(task, g, input)
             if (r.ok !== true) return r
           }
           break
         }
+
 
         // ★「审核必须确认网络安全/本地泄密是否发生」—— 判据落在**有效审核结论**的 security 段上。
         //
@@ -856,5 +871,27 @@ export function preconditionMethods(ctx) {
       }
       return { ok: true }
     },
+
+      /**
+       * ★★ **关单缺口清单**（2026-10-18 测试报告 P1-6）：把 `close_gates` 的每一道闸都跑一遍，
+       * **不早退**，把所有缺口一次列全。
+       *
+       * 为什么要有它：改前 `pipeline_close` 每次只报第一个缺口（缺 security_review →
+       * 补完再报缺 architecture_diagram → 再报缺 release_plan/docs_note/perf_report），
+       * 主对话要往返 3 轮、每轮新派一个席位等 3–10 分钟。这里**只读**、不改状态，
+       * 供 `pipeline_close` 在失败时（或 dry_run）把"完整缺口清单"一次说清。
+       *
+       * @param {object} task
+       * @param {object} [input]
+       * @returns {Promise<Array<{guard:string, code:string, error:string}>>}
+       */
+      async closeGaps(task, input = {}) {
+        const gaps = []
+        for (const g of CLOSE_GATE_GUARDS) {
+          const r = await this.checkPrecondition(task, g, input)
+          if (r.ok !== true) gaps.push({ guard: g, code: String(r.code ?? ''), error: String(r.error ?? '') })
+        }
+        return gaps
+      },
   }
 }

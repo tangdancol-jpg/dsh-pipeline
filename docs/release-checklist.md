@@ -12,9 +12,10 @@
 | 客户端入口 | `plugin/active/lib/client.js` **375 行** |
 | 客户端 chunk | **18 个** `client.panel-*.js`；入口 + chunk 共 **19 个文件、4743 行** |
 | 单文件大小 | **无死限、无登记**（大小是信号不是死限）；体检报告只列"超过 400 行的文件"给人看，永远全绿、不判红（`tests/file-size-check.mjs`） |
-| 全量自测 | **3701/3701**、**113 套**（设了 `DSH_APP_ASAR`） |
+| 全量自测 | **3805/3805**、**116 套**（设了 `DSH_APP_ASAR`） |
 | 面板相关套件 | `client-check` 30 / `panel-ui-check` 14 / `panel-portal-check` 3 / `panel-snapshot-check` 74 / `panel-actions-check` 99 |
 | 文件规模提醒 | >150 / >300 / ≥400 由**程序自动发起**询问（`size-reminder-check` 20/20；阈值可配 `sizeReminder.*`） |
+| 修复批次回归（2026-10-18） | `f24-browser-profile-guard-check` 33/33 · `f25-hashgate-attribution-check` 25/25 · `f26-liveness-approval-check` 40/40 |
 
 ---
 
@@ -24,7 +25,7 @@
 $patterns = [ordered]@{
   '375'       = '375'
   '4743'      = '4743'
-  '3701'      = '3701/3701'
+  '3805'      = '3805/3805'
   '112'       = '112'
   '18 chunk'  = '18\s*(个|個|chunks?|chunk)'
   '19 files'  = '19\s*(个文件|個のファイル|ファイル|files?|файл)'
@@ -37,7 +38,7 @@ foreach ($f in 'README.md','README.en-US.md','README.ja.md','README.ru.md') {
 }
 ```
 
-- 通过标准：四份都出现 `375`、`4743`、`18 chunk`、`19 files`、`3701/3701`、`112` 与
+- 通过标准：四份都出现 `375`、`4743`、`18 chunk`、`19 files`、`3805/3805`、`112` 与
   「大小是信号不是死限（`file-size-check`）」的说明；
   章节编号一致（部署 / 插件源码 / 控制面板 / DSH 插件声明 / 文档 / 校验 / 开源协议与出处 / 文档索引）。
 - 同时反查旧说法是否还有残留：
@@ -121,13 +122,16 @@ $env:DSH_APP_ASAR = '<DSH 安装>\resources\app.asar'   # 预设 / 宿主 schema
 node tests\run-all.mjs
 ```
 
-- 通过标准：`3701/3701 通过（113 套）`，退出码 0；结果落在 `tests/last-run.txt`。
+- 通过标准：`3805/3805 通过（116 套）`，退出码 0；结果落在 `tests/last-run.txt`。
 - 不设 `DSH_APP_ASAR` 时会有 3 条预置校验判红（环境面）；这类红要在 PR 里写明，不能当成通过。
 - 单套复跑：`node tests\client-check.mjs` / `node tests\panel-ui-check.mjs` /
   `node tests\panel-portal-check.mjs` / `node tests\panel-snapshot-check.mjs` /
   `node tests\panel-actions-check.mjs`，各自应分别 30/30、14/14、3/3、74/74、99/99。
 - 文件规模体检（只报告，不是死限）：`node tests\file-size-check.mjs` → **7/7**（永远全绿）。
 - 文件规模提醒：`node tests\size-reminder-check.mjs` → **20/20**（三档阈值/文案/去重/注入形状）。
+- 修复批次回归（2026-10-18）：`node tests\f24-browser-profile-guard-check.mjs` **33/33** ·
+  `node tests\f25-hashgate-attribution-check.mjs` **25/25** ·
+  `node tests\f26-liveness-approval-check.mjs` **40/40**。
 
 ---
 
@@ -184,6 +188,19 @@ git status --porcelain
 
 - 通过标准：**空输出**（所有改动都已提交；清单重算也包含在内）。顺手确认 `git diff --stat` 里没有
   计划外文件；涉及代码的轮次还要核对 `lib/*.js` 与 `tests/*-check.mjs` 是否都在计划内（文档轮不该动）。
+
+---
+
+## 9.5 ★ 推送前必须得到用户明确同意（2026-10-18 用户口径）
+
+```text
+本地 commit 可以做；git push 之前必须问用户，得到明确同意才推。
+```
+
+- 为什么：这是**用户自己的公开仓库**，什么时候把本地一批修复放出去、要不要先自己看一遍，
+  是用户的决定，不是发布纪律能替代的；
+- 本清单第 1–9 步全部通过 = **可推的候选**，不等于"现在推"；
+- 用户同意后：推完把 `main` 与 `origin/main` 的 sha 对照发出来（一条消息即可），不要静默推。
 
 ---
 

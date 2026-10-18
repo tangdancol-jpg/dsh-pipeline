@@ -10,6 +10,8 @@
 import { toStringArray } from '../util.js'
 import { looksLikeRawSecret } from '../security.js'
 import { validateSeatHandover } from '../context.js'
+// ★ P1-9：`foreign_paths_ack` 的**上限**与判据码从唯一出处取（不在校验层手抄一份数字）。
+import { FOREIGN_ACK_MAX } from '../hashgate.js'
 import {
   detectCodeInHumanText,
   looksLikeQuestion,
@@ -186,6 +188,44 @@ export function validateHandoff(kind, payload) {
       }
       if (sid.length === 0) errors.push(`change_manifest[${i}].scope_id 必填（指向计划里那条授权）`)
     })
+  }
+
+  // --- ★★ P1-9：外来路径显式确认（`foreign_paths_ack`）的**形状**校验 ----------
+  //
+  //   这里只判形状（逐条 path/reason、上限、不许通配/目录）—— "它够不够格被排除出
+  //   本席的声明对账"是**归属判据**，要读任务的分区表与改动审计 ⇒ 判据本体在
+  //   `lib/hashgate/foreign-ack.js`，由 store 在闸门判定之前调用。
+  if (kind === 'dev_to_test' && Array.isArray(normalized.foreign_paths_ack)) {
+    const ack = normalized.foreign_paths_ack
+    const normalizedAck = []
+    if (ack.length > FOREIGN_ACK_MAX) {
+      errors.push(
+        `foreign_paths_ack 有 ${ack.length} 条，超过上限 ${FOREIGN_ACK_MAX} 条 —— ` +
+          '外来路径确认是**逐条点名本次变化**的声明，不是"扫一片"。',
+      )
+    }
+    ack.slice(0, FOREIGN_ACK_MAX).forEach((a, i) => {
+      const path = typeof a?.path === 'string' ? a.path.trim() : ''
+      const reason = typeof a?.reason === 'string' ? a.reason.trim() : ''
+      if (path.length === 0) {
+        errors.push(`foreign_paths_ack[${i}].path 必填（点名是哪一条路径，写法与改动审计里的路径一致）`)
+      } else if (/[*?]/.test(path)) {
+        errors.push(
+          `foreign_paths_ack[${i}].path=「${path}」含通配符 —— 必须逐条点名**具体文件**。\n` +
+            '★ 通配会变成"一次确认一整片"，等于把归属判据关掉；这条通道只认本次真有变化的具体路径。',
+        )
+      } else if (/[\\/]$/.test(path) || path === '.') {
+        errors.push(`foreign_paths_ack[${i}].path=「${path}」看起来是目录 —— 外来路径确认只针对**具体文件**。`)
+      }
+      if (reason.length === 0) {
+        errors.push(
+          `foreign_paths_ack[${i}].reason 必填 —— 写清**凭什么**这不是你的改动（例如"属于 writer#1 的分区，本席未改动"）。\n` +
+            '★ 这句话会进 `verdict.acknowledged_foreign` 与 `gate:hash` 审计：事后要能照着它核对。',
+        )
+      }
+      normalizedAck.push({ path, reason })
+    })
+    if (normalizedAck.length > 0) normalized.foreign_paths_ack = normalizedAck
   }
 
   // --- ★设计目的：编写不得产出测试结论 --------------------------------------

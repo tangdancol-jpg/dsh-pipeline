@@ -5,9 +5,14 @@
  * 「审核必须确认网络安全/本地泄密是否发生」—— 这个模块把那条要求变成**可执行的扫描**，
  * 而不是验收标准里的一行字。
  *
- * ## 两条面
+ * ## 三条面
  *   · **local_leak**（本地泄密）：密钥/凭证/隐私是否出现在**不该出现的地方**
  *     （制品、报告、日志、收据、audit.jsonl）
+ *   · **credential_store**（凭证落盘，P0-2 新增）：工作区里是不是躺着**浏览器 Profile
+ *     的凭证库 / 隐私数据**（Cookies / Login Data / Web Data / Local State / History /
+ *     Bookmarks / Vpn Tokens / `*.sqlite` / `edge-profile*` / `User Data` …）。
+ *     ★ 它是**按路径认**的：那些文件是二进制 SQLite，原来的文本扫描根本看不见；
+ *     而"按内容认"会把几百 MB 读一遍（扫描器自己成了资源消耗点）。
  *   · **network**（网络面）：产物/脚本/依赖里有没有**外联地址**，有没有**未解释**的外联，
  *     有没有**凭证出现在出网请求里**
  *
@@ -32,6 +37,9 @@ import { readFile, readdir, stat } from 'node:fs/promises'
 import { basename, join, relative } from 'node:path'
 
 import { isInside, pathKey } from './util.js'
+// ★★ P0-2：浏览器 profile / 凭证库的**路径**识别 —— 唯一出处是 `guard/credential-paths.js`，
+//    与守门（`guard/browser-profile.js`）共用同一份名单，不在这里另写一套（两份必然漂移）。
+import { classifyBrowserProfileDirName, classifyCredentialFileName } from './guard/credential-paths.js'
 
 // ---------------------------------------------------------------------------
 // 一、模式表
@@ -141,9 +149,21 @@ const SKIP_FILES = /^baseline-BL-[\w-]+\.json$/
 const TEXT_EXT = /\.(json|jsonl|md|txt|log|js|mjs|cjs|ts|tsx|jsx|py|go|rs|java|yml|yaml|toml|ini|cfg|conf|sh|ps1|sql|csv|html|htm|xml|env|pem|key|crt)$/i
 
 /**
- * 走一遍目录，收集要扫的文件（**只在这棵树里走**）。
+ * 走一遍目录，收集要扫的文件（**只在这棵树里走**），顺手收集**凭证落盘**命中。
+ *
+ * ★ P0-2：凭证库是**二进制 SQLite**，而且「浏览器 profile 目录」可能几百 MB ——
+ * 所以必须在**遍历时按路径认**，不能等读内容再判：
+ *   · 目录名命中 profile 目录标记（`User Data` / `edge-profile*` / `google-chrome` …）
+ *     ⇒ 记一条命中，并且**不再向下遍历**（既省掉几百 MB 的读取，也不去碰里面的会话数据）；
+ *   · 文件名命中凭证名 / 凭证扩展名（`Cookies` / `Login Data` / `*.sqlite` …）⇒ 记一条命中。
+ *
+ * @param {string} root
+ * @param {string[]} acc - 收集到的**文本**文件（照旧走内容扫描）
+ * @param {number} [depth]
+ * @param {Array<{abs:string, kind:string, matched:string, why:string}>|null} [storeHits]
+ *   - 凭证落盘命中（`null` = 不收集，行为与改前一致）
  */
-async function collectFiles(root, acc, depth = 0) {
+async function collectFiles(root, acc, depth = 0, storeHits = null) {
   if (depth > 6 || acc.length >= MAX_FILES) return
   let entries
   try {
@@ -154,9 +174,21 @@ async function collectFiles(root, acc, depth = 0) {
   for (const e of entries) {
     if (acc.length >= MAX_FILES) return
     const p = join(root, e.name)
+    if (storeHits !== null) {
+      if (e.isDirectory()) {
+        const hit = classifyBrowserProfileDirName(e.name)
+        if (hit !== null) {
+          storeHits.push({ abs: p, kind: hit.kind, matched: hit.matched, why: hit.why })
+          continue // 命中目录即整个跳过：不再向下读（二进制、几百 MB、且属于隐私数据）
+        }
+      } else if (e.isFile()) {
+        const hit = classifyCredentialFileName(e.name)
+        if (hit !== null) storeHits.push({ abs: p, kind: hit.kind, matched: hit.matched, why: hit.why })
+      }
+    }
     if (e.isDirectory()) {
       if (SKIP_DIRS.has(e.name)) continue
-      await collectFiles(p, acc, depth + 1)
+      await collectFiles(p, acc, depth + 1, storeHits)
     } else if (e.isFile()) {
       // 只扫文本类；`audit.jsonl` / `task.json` 没有扩展名特征，但都被 json 覆盖
       if (SKIP_FILES.test(e.name)) continue
@@ -343,8 +375,37 @@ export async function runSecurityScan(input) {
   }
 
   const files = []
-  for (const r of roots) await collectFiles(r, files)
+  /** ★ P0-2：遍历时按**路径**收集到的浏览器 profile / 凭证库命中。 */
+  const storeHits = []
+  for (const r of roots) await collectFiles(r, files, 0, storeHits)
   const uniq = [...new Set(files.map((f) => pathKey(f)))]
+
+  /**
+   * ★★ P0-2：凭证落盘命中（`credential_store` 面）。
+   *
+   * 它是**一等命中**：进 `finding_count`，所以 `attestation` 不会再是 clean。
+   * 但摘要里**只给"哪个文件 / 目录命中哪一类"**（文件内容一个字节都不读、不回显）——
+   * 与 `local_leak` 的打码口径同一条：工具自身不得成为泄密渠道。
+   */
+  const storeFindings = []
+  const seenStore = new Set()
+  for (const h of storeHits) {
+    const key = pathKey(h.abs)
+    if (seenStore.has(key)) continue
+    seenStore.add(key)
+    storeFindings.push({
+      file: relative(pathKey(projectRoot), h.abs).replace(/\\/g, '/') || String(h.abs),
+      line: 0,
+      type: h.kind,
+      category: 'credential_store',
+      severity: 'high',
+      why:
+        h.kind === 'browser_profile_dir'
+          ? `${h.why} —— 里面是 Cookies / Login Data / Local State 等真实登录态，不该出现在交付工作区`
+          : `${h.why} —— 属于用户真实登录态，不该出现在交付工作区`,
+      matched: String(h.matched ?? ''),
+    })
+  }
 
   const scan = await scanFiles({
     files: uniq,
@@ -353,7 +414,7 @@ export async function runSecurityScan(input) {
     requirement: `${task.requirement ?? ''} ${(task.roster?.acceptance ?? []).join(' ')}`,
   })
 
-  const total = scan.local_leak.findings.length + scan.network.findings.length
+  const total = scan.local_leak.findings.length + scan.network.findings.length + storeFindings.length
   return {
     ok: true,
     task_id: task.id,
@@ -367,6 +428,14 @@ export async function runSecurityScan(input) {
       boundary: '只扫本任务工作区（.pipeline/<taskId>/ 与显式给出的、落在项目根内的路径）；不遍历用户其它目录。',
     },
     local_leak: scan.local_leak,
+    credential_store: {
+      findings: storeFindings,
+      /**
+       * ★ 这条边界要写在结果里：profile 目录命中后**不再向下读**。
+       * 理由：里面是二进制 SQLite 与几百 MB 隐私数据，内容扫描既没用又危险。
+       */
+      boundary: '凭证库按**路径**认（文件名 / 目录段），不读内容；浏览器 profile 目录命中后不再向下遍历。',
+    },
     network: scan.network,
     hosts_allowed: scan.hosts_allowed,
     finding_count: total,
@@ -400,6 +469,27 @@ export function renderScanSummary(scan) {
       // ★ 只写"哪个文件第几行命中了哪一类"，**不回显原文**
       lines.push(`  · ${f.file} 第 ${f.line} 行命中 ${f.type}（${f.severity}）　${f.preview}`)
       lines.push(`      ${f.why}`)
+    }
+  }
+  lines.push('')
+
+  /**
+   * ★★ P0-2：**凭证落盘**面（一等命中，不是外联假阳性）。
+   *
+   * 只给「哪个文件 / 目录命中哪一类」—— 这类发现本来就不看内容（二进制 SQLite），
+   * 所以摘要里连打码片段都没有：命中信息**只有路径与类型**。
+   */
+  const cred = Array.isArray(scan.credential_store?.findings) ? scan.credential_store.findings : []
+  lines.push(`【凭证落盘】命中 ${cred.length} 处`)
+  if (cred.length === 0) {
+    lines.push('  （未见浏览器 Profile / 凭证库文件）')
+  } else {
+    for (const f of cred) {
+      lines.push(`  ✗ ${f.file} 命中 ${f.type}（${f.severity}）`)
+      lines.push(`      ${f.why}`)
+    }
+    if (typeof scan.credential_store?.boundary === 'string' && scan.credential_store.boundary.length > 0) {
+      lines.push(`      边界：${scan.credential_store.boundary}`)
     }
   }
   lines.push('')

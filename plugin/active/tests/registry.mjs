@@ -298,4 +298,11 @@ export const EXTRA_SUITES = [
   //    钉住：阈值边界、三档文案关键词、只观察写类工具/代码文件、同档只问一次、每步最多 2 条、
   //    `seatOf=null` 直通、`enabled:false` 不做事。
   { file: './size-reminder-check.mjs', exportName: 'runSizeReminderCheck', zh: '★ 文件规模提醒（150/300/400 三档程序自动发起询问；去重 / 过滤 / 注入形状 / 不改工具结果）' },
+  // ★★ 2026-10-18 测试报告修复批次（P0-2 / P1-9 / P1-4）：
+  //  · f24：浏览器 Profile / 凭证数据不得进工作区（守门判据 + security_check 一等命中）；
+  //  · f25：hash 闸门把「别的席位早就在基线的文件」误判成 undeclared_change（foreign_paths_ack 归属确认）；
+  //  · f26：liveness 分不清"死了"与"在等审批"（approval/asked 无配对 decided ⇒ awaiting_approval，不冻结）。
+  { file: './f24-browser-profile-guard-check.mjs', exportName: 'runF24BrowserProfileGuardCheck', zh: '★ P0-2 浏览器 Profile / 凭证数据卫生（写类工具 + shell 复制都拦；security_check 一等命中且不回显原文）' },
+  { file: './f25-hashgate-attribution-check.mjs', exportName: 'runF25HashgateAttributionCheck', zh: '★ P1-9 hash 闸门归属（基线已有他人文件不误报；本次新增未声明仍报；foreign_paths_ack 只对点名路径生效）' },
+  { file: './f26-liveness-approval-check.mjs', exportName: 'runF26LivenessApprovalCheck', zh: '★ P1-4 liveness 审批态（asked 无 decided ⇒ awaiting_approval，不冻结不改状态；真死活/读不到照旧判失联）' },
 ]

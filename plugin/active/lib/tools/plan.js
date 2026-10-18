@@ -8,11 +8,16 @@
  */
 
 import { HUMAN_URGENCIES } from '../handoff.js'
-import { ROLE, roleLabel } from '../roles.js'
+import { ROLE, ROLES, roleLabel } from '../roles.js'
 import { renderRequirementDoc } from '../context.js'
 import { NONFINITE_BOUNDARY_HINT, boundaryHintLine } from '../intake/boundary-hints.js'
 import { TIER_ORDER, buildRoster } from '../tiers.js'
 import { toStringArray } from '../util.js'
+// ★★ 分区覆盖校验（2026-10-18 测试报告 P0-1）：授权面里的每条路径必须**有主** ——
+//    要么落在某个编写分区的 `scope_paths` 下，要么显式写 `owner_role`（非编写归属）。
+//    判据与守门**同源**：直接复用 `owningSeat` / `resolveScopeAnchor`，不在计划侧另抄一份路径匹配。
+import { owningSeat, resolveScopeAnchor } from '../guard/seats.js'
+import { resolveScopePath } from '../scope/root-marker.js'
 // ★★ 长入参通道（`spec_path`）：字段说明的唯一出处在这儿，别在 schema 里另抄一份。
 import { ARGS_FILE_DOC } from './args-file.js'
 import { S, tool, resolveActor } from './kit.js'
@@ -185,6 +190,102 @@ export function buildPlanTools(ctx) {
       }
       if (typeof args.reason !== 'string' || args.reason.trim().length === 0) {
         return { ...empty, summary: '分配必须给 reason —— 每次判断都要有理由记录、可追溯。' }
+      }
+
+      // ★★ **P0-1 分区覆盖校验**（2026-10-18 测试报告）：授权面里的每条路径必须"有主"。
+      //
+      //   现场（真机 T-20261018 单）：`change_scope` 里有 README / CHANGES / selftest 三件，
+      //   而 `writers.partitions[].scope_paths` 只覆盖了 7 个代码文件 —— 守门的两道判据
+      //   （分区 owner + change_scope）要求**同时命中**，于是 `owningSeat()` 返回 null ⇒
+      //   **任何编写席位都写不进去**；计划位步骤 11 又要求"文档由界面层席位落盘" ——
+      //   计划自相矛盾，而机制没有任何一处会指出来。更糟：分配已经完成、状态已进「待开发」，
+      //   `pipeline_plan` 只能在「计划中」提交 ⇒ 中途无法修复，书面交付物永远落不了地。
+      //
+      //   判据（与守门**同源**，不另抄路径匹配）：
+      //     每条 `change_scope` 必须 ① 落在某个编写分区的 `scope_paths` 路径内；
+      //     或 ② 显式写 `owner_role: "<角色>"`（非编写归属，例如文档由 docs 角色落盘）。
+      //   不满足 ⇒ **不分配 AI**，并一次性列出所有"没主"的路径 + 现有分区范围。
+      // ★ 只在 writers 本身合法时做覆盖校验：非法分区（缺 layers / 重复层 / 缺 scope_paths /
+      //   超过 6 席）先交给下面的既有判据去报它们自己的错，避免"新校验抢占旧判据"。
+      const writersProbe =
+        args.writers === undefined
+          ? null
+          : buildRoster({
+              tier: args.tier,
+              reason: String(args.reason ?? '计划自检'),
+              judgedBy: 'planner',
+              extraRoles: Array.isArray(args.extra_roles) ? args.extra_roles : [],
+              l0OrchestratorSeparate: config.l0OrchestratorSeparate === true,
+              writers: args.writers,
+              relayPolicy: args.relay_policy,
+            })
+      if (selfCheck.verdict === 'ok' && planPayload.change_scope.length > 0 && (writersProbe === null || writersProbe.ok === true)) {
+        const parts = Array.isArray(args.writers?.partitions)
+          ? args.writers.partitions.filter((p) => p !== null && typeof p === 'object')
+          : []
+        if (parts.length > 0) {
+          const anchor = resolveScopeAnchor(String(task.scope_anchor ?? config.changeScopeAnchor ?? ''), { projectRoot: task.project_root })
+          const uncovered = []
+          const badOwner = []
+          for (const e of planPayload.change_scope) {
+            const raw = String(e?.path ?? '').trim()
+            if (raw.length === 0) {
+              uncovered.push({ path: '（空路径）', why: 'path 为空' })
+              continue
+            }
+            const ownerRole = String(e?.owner_role ?? '').trim()
+            if (ownerRole.length > 0) {
+              const r = ROLES[ownerRole]
+              if (r === undefined) badOwner.push({ path: raw, role: ownerRole })
+              else if (r.writes !== 'workdir') {
+                // ★ 只有 writes: 'workdir' 的角色才真的能写这条路径（writer / tester）。
+                //   docs / release / security 之类是 own-dir（只能写自己的报告目录），
+                //   owner_role 写成它们 = 换一个"看着有主、实际写不了"的假出口。
+                uncovered.push({ path: raw, why: `owner_role=${ownerRole} 的写面是 ${r.writes}（只能写自己的报告目录），覆盖不了这条路径` })
+              }
+              continue
+            }
+            let abs = raw
+            try {
+              abs = resolveScopePath(raw, { anchor, projectRoot: task.project_root })
+            } catch {
+              abs = raw
+            }
+            if (owningSeat(parts, abs, anchor, task.project_root) === null) {
+              uncovered.push({ path: raw, why: '没有编写分区的 scope_paths 覆盖它，也没有 owner_role' })
+            }
+          }
+          if (badOwner.length > 0) {
+            return {
+              ...empty,
+              summary:
+                `拒绝分配：授权面里有 ${badOwner.length} 条写了**未知的 owner_role** —— **不会分配 AI**。\n` +
+                badOwner.map((x) => `  · ${x.path} → owner_role=「${x.role}」`).join('\n') +
+                `\n合法角色：${Object.keys(ROLES).join(' / ')}` +
+                '\n★ `owner_role` 的意思：这条路径的主人**不是编写席位**（例如文档由 docs 角色落盘）——' +
+                '它会让守门不再要求"编写分区覆盖"，所以角色名必须是真实存在的那一个。',
+            }
+          }
+          if (uncovered.length > 0) {
+            return {
+              ...empty,
+              summary:
+                `拒绝分配：授权面（change_scope）里有 ${uncovered.length} 条路径**没有主人** —— **不会分配 AI**。\n` +
+                uncovered.map((x) => `  · ${x.path}：${x.why}`).join('\n') +
+                `\n现有编写分区（${parts.length} 个）：\n` +
+                parts
+                  .map((p) => `  · ${String(p.seat ?? '(未命名席位)')}：${Array.isArray(p.scope_paths) ? p.scope_paths.join('、') : '(空)'}`)
+                  .join('\n') +
+                '\n★ 为什么在计划这一站就拒：守门要求"分区 owner + change_scope **同时命中**"才能写。' +
+                '授权面有、分区没有 ⇒ **任何编写席位都写不进去**，而分配之后再改计划只能走重排，' +
+                '书面交付物会永远缺位。\n' +
+                '两条出路（选一条）：\n' +
+                '  ① 把该路径所在目录加进某个分区的 `scope_paths`（或缩小到具体文件）；\n' +
+                '  ② 这条路径确实不该由编写席位写 ⇒ 在 change_scope 条目上写 `owner_role: "<角色>"`' +
+                '（例如 `{ id, path, action, why, owner_role: "docs" }`）。',
+            }
+          }
+        }
       }
 
       // ★★ **B13：计划的角色边界卡必须覆盖清单里每一个执行角色（在计划这一站就判死）**。

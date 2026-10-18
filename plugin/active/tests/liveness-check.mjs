@@ -769,6 +769,15 @@ export async function runLivenessCheck() {
       JSON.stringify(before.rework) === JSON.stringify(after.rework),
       `rework：${JSON.stringify(before.rework)} → ${JSON.stringify(after.rework)}`,
     )
+    // ★★ 2026-10-18 测试报告 P1-5：重派必须**吊销旧席位令牌** —— 否则旧会话还在活动，
+    //    两个 tester 会同时写同一目录（现场：`tester-results.jsonl` 属另一个会话，结论可能互相矛盾）。
+    rec.add(
+      'E 事故回放',
+      '★★ 正例：重派**吊销旧席位令牌**（旧会话之后的写会被守门以"没有身份"拒掉，不会双写）',
+      h1.tokens.roleOfAgent(before.dispatched[0].agent_id) === null && out5.token !== '',
+      `旧 agent=${before.dispatched[0].agent_id}　roleOfAgent=${JSON.stringify(h1.tokens.roleOfAgent(before.dispatched[0].agent_id))}\n` +
+        `新令牌=${String(out5.token).slice(0, 8)}…（旧令牌已撤，新令牌可用）`,
+    )
 
     // --- E6 reassign 对**非阻塞**任务不误伤 ---
     const { h: h6, taskId: t6 } = await analyzingFixture()

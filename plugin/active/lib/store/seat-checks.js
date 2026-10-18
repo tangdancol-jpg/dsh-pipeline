@@ -11,8 +11,8 @@ import { createHash } from 'node:crypto'
 import { isAbsolute, join, resolve } from 'node:path'
 import { ROLES_CAN_RAISE_HUMAN, ST } from '../states.js'
 import { ROLE } from '../roles.js'
-import { nowIso, pathKey } from '../util.js'
-import { hashGateEscalationPending, renderHashGateEscalation, shouldEscalateHashGate } from '../hashgate.js'
+import { isInside, nowIso, pathKey } from '../util.js'
+import { hashGateEscalationPending, renderHashGateEscalation, shouldEscalateHashGate, vetForeignPathsAck } from '../hashgate.js'
 import { writeJsonAtomic, writerSeatsOf, seatPartitionOf } from './shared.js'
 
 /**
@@ -21,7 +21,7 @@ import { writeJsonAtomic, writerSeatsOf, seatPartitionOf } from './shared.js'
  * @param {object} ctx - `createTaskStore` 闭包里本组用到的名字（由 `lib/store.js` 原位传入）
  */
 export function seatCheckMethods(ctx) {
-  const { hashGateEscalateAfter, now, handoffDir, audit, deny, persist } = ctx
+  const { hashGateEscalateAfter, now, handoffDir, audit, deny, persist, scopeAbsKey, baselineAbsKey } = ctx
 
   return {
     /** 把一份交接物记录追加进任务并落盘。 */
@@ -88,6 +88,41 @@ export function seatCheckMethods(ctx) {
           scope_paths: part?.scope_paths ?? ['.'],
         },
       }
+    },
+
+    /**
+     * ★★ P1-9：核 `dev_to_test` 的「外来路径显式确认」（`foreign_paths_ack`）。
+     *
+     * 判据本体是**纯函数** `lib/hashgate/foreign-ack.js` 的 `vetForeignPathsAck`
+     * （五条硬判据：本次真有变化 / 不是本席分区 / 是别的编写席位分区 / 不是越界 / 删除类不适用）。
+     * 这里只做三件**接线**：
+     *   ① 从任务取本席与别的编写席位的分区范围（唯一事实来源是 `writerSeatsOf` / `seatPartitionOf`）；
+     *   ② 给路径归一化器 —— **与哈希闸门同一套坐标系**（授权面用 `scopeAbsKey`、审计路径用 `baselineAbsKey`）；
+     *   ③ 把 `changeAudit()` 的结果原样传进去（判据 ①④ 要读它的 added/modified/unauthorized）。
+     *
+     * ⚠️ 这是**闸门判定之前**的一道用法校验：不合格 ⇒ 整次提交被拒（码见 `FOREIGN_ACK_CODES`），
+     *    不写台账、不进"连续不过"计数 —— 那是形状/用法错误，不是"改动面对不上"。
+     *
+     * @param {object} task
+     * @param {object} input
+     * @param {object[]} input.ack - 已过形状校验的 `foreign_paths_ack`
+     * @param {string|null} [input.seat] - 本席（缺省按在册第一席，与 `checkSeatOwnership` 同口径）
+     * @param {object} input.audit - `changeAudit()` 的结果
+     * @returns {{ok:true, keys:string[], entries:object[]} | {ok:false, code:string, error:string}}
+     */
+    checkForeignPathsAck(task, input = {}) {
+      const ack = Array.isArray(input.ack) ? input.ack : []
+      if (ack.length === 0) return { ok: true, keys: [], entries: [] }
+      return vetForeignPathsAck({
+        ack,
+        seat: input.seat ?? null,
+        seats: writerSeatsOf(task),
+        partitionOf: (seat) => seatPartitionOf(task, seat),
+        audit: input.audit ?? null,
+        absOfDeclared: (p) => scopeAbsKey(p, task),
+        absOfTouched: (p) => baselineAbsKey(p),
+        isInside,
+      })
     },
 
     /**

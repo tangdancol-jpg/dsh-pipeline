@@ -199,6 +199,31 @@ export const HANDOFF_SCHEMAS = {
        *    那时它是弃权的（见 README「待确认项」P4）。
        */
       change_manifest: F('object[]', '★ 实际改动面 [{ path, action, scope_id, lines, note }] —— 有授权面时必填，且每条必须引用授权条目', { allowEmpty: true }),
+      /**
+       * ★★ **外来路径显式确认**（P1-9：多编写席位并行时的归属误报）。
+       *
+       * 现场：baseline 是**派活那一刻**取的；多个编写席位并行时，writer#2 交 `dev_to_test`
+       * 的那一刻，writer#1 先写进工作区的文件也在"基线以来的变化"里 —— 它不是 writer#2 改的，
+       * 却会被算成 writer#2 的"声明不实"（`undeclared_change`），连续几次还会触发
+       * "连续 N 次不过 ⇒ 机制自动交人工"，把任务推到「已阻塞」。
+       *
+       * 这个字段就是那条**显式的归属确认**：`[{ path, reason }]`
+       *   · `path`   本次相对基线**确实有变化**、且位于**别的编写席位**分区内的文件；
+       *   · `reason` 凭什么说它不是本席改的（例如"属于 writer#1 的分区，本席未改动"）。
+       *
+       * 判据（五条，缺一不可；实现见 `lib/hashgate/foreign-ack.js`）：
+       *   ① 本次真有变化 ② 不在本席分区内 ③ 是别的编写席位分区 ④ 不是越界改动 ⑤ 删除类不适用。
+       *
+       * ⚠️ 它被刻意**收得很紧**：不能把自己的改动洗成别人的（②）、不能给越界改动背书（④）、
+       *    不能提前"买保险"（①）—— 所以它只是"归属声明"的显式化，不是一道可以随手关掉的闸。
+       * ⚠️ 与 `change_manifest` 的分工：**本席自己改的**必须进 `change_manifest`（那是账），
+       *    别的席位改的进 `foreign_paths_ack`（那是确认）—— 把别人的写进自己的账才是更坏的事。
+       */
+      foreign_paths_ack: F(
+        'object[]',
+        '★ 外来路径显式确认 [{ path, reason }] —— 本次相对基线确有变化、但不属于本席（属于别的编写席位分区）的路径（多席并行时用；可选）',
+        { allowEmpty: true },
+      ),
     },
     required: ['task_id', 'artifact_version', 'patch_or_code', 'change_note', 'run_commands', 'selftest_result', 'known_issues'],
   },

@@ -29,6 +29,10 @@ import {
 } from './rules.js'
 import { scanCommandWithScripts } from './scripts.js'
 import { collectTargets, targetLine } from './targets.js'
+// ★★ P0-2（2026-10-18 自测问题清单第 2 条）：**浏览器 Profile / 凭证数据不得落进工作区**。
+//    判据本体在 `browser-profile.js`；分类名单与 `pipeline_security_check` 共用
+//    `credential-paths.js` 的同一份（不在这里另写一套）。
+import { browserProfileWriteRefusal } from './browser-profile.js'
 // ★★ 用户第 1 件（2026-10-16）：**能力额度闸**。
 //    「平常不许用 / 必要时应先向用户申请 / 批准后只放行一次」三句话全在
 //    `capability-gate.js` 里（分类 → 台账 → 消耗一次性额度）；本文件只留**接线**。
@@ -613,6 +617,31 @@ function decide(exec, deps) {
         const m = scanCommandWithScripts(cmd, task, binding.role, cfg)
         if (m !== null) return m
       }
+    }
+  }
+
+  // --- 5) ★★ P0-2：浏览器 Profile / 凭证数据不得落进流水线工作区 ----------
+  //
+  //   现场（2026-10-18 自测问题清单第 2 条）：测试席位把用户真实浏览器 Profile
+  //   （Cookies / Login Data / Web Data / Local State / History / Bookmarks / Vpn Tokens）复制进
+  //   工作区，报告实测 374.6 MB。这既是隐私泄露面，也让 `pipeline_security_check`
+  //   事后只能报"凭证落盘"（整单不能给 clean）。
+  //
+  //   判据：写类工具的**目标落在项目根内**，且目标路径像浏览器 profile 目录 /
+  //   凭证文件名 ⇒ 拒（文案给"脱敏夹具 / 临时空 profile"的下一步）。
+  //   ★ 对所有角色生效（含 writer）：数据卫生不是角色权限，是"不能发生的事"。
+  //   ★ 放在所有既有判据**之后**：既有拒绝原文一个字都不变（顺序是硬要求）。
+  if (binding !== null && cfg.guardBrowserProfile !== false && writeTools.includes(name)) {
+    const task = taskOf(binding.taskId)
+    if (task !== null) {
+      const targets = collectTargets(args, task.projectRoot).map((t) => t.path)
+      const reason = browserProfileWriteRefusal({
+        tool: name,
+        role: binding.role,
+        task,
+        targets,
+      })
+      if (reason !== undefined) return reason
     }
   }
 

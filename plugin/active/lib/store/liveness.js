@@ -15,10 +15,13 @@ import { describeRunFailures } from '../runfail.js'
 import {
   DEFAULT_SEAT_SILENCE_MS,
   LIVENESS_ACTIVITY_SOURCE,
+  approvalWaitSignature,
+  describeApprovalWait,
   describeSilentSeats,
   describeSuspectedFalsePositive,
   livenessSelfHeal,
   seatLiveness,
+  summarizeApprovalWait,
 } from '../liveness.js'
 import { sampleSessionActivity } from './shared.js'
 
@@ -49,7 +52,10 @@ export function livenessMethods(ctx) {
      *   （"查不到"和"没失联"是两件事 —— 静默 fail-open 就是假绿）。
      *
      * @param {string} taskId
-     * @param {{now?:number, escalate?:boolean, silenceMs?:number}} [opts]
+     * @param {{now?:number, escalate?:boolean, silenceMs?:number, probe?:Function}} [opts]
+     *   ★ `opts.probe(seats, task)` = 「在等审批」采样器（P1-4）。由装配层注入
+     *   （`index.js` 用 `createSeatApprovalProbe` 建，读宿主 `approval/asked` 事件）；
+     *   不给 ⇒ 判据与改前**逐字节相同**（自测替身 / 装配不全时不会被这条新判据影响）。
      * @returns {Promise<object>}
      */
     async checkLiveness(taskId, opts = {}) {
@@ -71,18 +77,64 @@ export function livenessMethods(ctx) {
       //   绝不给一个空对象冒充"它没动"（那会把"拿不到"误报成"死了"）。
       const activity = sampleSessionActivity(task, atMs, Number.isInteger(opts.activityMaxMs) ? opts.activityMaxMs : undefined)
 
-      const live = seatLiveness(task, atMs, {
+      /** ★ 判据的公共入参（两次 `seatLiveness` 必须**同一个口径**，只差审批映射）。 */
+      const liveOpts = {
         silenceMs,
         activity: activity.samples,
         gateApplicable: activity.gate_applicable === true,
         confirmations: Number.isInteger(opts.confirmations) ? opts.confirmations : undefined,
-      })
+      }
+      let live = seatLiveness(task, atMs, liveOpts)
+      /**
+       * ★★ **P1-4：先问一句「它是不是在等审批」，再决定要不要判失联。**
+       *
+       * 现场：`ask` 审批策略下席位弹审批卡等人点，6 分 34 秒后被判"失联"⇒ 主对话重派
+       * ⇒ 白烧 30 分钟。判据来源是宿主自己写的会话事件（`approval/asked` 无配对
+       * `approval/decided` = 还在等人批），采样器由装配层注入（见
+       * `lib/liveness/approval.js` 的文件头；宿主**没有**可直接读的 pending API）。
+       *
+       * ★ 两个**成本 / 安全**边界：
+       *   ① **只对"已经会被判失联"的席位探**（`live.silent` 非空）—— 正常干活时
+       *      一次都不探，不给每次工具调用加一份读盘成本；
+       *   ② 采样抛错 / 读不到 ⇒ **退回原有三条判据**（`known:false` 不算阳性证据），
+       *      真死席位照旧判死 —— 这条新判据**只做减法（少误报）**，不做加法。
+       */
+      const approvalProbe = typeof opts.probe === 'function' ? opts.probe : null
+      let approvalProbeNote = null
+      if (approvalProbe !== null && live.silent.length > 0) {
+        let probed = null
+        try {
+          probed = await approvalProbe(live.silent, task)
+        } catch (err) {
+          this.warn?.(`[pipeline] 审批探测异常（按"读不到"处理，判据退回既有三条）：${String(err?.message ?? err)}`)
+        }
+        if (probed !== null && probed !== undefined) {
+          approvalProbeNote = typeof probed.note === 'string' ? probed.note : null
+          const approvals = probed.approvals ?? null
+          if (approvals !== null && typeof approvals === 'object' && Object.keys(approvals).length > 0) {
+            live = seatLiveness(task, atMs, { ...liveOpts, approvals })
+          }
+        }
+      }
+      /** ★ P1-4：在等审批的席位（它们**不在** `live.silent` 里）。 */
+      const awaitingSeats = Array.isArray(live.awaiting) ? live.awaiting : []
       const base = {
         ok: true,
         task,
         live,
         silent: live.silent,
         pending: live.pending,
+        /**
+         * ★★ **P1-4：在等审批的席位**（`approval.count > 0`）。
+         *   它们**不是失联** —— 调用方（status / 拦截缝 / 唤醒）据此改写判词，
+         *   **不要**走"重派"那条路。
+         */
+        awaiting: awaitingSeats,
+        awaiting_count: awaitingSeats.length,
+        awaiting_text: describeApprovalWait(awaitingSeats, { taskId, state: task.state, state_zh: STATE_LABEL[task.state] ?? task.state }),
+        awaiting_summary: summarizeApprovalWait(awaitingSeats),
+        /** ★ 审批探测的结论（`null` = 本次没探；读不到时也如实写）。 */
+        approval_probe: approvalProbeNote,
         escalated: false,
         silence_ms: silenceMs,
         // ★ B5 修复：唤醒的幂等判别子要取**这里真实返回的字段**。
@@ -97,6 +149,49 @@ export function livenessMethods(ctx) {
         gate_applicable: live.gate_applicable,
         activity: activity.samples,
         activity_note: activity.note,
+      }
+
+      /**
+       * ★★ **P1-4 留痕：读到"在等审批"时写一条自己的事实** —— 不判失联、不冻结，
+       * 但事后必须能回答"机制当时为什么没把这张单冻掉"。
+       *
+       * 纪律（与"拒绝不是进展"同一条）：
+       *   · **只在 `escalate === true` 的处置那一轮写**（`pipeline_status` 的只读查询
+       *     不该往项目目录写东西）；判据与状态机一个字节不动；
+       *   · **同一次等待只记一次**（签名 = 席位 + 待批 id 集合）—— 观察一次写一次
+       *     会把 task.json / audit.jsonl 撑爆（与 P2-13 的台账膨胀同一类问题）；
+       *   · `task.liveness.approvals_notified` 只留**最近一条**，它不是处置台账。
+       */
+      if (awaitingSeats.length > 0) {
+        const sig = approvalWaitSignature(awaitingSeats)
+        const notified = task.liveness?.approvals_notified ?? null
+        if (opts.escalate === true && (notified === null || typeof notified !== 'object' || notified.sig !== sig)) {
+          try {
+            task.liveness = task.liveness ?? { escalations: [] }
+            task.liveness.approvals_notified = {
+              at: nowIso(now()),
+              at_ms: atMs,
+              sig,
+              seats: awaitingSeats.map((s) => s.key),
+              count: awaitingSeats.reduce((n, s) => n + (Number.isFinite(s?.approval?.count) ? s.approval.count : 0), 0),
+              tools: [...new Set(awaitingSeats.flatMap((s) => (Array.isArray(s?.approval?.tools) ? s.approval.tools : [])))].slice(0, 12),
+              state: task.state,
+              /** ★ 与 `escalations[]` 最要紧的一处不同：**状态一步没动**（不冻结）。 */
+              no_freeze: true,
+            }
+            await persist(task)
+            await audit(taskId, ROLE.MAIN, 'liveness:awaiting-approval', {
+              seats: task.liveness.approvals_notified.seats,
+              count: task.liveness.approvals_notified.count,
+              tools: task.liveness.approvals_notified.tools,
+              state: task.state,
+              no_freeze: true,
+              note: describeApprovalWait(awaitingSeats, { taskId, state: task.state, state_zh: STATE_LABEL[task.state] ?? task.state }),
+            })
+          } catch (err) {
+            this.warn?.(`[pipeline] 在等审批留痕失败（不影响本次判定）：${String(err?.message ?? err)}`)
+          }
+        }
       }
 
       // ★ B2：把本次采样与"连续没证据"计数落盘 —— 下一次观察才有基线可对比。

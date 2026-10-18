@@ -22,4 +22,5 @@
 
 - 插件自身的架构与接线：`plugin/active/ARCHITECTURE.md`、`WIRING.md`、`CONVENTIONS.md`、`README.md`
 - 仓库总览：根目录 [`README.md`](../README.md)
+- 修复说明（对外）：[`docs/fixes/`](fixes/)（写清"改了什么 / 修前是什么样 / 怎么验证"）
 - 本地只读控制面板：[`dashboard/README.md`](../dashboard/README.md)

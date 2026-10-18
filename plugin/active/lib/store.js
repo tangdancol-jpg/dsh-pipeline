@@ -235,7 +235,8 @@ export function createTaskStore(opts) {
       persist,
     }),
     // 任务存储 · 席位归属、架构图交付、哈希闸门升级 —— 见 `lib/store/seat-checks.js`
-    ...seatCheckMethods({ hashGateEscalateAfter, now, handoffDir, audit, deny, persist }),
+    // ★ P1-9：`checkForeignPathsAck` 要用与闸门**同一套**路径归一化器，所以把两个键一并传进去。
+    ...seatCheckMethods({ hashGateEscalateAfter, now, handoffDir, audit, deny, persist, scopeAbsKey, baselineAbsKey }),
     // 任务存储 · 提交交接物 —— 见 `lib/store/submit.js`
     ...submitMethods({
       maxRework,

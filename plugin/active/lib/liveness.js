@@ -64,3 +64,36 @@ export { EXPECTED_ROLES_BY_STATE, evidenceOfLife, msOf, seatKey, seatLiveness, u
 export { describeSilentSeats, describeSuspectedFalsePositive, nextActionsFor } from './liveness/describe.js'
 
 export { VIA_SESSION, createChannelAudit, livenessSelfHeal } from './liveness/heal.js'
+
+/**
+ * ★★ **P1-4：「在等审批」判据**（ask 审批策略下席位弹审批卡等人，不该被判失联）。
+ *
+ * 判据来源是宿主自己写进会话日志的 `approval/asked` / `approval/decided` 事件
+ * （`approval/asked` 的 id 没有配对的 `approval/decided` = 还在等人批）——
+ * 宿主**没有**可直接读的"pending approval"服务，读取路径与同源证据见
+ * `lib/liveness/approval.js` 的文件头。
+ */
+export {
+  APPROVAL_ASKED,
+  APPROVAL_DECIDED,
+  APPROVAL_EVENT_TYPES,
+  APPROVAL_POLICY,
+  MAX_APPROVAL_LOG_BYTES,
+  MAX_APPROVAL_TAIL_BYTES,
+  MAX_APPROVAL_TOOLS_SHOWN,
+  ZSTD_FRAME_MAGIC,
+  approvalItemText,
+  approvalWaitDuration,
+  approvalWaitSignature,
+  createSeatApprovalProbe,
+  decompressZstdFramesLossy,
+  describeApprovalWait,
+  detectPendingApprovals,
+  foldApprovalEvents,
+  foldApprovalText,
+  pendingToolsText,
+  scanApprovalsInAgent,
+  scanApprovalsInLog,
+  summarizeApprovalWait,
+  zstdFrameOffsets,
+} from './liveness/approval.js'

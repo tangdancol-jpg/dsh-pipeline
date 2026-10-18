@@ -15,6 +15,7 @@ import {
   activityOfSamples,
   formatDuration,
 } from './activity.js'
+import { describeApprovalWait } from './approval.js'
 import { describeSilentSeats } from './describe.js'
 
 /**
@@ -193,7 +194,12 @@ export function evidenceOfLife(task, entry) {
  * @param {object|null} [opts.activity] - ★ B2：本次**现采**的会话日志样本
  *   `{ [seatKey]: {atMs,size,mtimeMs}|null }`（拿不到就整份给 null —— 不是给空对象）
  * @param {number} [opts.confirmations] - 拿不到活动证据时，连续几次安静才冻结
- * @returns {{silenceMs:number, state:string, state_zh:string, expected:string[], seats:Array<object>, silent:Array<object>, pending:Array<object>, ok:boolean, summary:string}}
+ * @param {object|null} [opts.approvals] - ★★ **P1-4：「在等审批」探测结果**
+ *   `{ [seatKey]: {known:boolean, pending:Array<{id,tool_name,…}>, policy?:string|null, note?:string} }`。
+ *   由 store 层用宿主面采样（`lib/liveness/approval.js` 的 `createSeatApprovalProbe`）——
+ *   判据本身仍是纯函数。`known:true` 且 `pending` 非空 ⇒ 这个席位**在等人点审批**，
+ *   **不是失联**（它的静默是人在拖，不是它死了）。
+ * @returns {{silenceMs:number, state:string, state_zh:string, expected:string[], seats:Array<object>, silent:Array<object>, pending:Array<object>, awaiting:Array<object>, ok:boolean, summary:string}}
  */
 export function seatLiveness(task, now = Date.now(), opts = {}) {
   const silenceMs =
@@ -214,6 +220,13 @@ export function seatLiveness(task, now = Date.now(), opts = {}) {
   const gateOn = confirmations >= 2 && opts.gateApplicable === true
   /** 现采样本；`null`/`undefined` = 本次**根本拿不到**活动证据（≠"它没动"）。 */
   const activity = opts.activity !== null && typeof opts.activity === 'object' ? opts.activity : null
+  /**
+   * ★★ **P1-4：本次现采的「在等审批」映射**（`null` = 本次没探 / 探不到）。
+   *
+   * 语义与 `activity` 同一套：`known:false` 是"读不到"，**不是**"没有审批"。
+   * 采样由 store / tools 层做（宿主面在 `lib/liveness/approval.js`），判据只吃结论。
+   */
+  const approvals = opts.approvals !== null && typeof opts.approvals === 'object' ? opts.approvals : null
   const prevSamples =
     task?.liveness?.samples !== null && typeof task?.liveness?.samples === 'object' ? task.liveness.samples : {}
   const quietMap =
@@ -227,6 +240,8 @@ export function seatLiveness(task, now = Date.now(), opts = {}) {
   const seats = []
   const silent = []
   const pending = []
+  /** ★ P1-4：在等审批的席位（与 `silent` 互斥 —— 它们**不是**失联）。 */
+  const awaiting = []
   for (const raw of list) {
     const role = String(raw?.role ?? '')
     if (role.length === 0) continue
@@ -235,6 +250,29 @@ export function seatLiveness(task, now = Date.now(), opts = {}) {
     const atMs = typeof raw?.at_ms === 'number' ? raw.at_ms : msOf(raw?.at)
     const isExpected = expected.includes(role)
     const evidence = evidenceOfLife(task, { role, seat, atMs })
+    /**
+     * ★★ **P1-4：「在等审批」不是失联。**
+     *
+     * 现场（`内部复盘（2026-10-18，不公开）` P1-4）：`ask` 审批策略下
+     * 席位弹审批卡等人点，静默 6 分 34 秒后被判"失联"（判词还写"不是它还在想，
+     * 它可能已经死了"）⇒ 主对话据此重派 ⇒ **白烧 30 分钟**。
+     *
+     * 判据（只加一条**阳性**证据，不动任何阈值）：
+     *   `approvals[key].known === true` 且 `pending` 非空
+     *   ⇒ 这个席位**此刻挂着 N 个人工审批**（宿主 `approval/asked` 没有配对的
+     *     `approval/decided`）⇒ 它的静默**是人在拖，不是它死了**：
+     *     · 不判失联（`silentHere` 里排除）；
+     *     · 不算"没有实证的安静"（`quiet_streak` 归零，与 `fresh_write` 同一条纪律）；
+     *     · 单独进 `awaiting` 清单，判词由 `describeApprovalWait` 写。
+     *
+     * ★ 铁律：**只认宿主读到的 pending 条目**。`known:false`（读不到）与
+     *   `pending:[]`（读到了、没在等）**都不改变**原有判据 —— 真死席位照旧判死，
+     *   静默阈值一毫秒没动。
+     */
+    const approvalRec = approvals !== null && approvals !== undefined ? approvals[key] ?? null : null
+    const approvalKnown = approvalRec !== null && typeof approvalRec === 'object' && approvalRec.known === true
+    const pendingApprovals = approvalKnown && Array.isArray(approvalRec.pending) ? approvalRec.pending : []
+    const awaitingHere = pendingApprovals.length > 0
     // ★ B2：第四条判据 —— 会话日志还在长吗？（优先级最高，因为它是最硬的"它还在动"）
     const act = activityOfSamples(
       prevSamples[key] ?? null,
@@ -276,7 +314,7 @@ export function seatLiveness(task, now = Date.now(), opts = {}) {
      *   · 只认 `fresh`，**不认**"增量为正"之类更松的口径 —— `grew` 的语义一个字没改。
      */
     const freshWrite = act.fresh === true
-    let silentHere = timedOut && isExpected && evidence === null && !alive && !freshWrite
+    let silentHere = timedOut && isExpected && evidence === null && !alive && !freshWrite && !awaitingHere
     let pendingHere = null
     /**
      * ★★ **2026-10-13 快修（②，P0-2/P0-3）**：
@@ -328,10 +366,25 @@ export function seatLiveness(task, now = Date.now(), opts = {}) {
        */
       quiet_streak: silentHere || pendingHere !== null ? quiet + 1 : 0,
       silent: silentHere,
+      /**
+       * ★★ **P1-4：宿主读到的「在等审批」状态**（每席位一条）。
+       *   `known:false` = 这一次**读不到**（不是"没在等"）—— 与 `activity.known` 同一条口径。
+       */
+      approval: {
+        known: approvalKnown,
+        count: pendingApprovals.length,
+        pending: pendingApprovals,
+        tools: [...new Set(pendingApprovals.map((p) => String(p?.tool_name ?? '')).filter((x) => x.length > 0))],
+        policy: typeof approvalRec?.policy === 'string' && approvalRec.policy.length > 0 ? approvalRec.policy : null,
+        note: typeof approvalRec?.note === 'string' ? approvalRec.note : '',
+      },
+      /** ★ P1-4：这个席位**在等审批** ⇒ 不是失联、也不该被重派。 */
+      awaiting_approval: awaitingHere,
     }
     seats.push(rec)
     if (silentHere) silent.push(rec)
     else if (pendingHere !== null) pending.push({ ...rec, pending_reason: pendingHere })
+    if (awaitingHere) awaiting.push(rec)
   }
 
   return {
@@ -348,21 +401,44 @@ export function seatLiveness(task, now = Date.now(), opts = {}) {
     seats,
     silent,
     pending,
+    /**
+     * ★★ **P1-4：在等审批的席位**（`approval.known === true && pending 非空`）。
+     *
+     * 它们**不在** `silent` 里 —— 这是本次要消掉的那个误诊：席位弹了审批卡等人点，
+     * 机制不该把它读成"可能已经死了"，更不该据此重派。
+     */
+    awaiting,
+    awaiting_count: awaiting.length,
+    /** ★ 本次审批探测有没有读到一个席位（`false` = 读不到，判据退回原有三条）。 */
+    approval_known: approvals !== null && Object.values(approvals).some((a) => a !== null && typeof a === 'object' && a.known === true),
     ok: silent.length === 0,
-    summary: describeSilentSeats(silent, {
-      state,
-      state_zh: STATE_LABEL[state] ?? state,
-      silenceMs,
-      // ★ 把任务 id 传下去：处置动作要写成"可以直接复制去调"的形式
-      taskId: typeof task?.id === 'string' ? task.id : '',
-      /**
-       * ★★ **A4 补丁（2026-10-12 · writer#1）：本次到底有没有拿到会话日志。**
-       *
-       * `describeSilentSeats` 里那一支（"并且**这一次拿不到会话日志**"）本来就存在，
-       * 但这里**一直没传** ⇒ 它永远走不到，正文永远声称"会话日志也没在长"。
-       * 那是**把"拿不到证据"说成了"它没动"** —— 与审计里 `activity_known:false` 自相矛盾。
-       */
-      activityKnown: activityKnownHere,
-    }),
+    /**
+     * ★ 判词：失联 + 在等审批**各写各的**（两份判据不同源、互不冒充）。
+     *   没有失联也没有审批时 ⇒ 空串，与改前**逐字节相同**。
+     */
+    summary: [
+      describeSilentSeats(silent, {
+        state,
+        state_zh: STATE_LABEL[state] ?? state,
+        silenceMs,
+        // ★ 把任务 id 传下去：处置动作要写成"可以直接复制去调"的形式
+        taskId: typeof task?.id === 'string' ? task.id : '',
+        /**
+         * ★★ **A4 补丁（2026-10-12 · writer#1）：本次到底有没有拿到会话日志。**
+         *
+         * `describeSilentSeats` 里那一支（"并且**这一次拿不到会话日志**"）本来就存在，
+         * 但这里**一直没传** ⇒ 它永远走不到，正文永远声称"会话日志也没在长"。
+         * 那是**把"拿不到证据"说成了"它没动"** —— 与审计里 `activity_known:false` 自相矛盾。
+         */
+        activityKnown: activityKnownHere,
+      }),
+      describeApprovalWait(awaiting, {
+        taskId: typeof task?.id === 'string' ? task.id : '',
+        state,
+        state_zh: STATE_LABEL[state] ?? state,
+      }),
+    ]
+      .filter((s) => typeof s === 'string' && s.length > 0)
+      .join('\n'),
   }
 }

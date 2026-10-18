@@ -14,6 +14,10 @@ import { isInside, pathKey } from '../util.js'
 import { NO_CODE_READ_ROLES, roleZh, TAG } from './rules.js'
 import { whyShellWriteRefused } from './attribution.js'
 import { describeChangeScope, owningChangeScopeEntry } from './seats.js'
+// ★★ P0-2（浏览器 Profile / 凭证数据卫生）：shell 侧的复制 / 写入判据。
+//    为什么接在这里：本轮 P0-2 的现场动作是「从用户目录**复制**进工作区」，
+//    而 4a 只看"写动词 + 命令里出现项目根的绝对路径" —— 相对目标从那条缝里漏了过去。
+import { browserProfileShellRefusal } from './browser-profile.js'
 
 // ---------------------------------------------------------------------------
 // shell 命令扫描（best-effort）
@@ -500,6 +504,30 @@ export function scanShellCommand(cmd, task, role, cfg = {}) {
       `${TAG} 拒绝：不得删除流水线工作区。\n任务：${task.taskId}\n工作区：${task.pipelineDir}\n` +
       '原因：task.json / handoffs / audit.jsonl 是全流程可追溯的凭据，删除即失去可审计性。'
     )
+  }
+
+  // 4h) ★★ P0-2：**浏览器 Profile / 凭证数据不得进入工作区** ----------------
+  //
+  //   现场（2026-10-18 自测问题清单第 2 条）：测试席位把用户真实浏览器 Profile
+  //   （`%LOCALAPPDATA%\Microsoft\Edge\User Data`，含 Cookies / Login Data / Local State）
+  //   复制进 `reports/tester/edge-profile-*`，报告实测 374.6 MB。
+  //
+  //   为什么既有判据拦不住：4a 是「写动词 + 命令里出现项目根的**绝对路径**」才拦，
+  //   而复制动作的目标写的是**相对路径**（`reports/tester/edge-profile`）
+  //   ⇒ `mentionsProtectedPath` 为 false ⇒ 整段判据静默失效。这不是被绕过，是漏过去的。
+  //
+  //   ★ 对所有角色生效（含 writer）：数据卫生不是角色权限，是"不能发生的事"。
+  //   ★ 判据本体在 `browser-profile.js`（分类名单在 `credential-paths.js`，与
+  //     `pipeline_security_check` 共用同一份，不另写第二套）。
+  if (cfg.guardBrowserProfile !== false) {
+    const hit = browserProfileShellRefusal({
+      tool: 'shell',
+      role,
+      task,
+      cmd: text,
+      paths: extractCommandPaths(text),
+    })
+    if (hit !== undefined) return hit
   }
 
   return null

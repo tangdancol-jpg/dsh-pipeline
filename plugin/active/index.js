@@ -107,7 +107,10 @@ import { ROLE, ROLES, roleLabel } from './lib/roles.js'
 import { TERMINAL_STATES } from './lib/states.js'
 import { buildTools, createSeatNotifier } from './lib/tools.js'
 import { createTransport, probeSessionChannel } from './lib/transport/index.js'
-import { createChannelAudit } from './lib/liveness.js'
+// ★★ P1-4：`createSeatApprovalProbe` —— 读宿主会话事件里的 `approval/asked` /
+//    `approval/decided`（宿主**没有**可直接读的 pending API），让 liveness 报
+//    「在等审批」而不是「失联」。判据与证据见 lib/liveness/approval.js 的文件头。
+import { createChannelAudit, createSeatApprovalProbe } from './lib/liveness.js'
 import { createMainSessionRegistry, createWaker } from './lib/wakeup.js'
 // ★★ 本轮新增：已播报账本（A19/A20）、巡检兜底（A21–A25）、运行失败取证（A9–A11）。
 import { LEDGER_FILE_NAME, createWakeLedger, defaultLedgerPath } from './lib/wakeledger.js'
@@ -259,6 +262,28 @@ export function apply(ctx, rawConfig) {
     auditFile: (id) => store.auditFile(id),
     log: (m) => ctx.logger?.warn?.(`[pipeline] ${m}`),
   })
+  /**
+   * ★★ **P1-4：「在等审批」采样器**（装配期建一次，store 与工具层共用）。
+   *
+   * 现场：`ask` 审批策略下席位弹审批卡等人点，6 分 34 秒后被 liveness 判"失联"
+   * （判词还写"不是它还在想，它可能已经死了"）⇒ 主对话据此重派 ⇒ 白烧 30 分钟。
+   *
+   * 判据来源（研究结论，证据见 `lib/liveness/approval.js` 文件头）：
+   *   宿主**没有**"某会话有 pending approval"的直接可读 API（`ApprovalService`
+   *   只有 request/setPolicy，待决 Promise 活在它自己的 await 里）；但宿主把
+   *   `approval/asked` / `approval/decided` **写进了会话日志**（`session.append`），
+   *   所以「pending = 某条 asked 的 id 没有配对的 decided」是**可读**的。
+   * 读取路径：先 `ctx.agents.get(sessionId).session.snapshotEvents()`（与
+   *   `detectRunFailure` 同一条宿主面），拿不到再读落盘会话日志（多帧 zstd）。
+   *
+   * ★ 只对**已经会被判失联**的席位探（见 store 层 / tools 层的调用点）——
+   *   正常干活时一次都不探，不给工具调用加读盘成本。
+   */
+  const probeSeatApprovals = createSeatApprovalProbe({
+    ctx,
+    warn: (m) => ctx.logger?.warn?.(m),
+  })
+
   const transport = createTransport(ctx, config, { tokens, audit: channelAudit.record, dirs })
   /**
    * ★★ WP-T：通道能力探测结论要按**实际选中的通道**说话。
@@ -437,6 +462,12 @@ export function apply(ctx, rawConfig) {
     transport,
     indexTask,
     sw,
+    /**
+     * ★★ **P1-4：「在等审批」采样器**（`pipeline_status` 的两条直连 `seatLiveness`
+     * 路径要用它 —— "列全部任务"的扫描与"只报告不处置"的详情视图都**不经过**
+     * `store.checkLiveness`）。判据与证据见 `lib/liveness/approval.js`。
+     */
+    probeSeatApprovals,
     // ★ 客观观测 + 继任后的退休名单（工具层与守门层共用）
     counter,
     retireAgent,
@@ -786,10 +817,10 @@ export function apply(ctx, rawConfig) {
         checkLiveness: async (taskId) => {
           if (config.seatLivenessEscalate !== true) {
             // 只报告不处置：仍然算一遍并留痕，但不动状态。
-            const r = await store.checkLiveness(taskId, { escalate: false })
+            const r = await store.checkLiveness(taskId, { escalate: false, probe: probeSeatApprovals })
             return r
           }
-          const r = await store.checkLiveness(taskId, { escalate: true })
+          const r = await store.checkLiveness(taskId, { escalate: true, probe: probeSeatApprovals })
           if (r !== null && r !== undefined && r.task !== undefined && r.task !== null) indexTask(r.task.id, r.task)
           return r
         },

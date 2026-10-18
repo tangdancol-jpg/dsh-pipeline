@@ -1958,12 +1958,12 @@ produced_by=self-provided 时 degraded 必须是 true。
 |---|---|---|
 | `pipeline_task_open` | 主对话 | 开单。返回任务 id 与主对话令牌 |
 | `pipeline_orchestrate` | 主对话（只能走规则引擎）/ 编排 | 产出角色清单 + 任务卡。支持 `dry_run` 试算 |
-| `pipeline_dispatch` | 主对话 | 按清单派活 + 铸角色令牌 + 推进状态。清单外的角色派不出去 |
+| `pipeline_dispatch` | 主对话 | 按清单派活 + 铸角色令牌 + 推进状态。清单外的角色派不出去；`reassign:true` 重派会**吊销旧席位令牌**（旧会话写不进去，避免双写） |
 | `pipeline_bind_role` | 任意角色会话 | 用令牌认领身份（一笔绑定，不可改绑） |
 | `pipeline_handoff` | 各角色 | 提交结构化交接物（唯一的交付入口） |
 | `pipeline_transition` | 主对话 / 人工 | 状态迁移与异常出口（block / unblock / cancel） |
 | `pipeline_rework` | 测试 / 审核 / 安全 | 打回，带次数预算 |
-| `pipeline_close` | 主对话 | 关单。**必须已有有效审核 OK** |
+| `pipeline_close` | 主对话 | 关单。**必须已有有效审核 OK**；失败时附**完整缺口清单**（一次列全），支持 `dry_run:true` 只预演 |
 | `pipeline_status` | 任何人 | 查询状态、角色清单、制品、OK、打回计数、下一步合法事件、审计流水 |
 | `pipeline_roster_request` | 执行角色 | 提出角色增减申请 |
 | `pipeline_roster_review` | 编排 | 复核申请；批准即改写清单 |
@@ -2224,15 +2224,15 @@ DSH 0.2.1 起官方带「智能体团队」：根会话是 Lead，可以 `spawn_
 ```powershell
 cd <插件目录>
 $env:DSH_APP_ASAR = '<DSH 安装>\resources\app.asar'   # 预设/宿主 schema 类判据要读宿主安装
-node tests\run-all.mjs            # 113 套一起跑（3701 项，含残留检查）
+node tests\run-all.mjs            # 116 套一起跑（3805 项，含残留检查）
 node tests\run-all.mjs --quiet    # 只打结论，不贴完整拒绝原文
 ```
 
-**当前口径**：设了 `DSH_APP_ASAR` 时 **3701/3701 通过（113 套）**；不设时会有 3 条
+**当前口径**：设了 `DSH_APP_ASAR` 时 **3805/3805 通过（116 套）**；不设时会有 3 条
 "读不到宿主安装"的预置校验判红（环境面，不是代码面）。单套清单与每套的判据写在
 `tests/run-all.mjs` 与 `tests/registry.mjs` 里（新增能力用新套 + registry 一行登记）。
 
-按能力分组（不逐一列 113 套）：
+按能力分组（不逐一列 116 套）：
 
 | 分组 | 代表套件 | 内容 |
 |---|---|---|
@@ -2246,7 +2246,8 @@ node tests\run-all.mjs --quiet    # 只打结论，不贴完整拒绝原文
 | 预设与真机 | `p11-presets-check.mjs`、`p12-*`、`e-route-check.mjs` | 16 个角色预设与 shipped/schema 对形；需要 `DSH_APP_ASAR` |
 | 文件规模体检 | `file-size-check.mjs` | `CONVENTIONS §4.1`：**只报告，不是闸** —— 列出超过预警线（400 行）的文件与最大文件，**永远全绿、不判红、不设基线/登记表**（为拆而拆没有意义；拆不拆按 §4 四问判断）。设计见 `design/conventions/01-文件规模体检.md`（7 项） |
 | 文件规模提醒 | `size-reminder-check.mjs` | `CONVENTIONS §4.2`：文件 **>150 / >300 / ≥400** 三档由**程序自动发起**询问（注入成用户消息）——「有必要写这么大吗？顺手还是功能需求」→ 同一句再问 → 第三次要求「一定这个写法吗？有没有更优的写法」并实际调用 `web_search` / `web_fetch`。钉住阈值/文案/过滤/去重/注入形状（20 项） |
-| 回归专项 | `f1`–`f23`、`p1`–`p16`、`m1`–`m11` 等 | 每轮缺陷的判据化回归（一个缺陷一个套件） |
+| 修复批次（2026-10-18） | `f24-browser-profile-guard-check.mjs`、`f25-hashgate-attribution-check.mjs`、`f26-liveness-approval-check.mjs` | 长单实测反馈的三处判据缺口：①浏览器 Profile/凭证不得进工作区（写类工具 + shell 复制都拦，`security_check` 一等命中）；②hash 闸门区分「基线已有他人文件」与「本次新增未声明」（`foreign_paths_ack` 归属确认，不能洗自己/越界）；③liveness 识别「在等审批」而不是误判失联（`awaiting_approval`，不冻结；真死照旧判）（33 + 25 + 40 项） |
+| 回归专项 | `f1`–`f26`、`p1`–`p16`、`m1`–`m11` 等 | 每轮缺陷的判据化回归（一个缺陷一个套件） |
 
 报告落到 `tests/last-run.txt`。
 
@@ -2263,6 +2264,26 @@ node examples\run-example.mjs
 
 产物在 `examples/demo-project/`（含 `task.json`、4 份交接物、审计流水）与
 `examples/example-refusal.txt`（4 条拒绝原文）。
+
+---
+
+## 操作口径（跑长单之前先看）
+
+> 来源：2026-10-18 用本流水线跑一张 L5 单之后的复盘（`内部复盘（2026-10-18，不公开）`）。
+> 这些是**操作建议**，不是缺陷判据 —— 但按它们做，能少踩已经踩过的坑。
+
+1. **`ask` 审批策略与全自动长单不兼容**：席位会在审批卡上"静止"，而 liveness 在这种场景下可能
+   误判失联（P1-4 正在修）。全自动跑长单请用 `never`（或在有修好的审批态识别之后再开 `ask`）。
+2. **`user_quote` 可被复用**：你一句"不用问我，按推荐走"，主对话就能拿它回答后面**所有**人工请求
+   （含 DEMO 确认）——这是机制允许的。想保留否决权，就别给 blanket 授权，逐条回。
+3. **交付根以守门的 scope 根为准**：`pipeline_status` / 计划里的 `change_scope` 显示的路径才是
+   席位真正写入的位置；不要只看 `projects/<task_id>/`（那可能是"版本目录"的壳）。
+4. **DSH 重启 = 本进程的角色令牌作废**（含主对话）：重启后先 `pipeline_task_open { reattach: true }`，
+   再 dispatch；顺序反了会先撞"没有身份"。
+5. **测试席位的浏览器 profile 是真实数据**：`reports/tester/edge-*` 里有 Cookies / Login Data 等；
+   收尾必须清理（P0-2 修复后，把它们复制进工作区会被守门拦下）。清理只删**本单的临时残留**。
+6. **L5 不要贪**：一个静态页/小工具用 L2/L3 就够；L5 会拉满 10 个角色、产物矩阵大一倍以上，
+   其中相当一部分是仪式性产物（P1-18 正在设计 `deferred_artifacts`）。
 
 ---
 

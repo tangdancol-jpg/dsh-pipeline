@@ -357,6 +357,25 @@ export function submitMethods(ctx) {
           const auditRes = await this.changeAudit({ taskId: task.id })
           if (auditRes.ok === true) {
             const manifest = Array.isArray(v.normalized.change_manifest) ? v.normalized.change_manifest : []
+            /**
+             * ★★ P1-9：**外来路径显式确认**（`dev_to_test.foreign_paths_ack`）。
+             *
+             * 多编写席位并行时，别的席位先写进工作区的文件也会出现在"基线以来的变化"里
+             * —— 它不是本席改的，却会被算成本席的"声明不实"。本席可以在 payload 里**逐条点名**
+             * 这些路径并给理由，闸门据此把它排除出**本席的声明对账**（不静默：进
+             * `verdict.acknowledged_foreign` 与 `gate:hash` 审计）。
+             *
+             * 判据本体在 `lib/hashgate/foreign-ack.js`（五条硬判据）；这里在**判定之前**先核一遍：
+             * 不合格 ⇒ 当场拒（不写台账、不进"连续不过"计数 —— 这是用法错误，不是改动面对不上）。
+             */
+            const ack = Array.isArray(v.normalized.foreign_paths_ack) ? v.normalized.foreign_paths_ack : []
+            const ackVet = this.checkForeignPathsAck(task, {
+              ack,
+              // 席位**只从令牌来**（与 `checkSeatOwnership` 同一出处）；单席位退化时回落到分区元数据。
+              seat: input.actorSeat ?? v.normalized.partition?.seat ?? null,
+              audit: auditRes,
+            })
+            if (ackVet.ok !== true) return deny(ackVet.code, ackVet.error)
             // ★★ **席位级写入台账（选项 B）**：**先记账，再判定** —— 顺序是硬要求：
             //    · 本单这一笔必须留下（别单的判定要读得到它）；
             //    · 判定也要读得到**别单**已经留下的账（P2-13 就是被"不知道谁改的"绊住的）。
@@ -392,6 +411,9 @@ export function submitMethods(ctx) {
               // ★★ 归属判据的两样输入：台账全部行 + 本单是谁（"只有别的单能豁免本单"由判据侧执法）
               writeLedger: ledgerRead.entries,
               writeLedgerTaskId: task.id,
+              // ★★ P1-9：本次提交里**已核过**的外来路径确认（规范绝对键 + 可读记录）
+              foreignAckKeys: ackVet.keys,
+              foreignAck: ackVet.entries,
             })
             // ★ 连续不过计数：**只有"闸门真过了"才归零**（撤回不归零，理由见 hashgate.js）
             const streak = nextHashGateStreak(task.hash_gate_streak, verdict.pass)
@@ -416,6 +438,8 @@ export function submitMethods(ctx) {
               removed: auditRes.removed.map((x) => ({ path: x.path, baseline_sha256: x.baseline_sha256 ?? null })),
               /** ★★ 归属判据这一轮**看见了什么**（谁被归属给了谁 —— 与 violations 同级可核）。 */
               attributed_foreign: verdict.attributed_foreign,
+              /** ★ P1-9：本轮按 `foreign_paths_ack` 排除出"本席声明对账"的路径（不静默，事后可核）。 */
+              acknowledged_foreign: verdict.acknowledged_foreign,
               withdrawn_machine_artifacts: verdict.withdrawn_machine_artifacts,
               /** ★ 台账这一轮的读写情况（"没有归属证据"必须是看得见的事实，不是静默）。 */
               write_ledger: {
@@ -437,6 +461,9 @@ export function submitMethods(ctx) {
                 violations: verdict.violations.map((x) => `${x.how}:${x.path}`),
                 self_tree: auditRes.counts?.self_tree ?? null,
                 attributed_foreign: verdict.attributed_foreign.map((x) => `${x.path}→${x.attributed_to.task_id}`),
+                acknowledged_foreign: (verdict.acknowledged_foreign ?? []).map(
+                  (x) => `${x.path}→${x.owner_seat === null || x.owner_seat === undefined ? '?' : x.owner_seat}`,
+                ),
                 write_ledger: {
                   written: ledgerWrite.written,
                   write_error: ledgerWrite.error,

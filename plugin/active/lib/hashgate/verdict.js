@@ -49,6 +49,15 @@ const HOW_ZH = {
  *   **永远不豁免本单** —— 线 ①）
  * @param {string[]} [opts.writerRoles] - 哪些角色算"编写席"（默认 `['writer']`；只影响
  *   机器产物豁免的**收回**方向，即只会更严）
+ * @param {string[]} [opts.foreignAckKeys] - ★★ P1-9：**已被 store 核过**的「外来路径显式确认」
+ *   （`dev_to_test.foreign_paths_ack`）的规范绝对键。命中的 touched 路径**不进本席的声明对账** ——
+ *   因为它是**别的编写席位分区**里的本次变化，本席本来就不该为它背书。
+ *   ⚠️ 三道护栏（由 `lib/hashgate/foreign-ack.js` 在上游落实，这里再兜一次）：
+ *   ① 只由 store 核过才进得来（本函数不读 payload、不认字符串声明）；
+ *   ② 对 `unauthorized` **不生效**（越界照旧拒 —— 见循环里的 `unauthorizedAckBlocked`）；
+ *   ③ 删除类（拿不到哈希）**不适用**。
+ * @param {object[]} [opts.foreignAck] - 与 `foreignAckKeys` 同批的可读记录
+ *   `[{ path, reason, owner_seat, key }]`（用于**可见**输出与文案，不参与判定）
  * @returns {{pass:boolean, violations:object[], counts:object, summary:string}}
  */
 export function hashGateVerdict(audit, manifest = [], opts = {}) {
@@ -89,6 +98,23 @@ export function hashGateVerdict(audit, manifest = [], opts = {}) {
   const writeLedgerTaskId = String(opts.writeLedgerTaskId ?? '')
   const foreignWriteIndex = buildForeignWriteIndex(writeLedger, writeLedgerTaskId)
   const writerClaimIndex = buildSeatWriteIndex(writeLedger, writeLedgerTaskId, opts.writerRoles)
+
+  /**
+   * ★★ P1-9：「外来路径显式确认」的**已核过**集合（见 `lib/hashgate/foreign-ack.js`）。
+   * 空集合 ⇒ 判定与改前**逐字相同**（多席并行以外的所有提交都是这一支）。
+   */
+  const foreignAckKeys = new Set(
+    (Array.isArray(opts.foreignAckKeys) ? opts.foreignAckKeys : [])
+      .map((k) => String(k ?? '').trim().toLowerCase())
+      .filter((k) => k.length > 0),
+  )
+  const foreignAckByKey = new Map()
+  for (const x of Array.isArray(opts.foreignAck) ? opts.foreignAck : []) {
+    const k = String(x?.key ?? '').trim().toLowerCase()
+    if (k.length > 0) foreignAckByKey.set(k, x)
+  }
+  /** ★ 逐条列出**按 foreign_paths_ack 排除出本席声明对账**的路径（谁归属给谁、凭什么 —— 事后可核）。 */
+  const acknowledgedForeign = []
 
   // ① 三类越界（新增 / 修改 / 删除，只要不在授权面内）
   for (const x of Array.isArray(audit?.unauthorized) ? audit.unauthorized : []) {
@@ -161,6 +187,15 @@ export function hashGateVerdict(audit, manifest = [], opts = {}) {
       String(x?.path ?? '').replace(/\\/g, '/').toLowerCase(),
     ),
   )
+  /**
+   * ★ P1-9 的护栏 ②：**越界路径绝不能被归属确认排除**（越界判据不因归属放宽）。
+   * 与 ack 用**同一个坐标系**（`absOfTouched`）再算一遍 —— store 上游已经拦过，这里是判定层的兜底。
+   */
+  const unauthorizedAbsKeys = new Set(
+    (Array.isArray(audit?.unauthorized) ? audit.unauthorized : [])
+      .map((x) => (canAbs ? safeAbs(absOfTouched, x?.path) : ''))
+      .filter((k) => k.length > 0),
+  )
   const ignoredMachineArtifacts = []
   /** ★ 被**收回**豁免的机器产物（本单编写席按哈希认领过它 —— 只会更严，不静默）。 */
   const withdrawnMachineArtifacts = []
@@ -176,6 +211,17 @@ export function hashGateVerdict(audit, manifest = [], opts = {}) {
         actual_sha256: item.sha256,
         attributed_to: foreign,
         evidence: `另一张单（${foreign.task_id}）在 ${foreign.at ?? '(时间未记)'} 的 ${foreign.source ?? '交接物'} 里声明过这条路径，且当前内容的 sha256 与它当时产出的**逐字节一致**`,
+      })
+      continue
+    }
+    // ★★ P1-9：**本席显式确认过归属别的编写席位**的路径 ⇒ 不进本席的声明对账。
+    //    三道前提：拿到哈希（只对新增/修改；删除类不适用）、不在越界清单、在已核过的 ack 集合里。
+    if (item.sha256 !== null && tKey.length > 0 && foreignAckKeys.has(tKey) && !unauthorizedAbsKeys.has(tKey)) {
+      const acked = foreignAckByKey.get(tKey) ?? null
+      acknowledgedForeign.push({
+        path: p,
+        reason: typeof acked?.reason === 'string' ? acked.reason : '',
+        owner_seat: acked?.owner_seat ?? null,
       })
       continue
     }
@@ -220,7 +266,9 @@ export function hashGateVerdict(audit, manifest = [], opts = {}) {
         path: p,
         baseline_sha256: null,
         actual_sha256: null,
-        expected: '把这处改动补进 change_manifest（path / action / scope_id）再提交',
+        expected:
+          '把这处改动补进 change_manifest（path / action / scope_id）再提交；' +
+          '若它不是本席改的（别的编写席位先写进了工作区）⇒ 用 foreign_paths_ack 显式确认归属他人（见下方说明），别写假账',
       })
     }
   }
@@ -238,6 +286,8 @@ export function hashGateVerdict(audit, manifest = [], opts = {}) {
     attributed_foreign: attributedForeign.length,
     /** ★ 被**收回**机器产物豁免的条数（本单编写席按哈希认领过 —— 更严，也要看得见）。 */
     machine_artifacts_withdrawn: withdrawnMachineArtifacts.length,
+    /** ★★ P1-9：按 `foreign_paths_ack` 显式确认归属别的编写席位、因而不计入本席声明对账的条数。 */
+    foreign_paths_acked: acknowledgedForeign.length,
   }
   return {
     pass: violations.length === 0,
@@ -247,6 +297,8 @@ export function hashGateVerdict(audit, manifest = [], opts = {}) {
     ignored_machine_artifacts: ignoredMachineArtifacts,
     /** ★★ 逐条列出**归属给别的单**的改动（谁归属给了谁、凭什么 —— 事后可核）。 */
     attributed_foreign: attributedForeign,
+    /** ★★ P1-9：逐条列出**本席显式确认归属别的编写席位**的路径（理由与归属席位一并留档）。 */
+    acknowledged_foreign: acknowledgedForeign,
     /** ★ 逐条列出**被收回豁免**的机器产物。 */
     withdrawn_machine_artifacts: withdrawnMachineArtifacts,
     summary:
@@ -257,11 +309,17 @@ export function hashGateVerdict(audit, manifest = [], opts = {}) {
             : '') +
           (counts.attributed_foreign > 0
             ? `（另有 ${counts.attributed_foreign} 处改动**可证明是别的单的产物**，不计入本单：${attributedForeign.map((x) => `${x.path}→${x.attributed_to.task_id}`).join('、')}）`
+            : '') +
+          (counts.foreign_paths_acked > 0
+            ? `（另有 ${counts.foreign_paths_acked} 处已按 foreign_paths_ack **显式确认归属别的编写席位**，不计入本席：${acknowledgedForeign.map((x) => `${x.path}→${x.owner_seat ?? '别的席位'}`).join('、')}）`
             : '')
         : `哈希对比**不通过**：越界 ${counts.unauthorized} 处 · 声明不实 ${counts.undeclared} 处` +
           (counts.machine_artifacts > 0 ? `（机器产物 ${counts.machine_artifacts} 条已排除在声明对账之外）` : '') +
           (counts.attributed_foreign > 0
             ? `（**已排除** ${counts.attributed_foreign} 处可证明是别的单的产物，未计入你头上）`
+            : '') +
+          (counts.foreign_paths_acked > 0
+            ? `（**已排除** ${counts.foreign_paths_acked} 处按 foreign_paths_ack 确认归属别的编写席位的路径，未计入你头上）`
             : '') +
           (counts.machine_artifacts_withdrawn > 0
             ? `（另有 ${counts.machine_artifacts_withdrawn} 条机器产物**豁免被收回** —— 它们其实是本单编写的产物：${withdrawnMachineArtifacts.map((x) => x.path).join('、')}）`
@@ -297,6 +355,18 @@ export function renderGateRejection({ verdict, audit, scope, baseline, streak = 
     L.push(`      期望：${v.expected}`)
   }
   if (verdict.violations.length > 20) L.push(`  …（还有 ${verdict.violations.length - 20} 处，见审计记录 gate:hash）`)
+  // ★★ P1-9：多编写席位并行时，「别的席位先写进工作区」是**正常节奏**（先干完先交），
+  //    那些文件在本席的 change_manifest 里**本来就不该有**（写进去才是假账）。
+  //    所以打回文案必须给出这条正路 —— 否则编写只会反复补假声明，越补越错。
+  if (verdict.violations.some((v) => v.how === 'undeclared_change')) {
+    L.push('')
+    L.push('★ 其中「动了但没在改动声明里报」的那些，**先分清是谁改的**：')
+    L.push('  · **本席自己**改的 ⇒ 补进 change_manifest（path / action / scope_id）；')
+    L.push('  · **别的编写席位**先写进工作区的（多席并行）⇒ **别写进你的 change_manifest**（那是假账），')
+    L.push('    在本次 dev_to_test 的 payload 里加一次显式确认：')
+    L.push('      `foreign_paths_ack: [{ path: "上面的路径", reason: "属于 writer#X 的分区，本席未改动" }]`')
+    L.push('    它只对「**别的编写席位分区内** + **本次确实有变化**」的路径生效；本席自己分区的改动、越界改动都确认不了。')
+  }
   // ★★ 归属判据的**可见面**：已经按席位级写入台账排除掉的那批（可证明是别的单的产物）。
   //    为什么必须列出来：不静默是这套机制的一贯要求 —— 编写要能看见"哪些**不是**它的活"，
   //    否则它会去撤回别人的改动（那是它做不到的事）。
@@ -308,6 +378,17 @@ export function renderGateRejection({ verdict, audit, scope, baseline, streak = 
     }
     if (verdict.attributed_foreign.length > 10) L.push(`  …（还有 ${verdict.attributed_foreign.length - 10} 处）`)
     L.push('  判据：另一张单的席位在自己的交接物里声明过这条路径，**且当前内容的哈希与它当时产出的逐字节一致**。')
+  }
+  // ★★ P1-9：本席按 `foreign_paths_ack` **显式确认归属别的编写席位**、因而不计入本席的路径。
+  //    必须列出来的理由与上一条同源：编写要能看见"哪些**不是**它的活"，否则它会去撤回别人的改动。
+  if (Array.isArray(verdict.acknowledged_foreign) && verdict.acknowledged_foreign.length > 0) {
+    L.push('')
+    L.push(`★ **已按你的 foreign_paths_ack 排除 ${verdict.acknowledged_foreign.length} 处**（显式确认属于别的编写席位，不计入本席的声明对账）：`)
+    for (const x of verdict.acknowledged_foreign.slice(0, 10)) {
+      L.push(`  · ${x.path}${x.owner_seat === null || x.owner_seat === undefined ? '' : ` —— 属于 ${x.owner_seat} 的分区`}（理由：${x.reason || '(未写)'}）`)
+    }
+    if (verdict.acknowledged_foreign.length > 10) L.push(`  …（还有 ${verdict.acknowledged_foreign.length - 10} 处）`)
+    L.push('  判据：路径**本次确实有变化**、落在**别的编写席位分区**内、且不在越界清单里（本席自己分区的改动确认不了）。')
   }
   // ★ 机器产物豁免**被收回**的那些（它们其实是本单编写的产物）—— 也要看得见。
   if (Array.isArray(verdict.withdrawn_machine_artifacts) && verdict.withdrawn_machine_artifacts.length > 0) {

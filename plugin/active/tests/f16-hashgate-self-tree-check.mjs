@@ -77,14 +77,17 @@ async function fixture(tag, { profile = true, scope = [{ id: 'CS1', path: 'src/a
   const taskId = opened.value.task_id
   const tokens = { main: opened.value.role_token }
   const agents = { main: MAIN }
+  // ★ 2026-10-18：分区范围必须覆盖授权面（新的分区覆盖校验 P0-1）——
+  //   本夹具按 `scope` 生成分区，而不是写死 `src/all`（否则"授权了却没人能写"）。
+  const scopePaths = [...new Set(scope.map((s) => String(s?.path ?? '').trim()).filter((x) => x.length > 0))]
   await runAnalysisThenPlan(h, {
     taskId,
     tokens,
     agents,
     tier: 'L2',
     reason: 'F16 夹具：单席位 + 一份授权面',
-    layers: [{ layer: 'all', scope_paths: ['src/all'], deliverables: ['全部产物'] }],
-    writers: { layers: ['all'], partitions: [{ seat: 'writer#1', layer: 'all', scope_paths: ['src/all'], deliverables: ['全部产物'] }], reason: '单席位即可' },
+    layers: [{ layer: 'all', scope_paths: scopePaths, deliverables: ['全部产物'] }],
+    writers: { layers: ['all'], partitions: [{ seat: 'writer#1', layer: 'all', scope_paths: scopePaths, deliverables: ['全部产物'] }], reason: '单席位即可' },
     changeScope: scope,
   })
   const tr = await h.store.transition({ taskId, event: 'dispatch_writer', actorRole: 'main' })

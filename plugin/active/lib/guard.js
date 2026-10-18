@@ -122,6 +122,29 @@ export {
 } from './guard/decide.js'
 
 // ---------------------------------------------------------------------------
+// ★★ P0-2（2026-10-18 自测问题清单第 2 条）：**浏览器 Profile / 凭证数据卫生**。
+//    判据本体（写工具 + shell）与分类名单（唯一出处）分两个文件：
+//      · `guard/browser-profile.js`   —— 守门判据与可操作的拒绝文案；
+//      · `guard/credential-paths.js`  —— 什么算 profile / 凭证（`lib/security.js` 也 import
+//        这一份：扫描器与守门共用同一套口径，不另写第二份名单）。
+// ---------------------------------------------------------------------------
+export {
+  BROWSER_PROFILE_GUARD,
+  browserProfileWriteRefusal,
+  browserProfileShellRefusal,
+} from './guard/browser-profile.js'
+
+export {
+  BROWSER_PROFILE_DIR_RULES,
+  CREDENTIAL_BASENAMES,
+  CREDENTIAL_EXTS,
+  normalizeCredentialName,
+  classifyBrowserProfileDirName,
+  classifyCredentialFileName,
+  classifyCredentialPath,
+} from './guard/credential-paths.js'
+
+// ---------------------------------------------------------------------------
 // ★★ Agent Teams 深度整合（`design/agent-teams/01-目标与边界.md` §D8）：
 //    官方新工具的分类名单 —— **唯一出处** `guard/official-tools.js`。
 //    这里只做转出：守门（`decide.js`）、工具面（`lib/tools.js`）、测试与钩子层

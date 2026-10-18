@@ -422,6 +422,25 @@ export function buildDispatchTools(ctx) {
         }
       }
 
+      // ★★ **reassign 先吊销旧席位的令牌**（2026-10-18 测试报告 P1-5）。
+      //
+      //   现场：`reassign:true` 派了新会话后，**旧会话仍在活动**，两个 tester 同时写
+      //   `reports/tester/`，`tester-results.jsonl` 属另一个会话 —— 结论可能互相矛盾，
+      //   而审核只能看到"目录里有结果"。改前这里只更新派活台账，**没有让旧席位停下**。
+      //
+      //   判据：旧席位的一切身份都来自令牌（`roleOfAgent`）。撤掉它之后，旧会话的
+      //   任何写操作都会被守门以"没有身份"拒掉 —— 不是靠自然语言让它"自觉退出"。
+      //   （`pipeline_succession` 早就有这条语义，`reassign` 补上同一件事。）
+      let revokedOld = 0
+      if (args.reassign === true) {
+        try {
+          const old = tokens.findSeat(task.id, role, seat)
+          if (old !== null && typeof old.token === 'string' && old.token.length > 0 && tokens.revoke(old.token)) revokedOld = 1
+        } catch {
+          revokedOld = 0
+        }
+      }
+
       const spawn = args.spawn === undefined ? config.spawnRoles !== false : args.spawn === true
       let res
       /**
@@ -697,6 +716,9 @@ export function buildDispatchTools(ctx) {
           (revived === null
             ? ''
             : `★ **席位失联重派**：任务已从「已阻塞」恢复到「${STATE_LABEL[revived.to] ?? revived.to}」（**没有消耗打回预算** —— 席位死亡不是任何角色的错）。\n`) +
+          (revokedOld > 0
+            ? '★ **已吊销旧席位的令牌**：旧会话之后的任何写操作都会被守门以「没有身份」拒掉 —— 不会出现两个席位同时写同一目录。\n'
+            : '') +
           `已派出「${roleLabel(role)}」。\n${res.note}\n` +
           /**
            * ★ WP-T（01 §D9）：team 通道派出去的是**官方 Team member**（`list_agents` 里可见），

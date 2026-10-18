@@ -11,7 +11,7 @@ import { ROLE, ROLES, roleLabel } from '../roles.js'
 import { NO_CODE_READ_ROLES } from '../guard.js'
 // ★ 会话身份（`exec.agent.id`）—— A 件的主对话身份自查要拿它与盘上记录逐字比。
 import { agentIdOf } from '../guard/seats.js'
-import { DEFAULT_SEAT_SILENCE_MS, describeSilentSeats, nextActionsFor, seatLiveness } from '../liveness.js'
+import { DEFAULT_SEAT_SILENCE_MS, describeApprovalWait, describeSilentSeats, nextActionsFor, seatLiveness, summarizeApprovalWait } from '../liveness.js'
 import { DISPATCH_SLOT_KEYS } from '../transport/index.js'
 import { clamp } from '../util.js'
 import { pendingWakesNextSteps, pendingWakesOf } from '../wakeup/pending.js'
@@ -29,6 +29,44 @@ import { S, SNullable, tool, resolveActor } from './kit.js'
  */
 export function buildStatusTools(ctx) {
   const { deps, store, indexTask, load, paginate, hubSeats } = ctx
+
+  /**
+   * ★★ **P1-4：「在等审批」探测**（由 `index.js` 注入；自测替身没有 ⇒ 判据与改前逐字节相同）。
+   *
+   * 为什么工具层也要自己探一次：`pipeline_status` 的两条路径里有一条**不经过**
+   * `store.checkLiveness`（"列全部任务"的扫描、以及"只报告不处置"档的详情视图），
+   * 而那个误诊恰恰就是从**查状态**这一眼看到的（"失联，可能已经死了"）。
+   * 探测只在**已经会被判失联**的席位上做（见 {@link liveWithApprovals}），
+   * 正常干活时一次都不探。
+   */
+  const probeSeatApprovals = typeof deps.probeSeatApprovals === 'function' ? deps.probeSeatApprovals : null
+
+  /**
+   * 算一次失联（带"在等审批"二次判定）：先按原判据算，**只对候选失联的席位**
+   * 探一次审批；探到了就带 `approvals` 重算 ⇒ 该席位从 `silent` 挪进 `awaiting`。
+   *
+   * ★ 探不到 / 探测抛错 ⇒ 原样返回第一次的结果（**真死席位照旧判死**）。
+   *
+   * @param {object} task
+   * @param {number} nowMs
+   * @param {number} silenceMs
+   * @returns {Promise<object>} {@link seatLiveness} 的结果
+   */
+  async function liveWithApprovals(task, nowMs, silenceMs) {
+    const baseOpts = { silenceMs }
+    let lv = seatLiveness(task, nowMs, baseOpts)
+    if (probeSeatApprovals === null || task === null || task === undefined || lv.silent.length === 0) return lv
+    try {
+      const probed = await probeSeatApprovals(lv.silent, task)
+      const approvals = probed !== null && probed !== undefined ? probed.approvals ?? null : null
+      if (approvals !== null && typeof approvals === 'object' && Object.keys(approvals).length > 0) {
+        lv = seatLiveness(task, nowMs, { ...baseOpts, approvals })
+      }
+    } catch {
+      // 探测失败按"读不到"处理 —— 不改变原有失联判据（这条新判据只做减法）。
+    }
+    return lv
+  }
 
   /**
    * ★★ **"没人领的事件"清单**（2026-10-16 补 · 唤醒投递失败的兜底出口）。
@@ -74,6 +112,10 @@ export function buildStatusTools(ctx) {
     if (hg !== null && hg.accepting_submissions === false) out.push('哈希闸门已连续到阈值 ⇒ **机制已交人工**，答复前拒收新提交（要用户拍板）')
     if (live !== null && live !== undefined && live.silent.length > 0) {
       out.push(`席位失联：${live.silent.map((s) => `${s.role_zh}${s.seat === null || s.seat === undefined ? '' : `(${s.seat})`} 静默 ${s.elapsed_zh}`).join('、')}`)
+    }
+    // ★★ P1-4：**在等审批**不是卡在席位身上（它没死），而是卡在**人**身上 —— 必须单列。
+    if (live !== null && live !== undefined && Array.isArray(live.awaiting) && live.awaiting.length > 0) {
+      out.push(`${summarizeApprovalWait(live.awaiting)}（★ 别重派 —— 重派会多起一个会话，白烧一轮）`)
     }
     if (res.pending_human_requests.length > 0) out.push(`等**用户**答复的人工请求 ${res.pending_human_requests.length} 条（主对话转告 → 用户拍板）`)
     if (res.pending_clarifications.length > 0) out.push(`等**需求分析**裁定的澄清请求 ${res.pending_clarifications.length} 条（还不用惊动用户）`)
@@ -153,6 +195,8 @@ export function buildStatusTools(ctx) {
       change_manifest: Array.isArray(res.change_manifest) ? res.change_manifest.length : 0,
       seats: Array.isArray(seats) ? seats.length : 0,
       silent_seats: live === null || live === undefined ? 0 : live.silent.length,
+      /** ★ P1-4：在等审批的席位数（它们**不在** `silent_seats` 里 —— 不是失联）。 */
+      awaiting_seats: live === null || live === undefined || !Array.isArray(live.awaiting) ? 0 : live.awaiting.length,
       review_ok: res.review_ok === null || res.review_ok === undefined ? null : res.review_ok.artifact_version,
     }
   }
@@ -177,7 +221,7 @@ export function buildStatusTools(ctx) {
       ` · 被拒收 ${c.rejected_deliveries} · 制品 ${c.artifacts} 版` +
       ` · 打回 编写${c.rework.writer}/${c.rework.budget} 测试${c.rework.tester}/${c.rework.budget}` +
       ` · 待办人工 ${c.pending_human_requests} · 待裁澄清 ${c.pending_clarifications} · 待复核申请 ${c.pending_roster_requests}` +
-      ` · 席位 ${c.seats}（失联 ${c.silent_seats}）` +
+      ` · 席位 ${c.seats}（失联 ${c.silent_seats}${c.awaiting_seats > 0 ? ` / 等审批 ${c.awaiting_seats}` : ''}）` +
       ` · 授权面 ${c.change_scope === null ? '无' : `${c.change_scope} 条`} / 实际改动 ${c.change_manifest} 处`
     if (mode === 'count') {
       return [
@@ -316,6 +360,8 @@ export function buildStatusTools(ctx) {
         // ★ **列全部任务时也扫一遍失联**：主对话往往就是先"看一眼所有任务"。
         //   只扫**有派活台账**的任务（没派过人就不存在失联），每条最多一次处置。
         const swept = []
+        /** ★★ P1-4：**在等审批**的任务（与"失联"分两段写 —— 判据不同源、处置也不同）。 */
+        const awaitingSwept = []
         const escalatedIds = []
         const silenceMs =
           Number.isInteger(deps.config?.seatSilenceMs) && deps.config.seatSilenceMs > 0
@@ -325,11 +371,20 @@ export function buildStatusTools(ctx) {
           const t = await load(row.id)
           if (t === null) continue
           if (!Array.isArray(t.dispatched) || t.dispatched.length === 0) continue
-          const lv = seatLiveness(t, Date.now(), { silenceMs })
+          // ★ 先按原判据算，只对候选失联的席位补一次"在等审批"探测（P1-4）。
+          const lv = await liveWithApprovals(t, Date.now(), silenceMs)
+          const awaitingNow = Array.isArray(lv.awaiting) ? lv.awaiting : []
+          if (awaitingNow.length > 0) {
+            awaitingSwept.push(
+              `  ⏳ ${row.id}：${awaitingNow
+                .map((s) => `${s.role_zh}${s.seat === null ? '' : `(${s.seat})`} 等 ${Number.isFinite(s?.approval?.count) ? s.approval.count : 0} 个审批`)
+                .join('、')} ⇒ **不是失联、不该重派**（去对应会话里点审批卡）`,
+            )
+          }
           if (lv.silent.length === 0) continue
           let note = '（只报告，未处置）'
           if (deps.config?.seatLivenessEscalate === true) {
-            const r = await store.checkLiveness(row.id, { escalate: true })
+            const r = await store.checkLiveness(row.id, { escalate: true, probe: probeSeatApprovals })
             if (r.ok === true) {
               if (r.task !== undefined && r.task !== null) indexTask(r.task.id, r.task)
               if (r.escalated === true) {
@@ -386,12 +441,18 @@ export function buildStatusTools(ctx) {
             L.push('', `⚠ **席位失联（${swept.length} 个任务）**：`, ...swept)
             if (escalatedIds.length > 0) L.push(`★ 已自动推到「已阻塞」：${escalatedIds.join('、')}。`)
           }
+          if (awaitingSwept.length > 0) {
+            L.push('', `⏳ **在等审批（${awaitingSwept.length} 个任务）** —— 不是失联：`, ...awaitingSwept)
+          }
           if (orphanLines !== '') L.push(orphanLines)
           L.push('', '★ 要逐条正文用 `detail="full"`（或干脆不传 detail，与改前一致）。')
           return {
             ok: true,
             summary: L.join('\n'),
-            liveness: swept.length === 0 ? null : { ok: false, silence_ms: silenceMs, swept: swept.length, escalated: escalatedIds },
+            liveness:
+              swept.length === 0 && awaitingSwept.length === 0
+                ? null
+                : { ok: false, silence_ms: silenceMs, swept: swept.length, escalated: escalatedIds, awaiting: awaitingSwept.length },
           }
         }
         return {
@@ -404,8 +465,12 @@ export function buildStatusTools(ctx) {
                 (escalatedIds.length === 0
                   ? ''
                   : `\n★ 已自动推到「已阻塞」：${escalatedIds.join('、')}。恢复：\`pipeline_dispatch { task_id, role: "…", reassign: true }\`（会自动解除阻塞、不消耗打回预算）。`)) +
+            (awaitingSwept.length === 0 ? '' : `\n\n⏳ **在等审批（${awaitingSwept.length} 个任务）** —— 不是失联、不要重派：\n${awaitingSwept.join('\n')}`) +
             orphanLines,
-          liveness: swept.length === 0 ? null : { ok: false, silence_ms: silenceMs, swept: swept.length, escalated: escalatedIds },
+          liveness:
+            swept.length === 0 && awaitingSwept.length === 0
+              ? null
+              : { ok: false, silence_ms: silenceMs, swept: swept.length, escalated: escalatedIds, awaiting: awaitingSwept.length },
         }
       }
       // 查询不强制角色（谁都能查状态），但脱敏按角色走。
@@ -514,7 +579,7 @@ export function buildStatusTools(ctx) {
         Number.isInteger(deps.config?.seatSilenceMs) && deps.config.seatSilenceMs > 0
           ? deps.config.seatSilenceMs
           : DEFAULT_SEAT_SILENCE_MS
-      let live = liveTask === null ? null : seatLiveness(liveTask, Date.now(), { silenceMs: liveSilenceMs })
+      let live = liveTask === null ? null : await liveWithApprovals(liveTask, Date.now(), liveSilenceMs)
 
       // ★★ **失联处置：查状态时也动手**（2026-10-11 复盘补的一条）。
       //
@@ -528,19 +593,21 @@ export function buildStatusTools(ctx) {
       const escalateOn = deps.config?.seatLivenessEscalate === true
       let handled = null
       if (live !== null && live.silent.length > 0 && escalateOn) {
-        const r = await store.checkLiveness(taskId, { escalate: true })
+        const r = await store.checkLiveness(taskId, { escalate: true, probe: probeSeatApprovals })
         if (r.ok === true) {
           if (r.task !== undefined && r.task !== null) indexTask(r.task.id, r.task)
           handled = r
           live = r.live ?? live
         }
       }
+      const liveAwaiting = live === null || live === undefined || !Array.isArray(live.awaiting) ? [] : live.awaiting
       const liveLines =
         live === null || live.seats.length === 0
           ? []
           : [
               live.silent.length === 0
-                ? `席位：已派 ${live.seats.length} 个，均**无失联**（静默阈值 ${live.silence_zh}）`
+                ? `席位：已派 ${live.seats.length} 个，均**无失联**（静默阈值 ${live.silence_zh}）` +
+                  (liveAwaiting.length === 0 ? '' : `；其中 **${liveAwaiting.length} 个在等你审批**（不是失联）`)
                 : describeSilentSeats(live.silent, { state: live.state, state_zh: live.state_zh, silenceMs: live.silenceMs }),
               ...(live.silent.length === 0
                 ? []
@@ -555,6 +622,11 @@ export function buildStatusTools(ctx) {
                         '要恢复请显式调 `pipeline_dispatch { …, reassign: true }` 或 `pipeline_transition event="unblock"`。',
                     ...nextActionsFor(live.silent, { taskId }),
                   ]),
+              /**
+               * ★★ **P1-4：在等审批的判词**（放在失联判词之后、独立一段）。
+               *   它回答的是"这不是失联，那是谁在拖" —— 误诊消失的那一眼就在这里。
+               */
+              ...(liveAwaiting.length === 0 ? [] : [describeApprovalWait(liveAwaiting, { taskId, state: live.state, state_zh: live.state_zh })]),
             ]
 
       /**
@@ -754,6 +826,13 @@ export function buildStatusTools(ctx) {
                 state: live.state,
                 seats: live.seats,
                 silent: live.silent,
+                /**
+                 * ★★ **P1-4：在等审批的席位**（`seats[]` 里 `approval.count > 0` 的那些）。
+                 *   它们**不在** `silent` 里 —— 拿这一项回答"它是不是死了"：
+                 *   不是，它在**等人点审批**；处置是「去那个会话点审批卡」，**不是重派**。
+                 */
+                awaiting: Array.isArray(live.awaiting) ? live.awaiting : [],
+                awaiting_count: Array.isArray(live.awaiting) ? live.awaiting.length : 0,
                 /** 这次查状态时**机制是否已经自动处置**（推到「已阻塞」）。 */
                 escalated: handled !== null && handled.escalated === true,
                 /** ★ 主对话下一步可以**直接调**的动作（重派 / 换班 / 人工 / 取消）。 */
@@ -822,6 +901,9 @@ export function buildStatusTools(ctx) {
     liveness: [
       `失联判据四条同时成立：① 超过静默阈值（config.seatSilenceMs，默认 5 分钟）；② **轮到场了**（该它动）；`,
       `③ 台账里没有任何活着的证据（0 交接物 / 0 流水 / 0 水位自报 / 0 继任）；④ **会话日志也没在长**（${'session.v4.jsonl.zstd'} 的 size/mtime）。`,
+      '★★ **在等审批 ≠ 失联**：`ask` 审批策略下席位弹审批卡等人点时，它的会话里会有一条没有配对',
+      '   `approval/decided` 的 `approval/asked`（宿主自己写的会话事件）⇒ liveness 报 `awaiting` 而不是 `silent`：',
+      '   **去那个会话点审批卡**，不要重派（重派会多起一个会话白烧一轮）。长单一开始就该用 `never`。',
       '恢复：pipeline_dispatch { reassign: true }（一键：先恢复阻塞前的状态再重派，不消耗打回预算）；',
       '叫醒既有席位：pipeline_dispatch { notify_only: true }（**不建会话、不改状态**）；放弃：pipeline_transition { event: "cancel" }。',
     ].join('\n'),

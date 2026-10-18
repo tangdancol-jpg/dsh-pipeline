@@ -29,19 +29,25 @@
  */
 
 import { readFileSync, statSync } from 'node:fs'
-import zlib from 'node:zlib'
 
 import { SESSION_LOG_NAME, findSessionLog } from './liveness.js'
+// ★★ 多帧 zstd 解压（2026-10-18 修）：宿主会话日志是**追加式多帧** zstd ——
+//    `zlib.zstdDecompressSync()` 只解第一帧（实测只读到 285 B 的 session 头），
+//    而失败标记写在**后续帧**里 ⇒ 旧实现永远查不到失败，A9「崩≠闲」的保护实际失效。
+//    解压器本身与 `lib/liveness/approval.js` 共用一份（同一份多帧切帧逻辑，不另抄）。
+import { decompressZstdFramesLossy } from './liveness/approval.js'
 
-/** 解压会话日志（宿主写的是 zstd）；宿主 node 没带 zstd 时**如实说拿不到**，不猜。 */
+/**
+ * 解压会话日志（宿主写的是 zstd，**多帧**）。
+ *
+ * 宿主 node 没带 zstd 时**如实说拿不到**，不猜；尾部正在写导致的坏帧不致命，
+ * 好帧照用、坏帧数写进 note（调用方据此知道"尾部可能没读到"）。
+ */
 export function decompressZstd(buf) {
-  const fn = typeof zlib?.zstdDecompressSync === 'function' ? zlib.zstdDecompressSync : null
-  if (fn === null) return { ok: false, text: '', note: '本机 node 没有 zstd 解压能力（zlib.zstdDecompressSync 不可用）' }
-  try {
-    return { ok: true, text: fn(buf).toString('utf8'), note: '' }
-  } catch (err) {
-    return { ok: false, text: '', note: `zstd 解压失败：${String(err?.message ?? err)}` }
-  }
+  const r = decompressZstdFramesLossy(buf)
+  if (r.ok !== true) return { ok: false, text: '', note: r.note }
+  const note = r.frames > 0 && r.bad > 0 ? `多帧解压：${r.frames} 帧成功 / ${r.bad} 帧损坏（尾部可能正在写）` : ''
+  return { ok: true, text: r.text, note }
 }
 
 /**
