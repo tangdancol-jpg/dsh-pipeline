@@ -1983,6 +1983,11 @@ produced_by=self-provided 时 degraded 必须是 true。
 能力申请（`pipeline_capability_request`）、全量测试（`pipeline_full_test`）、
 记忆（`pipeline_recall`）、清理（`pipeline_task_purge`）。）
 
+> ★ **自动审查（Auto review，实验性 · 仅设计）**：借鉴官方 `dsh-permission-presets` 的 Auto review，
+> 但只借结构不借"模型说行就行"。设计与不变量（不自我批准 / 不扩大授权面 / 一次性 / fail-closed /
+> 成对审计 / 熔断 / 默认关闭）见 [`design/approvals/01-自动审查.md`](design/approvals/01-自动审查.md)。
+> 当前 **P0 仅设计、未实现**（等用户拍板 §15 的 5 个问题）。
+
 ---
 
 ## 落盘布局
