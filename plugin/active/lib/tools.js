@@ -303,7 +303,10 @@ export function buildTools(deps) {
     ensureAgentsMd,
   })
   // ★★ P4 接线：DEMO 阶段（pipeline_demo） —— 见 `lib/tools/demo.js`
-  const { demo } = buildDemoTools({ deps, store, load })
+  // ★★ P1-8 接线：DEMO 内容交付（pipeline_demo_submit，交付席位专用）—— 同一个模块。
+  //    拆工具的判据：`pipeline_demo` 只留 main（调度）；"谁做的东西谁交"走 submit，
+  //    于是计划里写"某两个席位各交一半 DEMO"**真的可执行**。
+  const { demo, demoSubmit } = buildDemoTools({ deps, store, load })
   // ★★ E0 接线：记忆只读切片（pipeline_recall） —— 见 `lib/tools/memory.js`
   const { memoryRecall } = buildMemoryTools({ deps, store, load })
 
@@ -400,8 +403,10 @@ export function buildTools(deps) {
     capabilityRequest,
     // ★★ P1 接线：项目目录与仓库（幂等建目录 / git 化闸门 / 快照版本目录）
     projectInit,
-    // ★★ P4 接线：DEMO 阶段（档位策略 / 交轮次 / 用户确认）
+    // ★★ P4 接线：DEMO 阶段（档位策略 / 定稿轮次 / 用户确认）—— main 专用
     demo,
+    // ★★ P1-8 接线：DEMO 内容交付（`pipeline_demo_submit`）—— 交付席位专用
+    demoSubmit,
     // ★★ E0 接线：记忆只读切片（按相关性取回 `.pipeline/` 档案的摘要，带硬 token 上限）
     memoryRecall,
   }

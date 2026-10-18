@@ -9,6 +9,9 @@
 
 import { HUMAN_URGENCIES } from '../handoff.js'
 import { ROLE, ROLES, roleLabel } from '../roles.js'
+// ★★ P1-8：DEMO 交付席位白名单（唯一出处）—— 计划自检用它判"要求谁交 DEMO"是否可执行。
+import { DEMO_EVENTS, DEMO_ST, DEMO_SUBMIT_ROLES } from '../states/demo-phase.js'
+import { STATE_LABEL } from '../states.js'
 import { renderRequirementDoc } from '../context.js'
 import { NONFINITE_BOUNDARY_HINT, boundaryHintLine } from '../intake/boundary-hints.js'
 import { TIER_ORDER, buildRoster, deferrableProductsOf, deferralLine, validateDeferredArtifacts } from '../tiers.js'
@@ -23,6 +26,90 @@ import { ARGS_FILE_DOC } from './args-file.js'
 import { S, tool, resolveActor } from './kit.js'
 // ★ 拒绝文案的**唯一出处**（`lib/errors/text.js`）：本文件只换成引用，字面值未动。
 import { taskNotFound } from '../errors/text.js'
+
+/**
+ * ★★ **P1-8：计划里的 DEMO 交付面自检**（纯函数；在交计划/分配之前判）。
+ *
+ * 现场（设计档 `04-demo与制品模型.md` §2）：计划步骤要求"某两个席位各交一半 DEMO"，
+ * 但当时 `pipeline_demo` **只有 main 能调** —— 计划写了、机制不允许，矛盾没有任何一处会指出。
+ * 推荐 A 拆出 `pipeline_demo_submit` 之后，这条判据把"计划说的"和"机制允许的"对账：
+ *
+ *   ① 计划步骤/角色边界里**要求交付 DEMO** 的句子，若点名了某个角色：
+ *      · 该角色必须**有 submit 权限**（`DEMO_SUBMIT_ROLES`）；
+ *      · 该角色必须**在本档角色清单里**（在册）；
+ *   ② 没点名角色时，本档清单里至少要有一个**可 submit 的角色**；
+ *   ③ 矛盾 ⇒ 计划**不提交、不分配**，文案给出改法。
+ *
+ * @param {object} input
+ * @param {string[]} input.planSteps
+ * @param {object[]} input.roleBoundaries - `[{ role, only[], not[] }]`
+ * @param {string[]} input.executionRoles - 本档执行角色（`buildRoster` 的结论）
+ * @returns {{ok:boolean, errors:string[], demands:number, submitters:string[]}}
+ */
+function checkDemoDeliveryPlan({ planSteps, roleBoundaries, executionRoles }) {
+  const exec = Array.isArray(executionRoles) ? executionRoles.map(String) : []
+  const submitters = exec.filter((r) => DEMO_SUBMIT_ROLES.includes(r))
+  const textOf = (v) => (Array.isArray(v) ? v.map((x) => String(x ?? '')).join(' ') : String(v ?? ''))
+  const entries = []
+  for (const s of toStringArray(planSteps)) entries.push({ where: '计划步骤', text: String(s) })
+  for (const b of Array.isArray(roleBoundaries) ? roleBoundaries : []) {
+    if (b === null || typeof b !== 'object') continue
+    const role = String(b.role ?? '').trim()
+    const text = `${textOf(b.only)} ${textOf(b.not)}`
+    if (text.trim().length > 0) entries.push({ where: `角色边界卡${role.length > 0 ? `（${role}）` : ''}`, text })
+  }
+
+  /**
+   * "要求交付 DEMO"的判据：句子里有 demo，且相邻有"交付/出/做/提交/制作/写/画/搭"类动词。
+   * 刻意只认**紧邻**关系（16 个字符内）—— 只写"参考 DEMO"不算要求交付。
+   */
+  const DEMAND_RE = /(交付|出|做|提交|制作|写|画|搭)[^。；;\n]{0,16}demo|demo[^。；;\n]{0,16}(交付|页面|原型|可操作)/i
+  const demands = entries.filter((e) => /demo/i.test(e.text) && DEMAND_RE.test(e.text))
+
+  const errors = []
+  if (demands.length === 0) return { ok: true, errors, demands: 0, submitters }
+
+  /** 在句子里认出角色：英文 id（词边界）+ 中文角色名（子串）。 */
+  const mentionOf = (text) => {
+    const out = new Set()
+    for (const [id, spec] of Object.entries(ROLES)) {
+      if (id === ROLE.MAIN) continue
+      if (new RegExp(`(^|[^a-z0-9_])${id}([^a-z0-9_]|$)`, 'i').test(text)) out.add(id)
+      const zh = String(spec?.zh ?? '').trim()
+      if (zh.length > 0 && text.includes(zh)) out.add(id)
+    }
+    return [...out]
+  }
+
+  for (const d of demands) {
+    const mentioned = mentionOf(d.text)
+    if (mentioned.length === 0) {
+      /** 没点名角色：只要本档清单里有一个"能交 DEMO"的角色就够（谁交由派活时定）。 */
+      if (submitters.length === 0) {
+        errors.push(
+          `${d.where}：「${d.text.trim().slice(0, 80)}」要求交付 DEMO，但本档清单里**没有任何可交 DEMO 的角色**` +
+            `（需要 ${DEMO_SUBMIT_ROLES.join(' / ')} 之一）—— 加一个 \`extra_roles\`，或把这句改成不需要 DEMO。`,
+        )
+      }
+      continue
+    }
+    for (const role of mentioned) {
+      if (!DEMO_SUBMIT_ROLES.includes(role)) {
+        errors.push(
+          `${d.where}：「${d.text.trim().slice(0, 80)}」要求「${roleLabel(role)}(${role})」交付 DEMO，` +
+            `但它**没有 \`pipeline_demo_submit\` 权限**（只有 ${DEMO_SUBMIT_ROLES.join(' / ')}）—— 改由其中一个角色交，或删掉这句。`,
+        )
+      } else if (!exec.includes(role)) {
+        errors.push(
+          `${d.where}：「${d.text.trim().slice(0, 80)}」要求「${roleLabel(role)}(${role})」交付 DEMO，` +
+            `但它**不在本档角色清单里**（在册：${exec.join('、') || '（无）'}）—— 用 \`extra_roles\` 把它加进清单，或改由在册的 ` +
+            `${submitters.join(' / ') || '（本档没有可交 DEMO 的角色）'} 交。`,
+        )
+      }
+    }
+  }
+  return { ok: errors.length === 0, errors, demands: demands.length, submitters }
+}
 
 /**
  * 计划与授权面变更（pipeline_plan / pipeline_scope_amend）
@@ -230,6 +317,50 @@ export function buildPlanTools(ctx) {
         planPayload.gap_context = args.gap_context
         planPayload.gap_urgency = typeof args.gap_urgency === 'string' && args.gap_urgency.length > 0 ? args.gap_urgency : 'blocking'
       }
+
+      /**
+       * ★★ **P1-8：计划的 DEMO 交付面自检（在**交计划之前**判）**。
+       *
+       * 判据：计划步骤/角色边界里"要求交付 DEMO"的句子，点到的角色必须
+       * **有 `pipeline_demo_submit` 权限**且**在本档清单里**；没点名时清单里也至少要有一个可交的角色。
+       * 矛盾 ⇒ **拒收计划**（交接物不落盘、不 setRoster、不分配）——任务书原文「矛盾即拒收计划」。
+       *
+       * ★ 为什么放在 submitHandoff **之前**：`plan` 交接物一旦落盘，"计划没提交"就不成立了；
+       *   而这条判据只依赖 args + 本档执行角色（`buildRoster` 算得出来），不需要先落盘。
+       */
+      if (selfCheck.verdict === 'ok' && typeof args.tier === 'string' && TIER_ORDER.includes(args.tier)) {
+        const demoProbe = buildRoster({
+          tier: args.tier,
+          reason: String(args.reason ?? '计划自检'),
+          judgedBy: 'planner',
+          extraRoles: Array.isArray(args.extra_roles) ? args.extra_roles : [],
+          l0OrchestratorSeparate: config.l0OrchestratorSeparate === true,
+          writers: args.writers,
+          relayPolicy: args.relay_policy,
+        })
+        if (demoProbe.ok === true) {
+          const demoDelivery = checkDemoDeliveryPlan({
+            planSteps: args.plan_steps,
+            roleBoundaries: planPayload.role_boundaries,
+            executionRoles: demoProbe.roster.execution_roles,
+          })
+          if (demoDelivery.ok !== true) {
+            return {
+              ...empty,
+              summary:
+                `拒绝：计划里的 **DEMO 交付方与机制不一致**（${demoDelivery.errors.length} 处）—— 计划**没有提交**、也没有分配 AI。\n` +
+                demoDelivery.errors.map((e) => `  · ${e}`).join('\n') +
+                '\n★ 判据（P1-8，设计档 §2「推荐 A」）：DEMO 内容只能由**交付席位**交 —— ' +
+                `${DEMO_SUBMIT_ROLES.join(' / ')}（工具：\`pipeline_demo_submit\`）；` +
+                '主对话只用 `pipeline_demo` 做 round / confirm / status。\n' +
+                '两条改法（选一条）：\n' +
+                '  ① 把 DEMO 交付写进**在册的可交付角色**（writer / architect / diagrammer）的边界卡，或直接不点名、让派活时定；\n' +
+                '  ② 确实需要新角色 ⇒ 在计划里用 `extra_roles` 把它加进清单（例如 `extra_roles: ["diagrammer"]`）。',
+            }
+          }
+        }
+      }
+
       const sub = await store.submitHandoff({
         taskId: task.id,
         kind: 'plan',
@@ -500,6 +631,18 @@ export function buildPlanTools(ctx) {
           `执行角色：${r.execution_roles.map((x) => roleLabel(x)).join(' / ')}`,
           `调用顺序：${r.sequence.map((s) => roleLabel(s.role)).join(' → ')}`,
           `分配理由：${r.reason}`,
+          // ★★ P1-7：这次计划把任务推进到了**哪个**下一步 —— DEMO 阶段必须说清楚怎么走。
+          ...(res.advanced !== null && res.advanced?.to === DEMO_ST.BUILDING
+            ? [
+                '',
+                '★★ **本档要求先出可操作前端 DEMO**（设计档 `04-demo与制品模型.md` §1；裁定 5）：',
+                `  任务已进「${STATE_LABEL[DEMO_ST.BUILDING]}(${DEMO_ST.BUILDING})」—— **用户确认后**才进「待开发」。`,
+                '  下一步：① 交付席位 `pipeline_demo_submit` 交本轮内容（writer / architect / diagrammer）；',
+                '          ② 主对话 `pipeline_demo { action: "round", round_index, human_request_id }` 定稿一轮；',
+                '          ③ 用户答复 → `pipeline_demo { action: "confirm", round_index, human_request_id }`；',
+                '          ④ `pipeline_transition { event: "demo_passed" }` ⇒ 才进「待开发」；不满意就 `demo_rework` 再做一轮。',
+              ]
+            : []),
           // ★ P1-18：豁免了哪些产物（写进摘要 —— 关单闸与状态展示看得到，主对话也该看到）。
           ...(deferredArtifacts.length === 0
             ? []

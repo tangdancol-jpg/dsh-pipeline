@@ -333,7 +333,7 @@ profile 配置里加条目、每个钩子起一个子进程、判据还得重写
 - [编写分工（1~3 席位）](#编写分工13-席位)
 - [架构图角色](#架构图角色)
 - [结构化交接物 schema](#结构化交接物-schema)
-- [工具面（37 个）](#工具面37-个)
+- [工具面（38 个）](#工具面38-个)
 - [落盘布局](#落盘布局)
 - [守门：哪些是真拦截，哪些只是约定](#守门哪些是真拦截哪些只是约定)
 - [通信通道（可插拔）](#通信通道可插拔)
@@ -421,7 +421,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -DryRun
 重启后在日志里找这一行确认装上了：
 
 ```
-[pipeline] dsh-pipeline 0.1.0 已加载：37 个 pipeline_* 工具已注册；守门已启用；通道=<auto|session|team|subagent|manual>（...）；工作区=...；多AI 协调开关=**开**（revision 0，默认值）。
+[pipeline] dsh-pipeline 0.1.0 已加载：38 个 pipeline_* 工具已注册；守门已启用；通道=<auto|session|team|subagent|manual>（...）；工作区=...；多AI 协调开关=**开**（revision 0，默认值）。
 [pipeline] 开关 UI 端点已挂载：GET/POST /.dsh-pipeline/state（右上角「多AI 协调」按钮走它）。
 ```
 
@@ -1948,9 +1948,9 @@ produced_by=self-provided 时 degraded 必须是 true。
 
 ---
 
-## 工具面（37 个）
+## 工具面（38 个）
 
-> 下表只列**常用/关键**的 20 个（它们覆盖 99% 的日常操作）；**完整清单（37 个）**以
+> 下表只列**常用/关键**的 20 个（它们覆盖 99% 的日常操作）；**完整清单（38 个）**以
 > `lib/tools.js` 的注册、`pipeline_boundaries` 的 `tool_face` 与 `tests/load-smoke.mjs`
 > 的计数断言为准（本轮已按 36 校准；`lib/tools/` 下按工具分组）。
 
@@ -1978,8 +1978,8 @@ produced_by=self-provided 时 degraded 必须是 true。
 | `pipeline_human_relay` | **只有主对话** | ★ ② 把请求转告用户（不带 request_id = 收件箱）。不改状态 |
 | `pipeline_human_reply` | **只有主对话** | ★ ③④ 记录用户答复（原话+归属）并据它恢复状态 |
 
-（工具总数 **37**。上表里的 20 个是常用面；其余 17 个按分组在 `lib/tools/`：
-分档编排/项目目录（`pipeline_demo` / `pipeline_project_init` / `pipeline_supervise`）、
+（工具总数 **38**。上表里的 20 个是常用面；其余 18 个按分组在 `lib/tools/`：
+分档编排/项目目录（`pipeline_demo` / `pipeline_demo_submit` / `pipeline_project_init` / `pipeline_supervise`）、
 计划与授权面（`pipeline_plan` / `pipeline_scope_amend` / `pipeline_change_audit` / `pipeline_boundaries`）、
 分权落档（`pipeline_record_submit` / `pipeline_compile_requirement` / `pipeline_contacts`）、
 继任与水位（`pipeline_context_report` / `pipeline_succession`）、
@@ -2225,20 +2225,20 @@ DSH 0.2.1 起官方带「智能体团队」：根会话是 Lead，可以 `spawn_
 ```powershell
 cd <插件目录>
 $env:DSH_APP_ASAR = '<DSH 安装>\resources\app.asar'   # 预设/宿主 schema 类判据要读宿主安装
-node tests\run-all.mjs            # 120 套一起跑（3950 项，含残留检查）
+node tests\run-all.mjs            # 122 套一起跑（4006 项，含残留检查）
 node tests\run-all.mjs --quiet    # 只打结论，不贴完整拒绝原文
 ```
 
-**当前口径**：设了 `DSH_APP_ASAR` 时 **3950/3950 通过（120 套）**；不设时会有 3 条
+**当前口径**：设了 `DSH_APP_ASAR` 时 **4006/4006 通过（122 套）**；不设时会有 3 条
 "读不到宿主安装"的预置校验判红（环境面，不是代码面）。单套清单与每套的判据写在
 `tests/run-all.mjs` 与 `tests/registry.mjs` 里（新增能力用新套 + registry 一行登记）。
 
-按能力分组（不逐一列 120 套）：
+按能力分组（不逐一列 122 套）：
 
 | 分组 | 代表套件 | 内容 |
 |---|---|---|
 | 内核全流程 | `selftest.mjs` | 正例全流程 + 12 组反例 + 5 档分档验证（70 项） |
-| 装载/注册 | `load-smoke.mjs`、`schema-check.mjs` | 假 ctx 上调 `apply`，验注册 / 守门 / 开关路由 / 卸载 / 降级；工具定义计数（37 个） |
+| 装载/注册 | `load-smoke.mjs`、`schema-check.mjs` | 假 ctx 上调 `apply`，验注册 / 守门 / 开关路由 / 卸载 / 降级；工具定义计数（38 个） |
 | 通道 | `channel-check.mjs`、`dispatch-channel-check.mjs`、`team-transport-check.mjs` | 四条真实通道（session / team / subagent / manual）+ 选择点 + 官方 teammate 命名/复用/四槽证据/投递截断 |
 | 守门 | `shell-guard-check.mjs`、`intercept-check.mjs`、`silent-veto-*.mjs`、`team-guard-check.mjs` | 越权/跳步/旁路；官方新工具（team 协作 / 委派 / 插件管理 / 会话搜索）拒绝；`terminal_send` 的 `text` 按 shell 检查 |
 | 流程各站 | `human-check`、`writers-check`、`ladder-check`、`security-check`、`relay-check`、`records-check`、`plan-check`、`review-check`、`gate-states-check`… | 人工介入、编写席位、升级梯、安全确认、继任、分权落档、计划/审核/状态机 |
@@ -2251,7 +2251,8 @@ node tests\run-all.mjs --quiet    # 只打结论，不贴完整拒绝原文
 | P2 批次（2026-10-18） | `f27-pipeline-wait-check.mjs`、`f28-p2-polish-check.mjs` | ①新增 `pipeline_wait` 只读长轮询（等到状态/事件，替代 sleep 轮询；非法参数立刻拒、超时给完整状态、不改任务，43 项）；②四级小修：`human_relay` 照抄块真实换行、`pipeline_demo confirm` 参数文档、`pipeline_status fields` 可用键清单 + 大体积提示、拒绝文案补"允许的替代形态"（27 项） |
 | P1-18 批次（2026-10-18） | `f29-artifact-matrix-check.mjs` | 按档位的产物矩阵（L0–L5 必需产物）+ `deferred_artifacts` 豁免：理由必填、批准人只能 `user`/`supervisor`（supervisor 仅 L4+），测试/审核/安全类不可豁免；关单缺产物且未豁免才拒；`pipeline_status` 显示"必需/已交/已豁免（理由、批准人）"（43 项） |
 | P1-10 批次（2026-10-18） | `f30-artifact-snapshot-check.mjs` | 制品 = 整体交付快照：`files+sha256` 登记算 `snapshot_id`、逐文件校验；`action:"verify"` 重算并写回；L3+ 关单要求当前制品快照完整（L0–L2 不强制，legacy 只拦关单）（32 项） |
-| 回归专项 | `f1`–`f30`、`p1`–`p16`、`m1`–`m11` 等 | 每轮缺陷的判据化回归（一个缺陷一个套件） |
+| P1-7/8 批次（2026-10-18） | `f31-demo-stage-check.mjs`、`f32-demo-submit-check.mjs` | DEMO 显式阶段（`demo_building` / `demo_review` + 四条迁移边；L3+ 必经、L2 可跳过；round 请求必须本轮创建/已答复/未被消费；旧单兼容）+ `pipeline_demo_submit`（writer/architect/diagrammer 交付 DEMO 交付物，`pipeline_demo` 仍 main 专用；plan 自检拒收矛盾计划）（35 + 21 项） |
+| 回归专项 | `f1`–`f32`、`p1`–`p16`、`m1`–`m11` 等 | 每轮缺陷的判据化回归（一个缺陷一个套件） |
 
 报告落到 `tests/last-run.txt`。
 

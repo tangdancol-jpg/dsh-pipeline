@@ -108,12 +108,20 @@ export const ST = {
   BLOCKED: 'blocked',
   CANCELLED: 'cancelled',
   /**
-   * ★★ DEMO 阶段（P4 接线）：复杂任务先出**可操作前端 DEMO**，**用户确认后**才继续后端。
+   * ★★ DEMO 阶段（P4 接线；P1-7 起按设计档定名 `demo_building` / `demo_review`）：
+   * 复杂任务先出**可操作前端 DEMO**，**用户确认后**才继续后端。
    * ★ 为什么不直接并进 `ready_dev`：`ready_dev` 是"活已切好、只等派"，而这里是
    *   "DEMO 还在做 / 等用户点头" —— **下一步该催谁**完全不同（催做 DEMO 的人 vs 催用户）。
    */
   DEMO_BUILDING: DEMO_ST.BUILDING,
-  DEMO_CONFIRM: DEMO_ST.CONFIRM,
+  DEMO_REVIEW: DEMO_ST.REVIEW,
+  /**
+   * ★ **仅旧单兼容**：P4 期间落盘的旧状态 id（`demo_confirm`）。
+   * 新流程不会进入它；保留这个键是为了旧的 `ST.DEMO_CONFIRM` 引用与已落盘旧单可读、
+   * 且 `STATE_OWNER` / `STATE_LABEL` 的"状态全集 ⊆ 键集合"判据不因改名而红。
+   * @deprecated 新代码请用 {@link ST.DEMO_REVIEW}
+   */
+  DEMO_CONFIRM: DEMO_ST.LEGACY_CONFIRM,
 }
 
 /**
@@ -200,6 +208,8 @@ export const STATE_LABEL = {
   [ST.CANCELLED]: '已取消',
   // ★★ P4 接线：DEMO 两个状态的标签（同样从 `states/demo-phase.js` 取，不手抄字符串）。
   ...DEMO_STATE_LABEL,
+  // ★ 旧单兼容：P4 旧名 `demo_confirm` 也要有中文名（否则 `pipeline_status` 只会显示英文 id）。
+  [DEMO_ST.LEGACY_CONFIRM]: 'DEMO 待用户确认（旧名 demo_confirm）',
 }
 
 /** 终态：到了就不可再迁（除人工重开）。 */

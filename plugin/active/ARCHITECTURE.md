@@ -168,7 +168,7 @@ Stop Ladder 四问由插件自带（`skills/stop-ladder/SKILL.md`）并由代码
 │ L4 · 角色层（每个角色 = 一个独立会话）                                     │
 │   编排判断 · 架构 · 安全审计 · 编写 · 测试 · 审核 · 发布 · 文档 · 性能 · 仲裁 │
 ├──────────────────────────────────────────────────────────────────────────┤
-│ L3 · 工具层（37 个 pipeline_* 工具，模型可见）                              │
+│ L3 · 工具层（38 个 pipeline_* 工具，模型可见）                              │
 │   开单 · 编排 · 派活 · 认领 · 交接 · 迁移 · 打回 · 关单 · 查询 · 角色变更 …   │
 │   + 总开关 pipeline_switch                                                 │
 ├──────────────────────────────────────────────────────────────────────────┤
@@ -227,7 +227,7 @@ L3 是给模型的手；L4 是干活的人；L5 是下命令的人。
 | `arbiter` | 仲裁/争议解决 | actor | 打回次数用尽且结论分歧时介入裁定 |
 | `human` | 人工 | actor | 异常出口：阻塞、取消、人工放行、回滚 |
 
-### L3 · 工具层（37 个；下表只画**关键 22 个**节点，完整清单以 `lib/tools.js` 注册与 `pipeline_boundaries.tool_face` 为准）
+### L3 · 工具层（38 个；下表只画**关键 22 个**节点，完整清单以 `lib/tools.js` 注册与 `pipeline_boundaries.tool_face` 为准）
 
 | id | 中文标签 | 类型 | 允许角色 |
 |---|---|---|---|
@@ -390,7 +390,7 @@ L3 是给模型的手；L4 是干活的人；L5 是下命令的人。
 
 | # | from | to | 中文标签 | 类型 | 说明 |
 |---|---|---|---|---|---|
-| E1 | `dsh-pipeline` | `h_tools` | 注册 37 个工具 | call | `ctx.effect(() => ctx.tools.register(def))` |
+| E1 | `dsh-pipeline` | `h_tools` | 注册 38 个工具 | call | `ctx.effect(() => ctx.tools.register(def))` |
 | E2 | `dsh-pipeline` | `h_tools` | 注册 1 个单调守卫 | call | `ctx.effect(() => ctx.tools.guard(fn))` |
 | E3 | `dsh-pipeline` | `h_prompt` | 注入角色行为契约 | call | `ctx.systemPrompt.section()`，order 2650 |
 | E4 | `m_transport` | `h_subagents` | 建会话 / 投消息 | call | `startContinuable` / `sendMessage`（仅 subagent 通道） |

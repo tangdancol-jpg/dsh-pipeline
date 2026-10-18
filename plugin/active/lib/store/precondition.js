@@ -1020,11 +1020,13 @@ export function preconditionMethods(ctx) {
           }
           break
         }
-        // ★★ P4 接线（`WIRING.md` §W3）：DEMO 闸门 ------------------------------
+        // ★★ P4 接线（`WIRING.md` §W3）/ P1-7 升级：DEMO 闸门 ----------------------
         //
-        //   `demo_confirm → ready_dev`（事件 `demo_confirmed`）这条边**必须**有用户确认。
-        //   判据本体在 `lib/guard/demo-gate.js`，经 `store.checkDemoPrecondition` 转发 ——
-        //   工具层与守门层调的是**同一份**实现（与既有各闸门同一条规矩）。
+        //   `demo_review → ready_dev`（事件 `demo_passed`；P4 旧名 `demo_confirm → demo_confirmed`）
+        //   这条边**必须**有用户确认。判据本体在 `lib/guard/demo-gate.js`，经
+        //   `store.checkDemoPrecondition` 转发 —— 工具层与守门层调的是**同一份**实现。
+        //   P1-7 起闸门还要求：确认落在**某一轮**上、该轮请求是**本轮创建**且**已 answered**、
+        //   **未被别的轮消费**（旧数据缺字段时按 legacy 放宽 —— 旧单不因加判据而红）。
         //
         //   ★ 为什么判在**这一层**、而不是在工具里判：工具能被绕过（直接调 transition），
         //     状态机这一层绕不过去。闸门装在"必经之路"上才算闸门。
@@ -1033,8 +1035,6 @@ export function preconditionMethods(ctx) {
         //     名字没登记时落到 `default:` —— 那是一条**明确的拒绝**（`INTERNAL`），
         //     不是"默认放行"；但那条判词既不是 `DEMO_NOT_CONFIRMED`、也没有"下一步"，
         //     对模型与用户都是误导。登记进来才拦得**对**。
-        //   ★ 不接线的后果：未获用户确认时向 `ready_dev` 的推进拿不到正确的判据 ——
-        //     验收 A17 不成立，W1 接好了也一样（状态能走通，但理由说不清）。
         case DEMO_GATE_GUARD:
         case DEMO_ROUND_GUARD: {
           return this.checkDemoPrecondition(task, name, input)

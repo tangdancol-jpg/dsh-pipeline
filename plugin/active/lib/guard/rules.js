@@ -9,6 +9,8 @@
 
 import { isInside, pathKey } from '../util.js'
 import { collectTargets } from './targets.js'
+// ★★ P1-8：DEMO 内容交付席位的**唯一出处**（`pipeline_demo_submit` 的白名单从那里取）。
+import { DEMO_SUBMIT_ROLES } from '../states/demo-phase.js'
 
 
 
@@ -325,10 +327,12 @@ export const PIPELINE_TOOL_ROLES = {
   pipeline_task_purge: ['main'],
   // ★★ P1 接线：项目目录与仓库 —— 与关单同档，只有主对话能开（它决定"在哪干活"）。
   pipeline_project_init: ['main'],
-  // ★★ P4 接线：DEMO 阶段 —— `plan`/`confirm` 是主对话的决定；`round` 由编写席位交，
-  //    但工具面按**动作**分流太细，这里与 `pipeline_transition` 同档放开给 main，
-  //    席位侧由 `lib/tools/demo.js` 里的 `resolveActor` 与状态机的 `by` 名单兜住。
+  // ★★ P4 接线：DEMO 阶段 —— `plan`/`confirm`/`round`/`status` 是主对话的调度（**main 专用**）。
+  //    P1-8 起内容交付拆到 `pipeline_demo_submit`（见下一行）——"谁做的东西谁交"。
   pipeline_demo: ['main'],
+  // ★★ P1-8：DEMO 内容交付（写 `task.demo.rounds[i]`）—— 只认交付席位。
+  //    白名单来自 `lib/states/demo-phase.js` 的 `DEMO_SUBMIT_ROLES`（不手抄第二份）。
+  pipeline_demo_submit: [...DEMO_SUBMIT_ROLES],
   /**
    * ★★ 用户第 1 件（2026-10-16）：**能力申请通道**。
    *

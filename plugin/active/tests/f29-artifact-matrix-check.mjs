@@ -462,7 +462,7 @@ export async function runF29ArtifactMatrixCheck() {
           JSON.stringify(planHandoff?.payload?.deferred_artifacts ?? null),
         )
         rec.add(G, '★ 计划工具输出里回带 deferred_artifacts', eq(out?.deferred_artifacts, deferred), JSON.stringify(out?.deferred_artifacts ?? null))
-        rec.add(G, '★ 分配完成 ⇒ 状态推到「待开发」', t.state === 'ready_dev', t.state)
+        rec.add(G, '★ 分配完成 ⇒ L4 进入 DEMO 阶段（demo_building，P1-7 后 L3+ 必经）', t.state === 'demo_building', t.state)
 
         // status：紧凑档一行显示"必需 / 已交 / 已豁免（理由）"
         const st = h.byName.get('pipeline_status')

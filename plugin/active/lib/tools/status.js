@@ -1043,7 +1043,8 @@ export function buildStatusTools(ctx) {
       '        pipeline_human_relay / pipeline_human_reply / pipeline_status / pipeline_wait / pipeline_contacts',
       // ★ P2 文案小修：`pipeline_demo` 原先在速查里**完全没提**，confirm 的必填参数只能靠猜。
       '主对话 · DEMO 阶段：pipeline_demo（action: plan / round / confirm / status）；',
-      '        `confirm` **必填** `round_index` + `human_request_id`（请求必须已 answered）。',
+      '        交付席位交内容：pipeline_demo_submit（writer / architect / diagrammer）；',
+      '        `confirm` **必填** `round_index` + `human_request_id`（请求必须已 answered），再 pipeline_transition event=demo_passed。',
       '执行角色：pipeline_bind_role / pipeline_handoff / pipeline_artifact / pipeline_record_submit /',
       '        pipeline_clarify_request / pipeline_clarify_reply / pipeline_human_request / pipeline_roster_request /',
       '        pipeline_context_report / pipeline_succession / pipeline_compile_requirement',

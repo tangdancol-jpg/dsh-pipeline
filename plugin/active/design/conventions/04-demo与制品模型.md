@@ -6,6 +6,8 @@
 
 ## 1. P1-7：DEMO 闸门自相矛盾（先有鸡还是先有蛋）
 
+> **状态：已按推荐 A 落地**（2026-10-18，显式两状态 + 四条迁移边，回归 31）。
+
 **现场**：`pipeline_demo status` 说"闸门 `demo_confirmed` 拦着（DEMO_NOT_DELIVERED）—— 不能进待开发"，
 但任务早已被 `planned` 推进到 `ready_dev`；逻辑上也不可能先满足：`round` 需要交付物 → 交付物需要编写
 席位 → 编写席位需要 `ready_dev`。结果闸门只能**事后补登记**。附带：`round` 要求"挂一条人工请求"，
@@ -31,6 +33,8 @@ planning ──demo_started──▶ demo_building ──demo_submitted──▶
 **取舍**：多两个状态会让状态机变宽，但换来"不可跳过"；比"软闸 + 事后补登记"强。
 
 ## 2. P1-8：`pipeline_demo` 角色权限与计划打架
+
+> **状态：已按推荐 A 落地**（2026-10-18，新增 pipeline_demo_submit，回归 32）。
 
 **现场**：计划位步骤 2 要求"DEMO 前置由某两个席位各交一半"，但工具只允许 `main` 调
 （memo 里能看到 planner 被拒的留痕）。计划写了、机制不允许 —— 这类矛盾应该让计划自检就发现。

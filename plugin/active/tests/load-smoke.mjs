@@ -184,9 +184,11 @@ export function createFakeCtx(opts = {}) {
  *   · 35 = 记忆域 E0 的 `pipeline_recall`（只读切片）；
  *   · 36 = 用户第 1 件的 `pipeline_capability_request`（能力申请通道）。
  * ★ 2026-10-18 由 36 → **37**：P2-11 的 `pipeline_wait`（只读长轮询：等到状态/事件，
- *   替代主对话 40+ 次 sleep 轮询；不写盘、不改状态）。形状仍是「多一条具名通道」，
+ *   替代主对话 40+ 次 sleep 轮询；不写盘、不改状态）。
+ * ★ 2026-10-18 由 37 → **38**：P1-8 的 `pipeline_demo_submit`（交付席位把 DEMO 交付物
+ *   挂到本轮草稿；`pipeline_demo` 仍 main 专用）。形状仍是「多一条具名通道」，
  *   判定方向一个字没放宽：精确相等。 */
-export const EXPECTED_TOOL_COUNT = 37
+export const EXPECTED_TOOL_COUNT = 38
 
 export async function runLoadSmoke() {
   const items = []

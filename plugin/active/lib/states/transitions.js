@@ -23,7 +23,7 @@ import {
   HUB_STATION_REJECT_EVENTS,
   HUB_STATIONS,
 } from './hub.js'
-import { demoPhaseMerge, demoStateOwners } from './demo-phase.js'
+import { DEMO_EVENTS, DEMO_ST, demoPhaseMerge, demoStateOwners } from './demo-phase.js'
 
 /**
  * 状态转移表。
@@ -226,18 +226,46 @@ export const TRANSITIONS = [
   { from: ST.BLOCKED, event: 'unblock', to: '(previous)', by: ['main', 'human'], note: '解除阻塞，回到阻塞前的状态' },
   { from: '*', event: 'cancel', to: ST.CANCELLED, by: ['main', 'human'], note: '任意非终态可取消' },
 
-  // --- ★★ P4 接线：DEMO 阶段的四条边（定义在 `lib/states/demo-phase.js`，本表只做合并）----
+  // --- ★★ P4 接线 / P1-7 定名：DEMO 阶段的四条边（定义在 `lib/states/demo-phase.js`，本表只做合并）----
   //
-  //   planning ──plan_ready_demo──▶ demo_building ──demo_submitted──▶ demo_confirm
+  //   P1-7（设计档 `04-demo与制品模型.md` §1）：
+  //     planning ──demo_started──▶ demo_building ──demo_submitted──▶ demo_review
   //                                       ▲                                │
   //                                       └──────demo_rework───────────────┤
-  //                                       ready_dev ◀──demo_confirmed──────┘
+  //                                       ready_dev ◀──demo_passed─────────┘
   //
   //   ★ 为什么要**在这里**合并：`applyTransition()` 只认本表里登记过的 `(from, event)` ——
-  //     表里没有 `demo_building`，`planning → demo_building` 这条边走不通，DEMO 阶段等于不存在。
-  //   ★ `demo_confirmed` 那条边挂的闸门名是 `demo_confirmed` —— 判据体在
-  //     `lib/guard/demo-gate.js`，由 `lib/store/precondition.js` 转发（见 `WIRING.md` §W3）。
+  //     表里没有 `demo_review`，`demo_review → ready_dev` 这条边走不通，DEMO 阶段等于不存在。
+  //   ★ `demo_passed` 那条边挂的闸门名仍是 **`demo_confirmed`**（判据升级、名字不变）——
+  //     判据体在 `lib/guard/demo-gate.js`，由 `lib/store/precondition.js` 转发。
+  //   ★ 走不走这两条边由**档位策略**决定：`store.setRoster()` 用
+  //     `demoStageRequiredFor()`（`lib/states/demo-phase.js`）在 planning 那一跳选事件 ——
+  //     L3+ require 走 `demo_started`；L0–L2（含 L2 未选择出 DEMO）仍走 `planned`。
   ...demoPhaseMerge({ ST, ROLE }).transitions,
+
+  // --- ★ 旧单兼容：P4 期间用**旧名**（`demo_confirm` / `demo_confirmed`）走过的边 ----
+  //
+  //   任务书原文：「旧单（已到 ready_dev 及之后）不因缺新状态而红」—— 迁移判据只对
+  //   **从 planning 出发**的那条边生效。这里保留两条旧名边，让**旧状态**上的单也能继续走完：
+  //   · 旧 `demo_confirm --demo_confirmed--> ready_dev`（闸门仍是同一个，判据自动兼容旧数据）；
+  //   · 旧 `demo_confirm --demo_rework--> demo_building`（重做回新状态）。
+  //   ★ 新流程不会进入 `demo_confirm`（`demoPhaseMerge` 的 states 里没有它）。
+  {
+    from: DEMO_ST.LEGACY_CONFIRM,
+    event: DEMO_EVENTS.LEGACY_CONFIRM,
+    to: ST.READY_DEV,
+    by: ['main'],
+    guard: 'demo_confirmed',
+    note: '★ 旧单兼容（P4 旧状态名 demo_confirm / 旧事件名 demo_confirmed）：判据与 `demo_passed` 同一个闸门。',
+  },
+  {
+    from: DEMO_ST.LEGACY_CONFIRM,
+    event: DEMO_EVENTS.REWORK,
+    to: DEMO_ST.BUILDING,
+    by: ['main'],
+    guard: 'demo_round_ok',
+    note: '★ 旧单兼容：旧状态 `demo_confirm` 上用户要求重做 ⇒ 回到 `demo_building`（之后走新流程）。',
+  },
 ]
 
 /** 状态 → 该状态下"轮到的角色"（用于催办与守门）。 */
@@ -268,12 +296,13 @@ export const STATE_OWNER = {
   [ST.BLOCKED]: 'human',
   [ST.CANCELLED]: null,
   /**
-   * ★★ DEMO 两个状态的 owner（P4 接线补齐）。
+   * ★★ DEMO 两个状态的 owner（P4 接线补齐；P1-7 起状态名为 `demo_building` / `demo_review`）。
    *
    * 不补的后果是**可执行的**：`STATE_OWNER` 恒等于"全部状态 ⇒ 谁"这张表，
    * 缺一个键就答不出"这一步该催谁"（`deliver.js` 取到 `undefined ?? null`，
    * 就成了"没人可催"）。两个状态各有明确的人可催，所以**不是** `null`：
-   *   · `demo_building` ⇒ 编写席（DEMO 还在做）；`demo_confirm` ⇒ 主对话（等用户点头）。
+   *   · `demo_building` ⇒ 编写席（DEMO 还在做）；`demo_review` ⇒ 主对话（等用户点头）。
+   *   · 旧名 `demo_confirm` 也保留了条目（旧单兼容；见 `demoStateOwners`）。
    * ★ 与 `TRANSITIONS` 同一条纪律：条目来自 `states/demo-phase.js`，本文件不手抄角色 id。
    */
   ...demoStateOwners({ ROLE }),

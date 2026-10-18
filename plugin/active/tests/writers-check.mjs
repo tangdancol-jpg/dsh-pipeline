@@ -140,6 +140,18 @@ export async function createMultiWriterFixture(opts = {}) {
   const orch = planned.plan
   if (orch.denied) throw new Error(`计划/分配失败：\n${orch.text}`)
 
+  // ★ P1-7（2026-10-18）：L3+ 的计划分配后会先进入 DEMO 阶段（demo_building），
+  //   而本夹具测的是「多编写席位 / 安全否决」，不测 DEMO —— 直接把状态摆到
+  //   ready_dev（夹具语义：DEMO 已完成），不改变被测判据。
+  {
+    const t0 = h.store.peek(T)
+    if (t0.state === 'demo_building') {
+      t0.state = 'ready_dev'
+      await writeFile(join(h.projectRoot, '.pipeline', T, 'task.json'), JSON.stringify(t0, null, 2), 'utf8')
+      h.indexTask(T, t0)
+    }
+  }
+
   // 派活
   // ★ 更正 A：先把**留档 AI** 派出来，让它用计划 AI 那份记录汇总出唯一的需求档。
   //   没有档之前，其它角色的派活会被"没有留档就不许开工"拦住 —— 这是有意的。

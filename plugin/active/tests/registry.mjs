@@ -316,4 +316,7 @@ export const EXTRA_SUITES = [
   { file: './f29-artifact-matrix-check.mjs', exportName: 'runF29ArtifactMatrixCheck', zh: '★ P1-18 档位产物矩阵（L0–L5 必需产物；deferred_artifacts 理由/批准人校验；关单缺产物拒→豁免后过；测试/审核类不可豁免）' },
   // ★★ 2026-10-18 第四批（P1-10）：制品快照（files+sha256 / snapshot_id / verify / L3+ 关单强制）。
   { file: './f30-artifact-snapshot-check.mjs', exportName: 'runF30ArtifactSnapshotCheck', zh: '★ P1-10 制品快照（files+sha256 登记、verify 重算、L3+ 关单要求完整快照；L0–L2 不强制、legacy 只拦关单）' },
+  // ★★ 2026-10-18 第五批（P1-7 / P1-8）：DEMO 显式阶段（demo_building/demo_review）+ 交付工具拆分。
+  { file: './f31-demo-stage-check.mjs', exportName: 'runF31DemoStageCheck', zh: '★ P1-7 DEMO 显式阶段（四条迁移边；L3+ 必经、L2 可跳过；round 请求“本轮创建/已答/未消费”；旧单兼容）' },
+  { file: './f32-demo-submit-check.mjs', exportName: 'runF32DemoSubmitCheck', zh: '★ P1-8 pipeline_demo_submit（writer/architect/diagrammer 交 DEMO 交付物；main 的 round 可定稿；plan 自检拒收矛盾计划）' },
 ]

@@ -109,7 +109,7 @@ async function main() {
   lines.push('')
   lines.push('【④ 新状态与新迁移：四条边并进状态机（`WIRING.md` §W1 已接线）】')
   eq(DEMO_ST.BUILDING, 'demo_building', '新状态 1 = demo_building')
-  eq(DEMO_ST.CONFIRM, 'demo_confirm', '新状态 2 = demo_confirm')
+  eq(DEMO_ST.CONFIRM, 'demo_review', '新状态 2 = demo_review（旧名 demo_confirm 保留为兼容别名）')
   ok(isDemoState('demo_building') && isDemoState('demo_confirm'), 'isDemoState 两个都认')
   ok(!isDemoState(ST.READY_DEV), '既有状态不被误认为 DEMO 状态')
   /**

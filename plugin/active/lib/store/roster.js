@@ -9,6 +9,8 @@
 
 import { buildHandoffRecord } from '../handoff.js'
 import { ST, STATE_LABEL } from '../states.js'
+// ★★ P1-7：DEMO 显式阶段的**路由判据**（L3+ 必走 / L2 显式要看才走 / L0–L2 默认旧路径）。
+import { DEMO_EVENTS, demoStageRequiredFor } from '../states/demo-phase.js'
 import { ROLE } from '../roles.js'
 import { buildRoster, rosterSlotKeys, validateDeferredArtifacts, validateRoster } from '../tiers.js'
 // ★ 领域对象集中：任务卡（task_card）的形状在 `lib/model/task.js`。
@@ -270,26 +272,37 @@ export function rosterMethods(ctx) {
       task.history.push(entry)
       await persist(task)
 
-      // ★ 角色清单产出 = 计划分配完成 → 顺带把状态推进到「待开发」。
+      // ★ 角色清单产出 = 计划分配完成 → 顺带把状态推进到**下一步**。
       //
       //   本轮改了两处（都必须改，否则流程走不通）：
       //     ① 触发状态从 `analyzing` 换成 `planning` —— 需求分析不再产出清单，
       //        它在 `analyzing` 交的是**分析结论**，那条边的终点是「待计划」。
       //     ② 事件与角色跟着换：planner 走 `planned`（挂 plan_ready 判据），
       //        规则引擎（L0）仍走 `orchestrated`。
+      //   ★★ P1-7：planner 走哪条边由**档位策略**决定（`demoStageRequiredFor`）：
+      //     · L3+ require ⇒ `planning --demo_started--> demo_building`（先出 DEMO，用户确认后才进 ready_dev）；
+      //     · L2 ask 且用户显式选择"要看" ⇒ 同上；
+      //     · 其余（L0–L2，含 L2 未选择出 DEMO）⇒ 原路径 `planned → ready_dev`（**一个字节没变**）。
+      //   ★ "旧单兼容"：判据只看**从 planning 出发**这一跳；已到 ready_dev 及之后的任务不会再走这里。
       //   不在这些状态时不动状态（例如执行中改了角色清单，不该把流程推回去）。
       let advanced = null
       const byPlanner = roster.judged_by === 'planner'
       const canAdvance = byPlanner ? task.state === ST.PLANNING : task.state === ST.PENDING
       if (canAdvance) {
+        const toDemoStage = byPlanner && demoStageRequiredFor(roster.tier, task.demo)
+        const event = byPlanner ? (toDemoStage ? DEMO_EVENTS.START : 'planned') : 'orchestrated'
         const tr = await this.transition({
           taskId: task.id,
-          event: byPlanner ? 'planned' : 'orchestrated',
+          event,
           actorRole: byPlanner ? ROLE.PLANNER : 'rule-engine',
           actorAgentId: input.actorAgentId,
-          note: byPlanner ? '计划自检通过 + 分配完成' : 'L0 规则引擎自批',
+          note: byPlanner
+            ? toDemoStage
+              ? '计划自检通过 + 分配完成 ⇒ 进 DEMO 阶段（L3+ 必须先出可操作 DEMO）'
+              : '计划自检通过 + 分配完成'
+            : 'L0 规则引擎自批',
         })
-        if (tr.ok === true) advanced = { from: tr.from, to: tr.to }
+        if (tr.ok === true) advanced = { from: tr.from, to: tr.to, event }
       }
 
       return {
@@ -299,7 +312,10 @@ export function rosterMethods(ctx) {
         advanced,
         summary:
           `角色清单已写入：${roster.tier}（${roster.tier_zh}），共 ${roster.ai_count} 个独立对话。` +
-          (advanced === null ? '' : `\n任务状态：${STATE_LABEL[advanced.from]} → ${STATE_LABEL[advanced.to]}。`),
+          (advanced === null ? '' : `\n任务状态：${STATE_LABEL[advanced.from]} → ${STATE_LABEL[advanced.to]}。`) +
+          (advanced !== null && advanced.event === DEMO_EVENTS.START
+            ? '\n★ 本档要求先出**可操作前端 DEMO**：交付席位 `pipeline_demo_submit` 交内容 → 主对话 `pipeline_demo` 定稿/确认 → `demo_passed` 后才进「待开发」。'
+            : ''),
       }
     },
   }
