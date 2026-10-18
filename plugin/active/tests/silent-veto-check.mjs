@@ -1,4 +1,4 @@
-﻿/**
+/**
  * dsh-pipeline · **静默否决 + 把自己文档当违规**（真机缺陷的夹具化回归）
  * ============================================================================
  *     node tests/silent-veto-check.mjs
@@ -31,7 +31,7 @@ import { judgePrompt } from '../lib/intercept.js'
 import { assertHostMessage } from '../lib/hostmsg.js'
 import { auditLinesOf as auditLines, closeFixtures, setupInterceptHost as setup } from './silent-veto-fixtures.mjs'
 // ★ 判据夹具（二分表 / 输入→输出表 / 预设全文）+ 断言小工具，拆在 `silent-veto-fixtures.mjs`，
-//   只为行数纪律（CONVENTIONS.md §4：单文件 ≤400 行）；判据本身只有一份。
+//   只为行数纪律（CONVENTIONS.md §4：单文件建议 ≤400 行（预警线，不是死限））；判据本身只有一份。
 import {
   IO_TABLE,
   MAIN_LIMIT_TABLE,

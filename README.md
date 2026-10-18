@@ -108,8 +108,9 @@ stop-ladder Skill 落到 `<DSH 用户目录>\skills\stop-ladder\`。
 ### 客户端：入口 375 行 + 18 个 chunk
 
 浏览器半边不是一个大文件：入口 `lib/client.js` **375 行**，面板实现拆成 **18 个** chunk ——
-入口 + chunk 共 **19 个文件、合计 4743 行**，每个 ≤400 行，且**没有任何文件落在 390–400**
-（不靠"顶格凑数"）。
+入口 + chunk 共 **19 个文件、合计 4743 行**——文件大小是**信号不是死限**：超过 400 行先按
+`CONVENTIONS §4` 的四问自检（职责是否单一 / 能否一句话命名 / 评审能否看出边界 / 并行改是否撞车），
+拆不拆由人和评审判断；体检报告见 `tests/file-size-check.mjs`。
 
 | 文件 | 行数 | 职责 |
 |---|---|---|
@@ -166,13 +167,13 @@ node tests\run-all.mjs            # 全套；结果写到 tests\last-run.txt
 node tests\<套件>.mjs             # 单跑一套
 ```
 
-- 全套当前 **3688/3688** 通过（**112 套**）。面板相关五套：`client-check.mjs`（入口与 18 个
+- 全套当前 **3681/3681** 通过（**112 套**）。面板相关五套：`client-check.mjs`（入口与 18 个
   chunk 的装载契约、渲染与点击，30 项）、`panel-ui-check.mjs`（头部「批量 / 归档」点击回归，
   14 项）、`panel-portal-check.mjs`（弹层 portal 与 fixed 落点，3 项）、`panel-snapshot-check.mjs`
   （快照契约，74 项）、`panel-actions-check.mjs`（写动作 / 归档 / 置顶，99 项）。
 - 有少数套件依赖**宿主安装**：`DSH_APP_ASAR` 指向 `<DSH 安装>\resources\app.asar`，
   预置与宿主 schema 类判据要从里面读宿主包。拿不到判据时如实标注「跳过、不计入通过率」；
-  本机口径：设了 `DSH_APP_ASAR` 后 3688/3688，不设时 3 条预置校验会红（环境面，不是代码面）。
+  本机口径：设了 `DSH_APP_ASAR` 后 3681/3681，不设时 3 条预置校验会红（环境面，不是代码面）。
 - `tests/seat-liveness-wake-check.mjs` 没有注册进全套，内容已落后于现在的失联判据，单跑会失败。
 
 推送前的完整检查清单见 [`docs/release-checklist.md`](docs/release-checklist.md)。

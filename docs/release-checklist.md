@@ -11,8 +11,8 @@
 |---|---|
 | 客户端入口 | `plugin/active/lib/client.js` **375 行** |
 | 客户端 chunk | **18 个** `client.panel-*.js`；入口 + chunk 共 **19 个文件、4743 行** |
-| 单文件行数 | 每个 ≤400 行，且**没有任何文件落在 390–400**（机器闸 `tests/file-size-check.mjs`，登记 `tests/file-size-exceptions.json`） |
-| 全量自测 | **3688/3688**、**112 套**（设了 `DSH_APP_ASAR`） |
+| 单文件大小 | **无死限、无登记**（大小是信号不是死限）；体检报告只列"超过 400 行的文件"给人看，永远全绿、不判红（`tests/file-size-check.mjs`） |
+| 全量自测 | **3681/3681**、**112 套**（设了 `DSH_APP_ASAR`） |
 | 面板相关套件 | `client-check` 30 / `panel-ui-check` 14 / `panel-portal-check` 3 / `panel-snapshot-check` 74 / `panel-actions-check` 99 |
 
 ---
@@ -23,11 +23,11 @@
 $patterns = [ordered]@{
   '375'       = '375'
   '4743'      = '4743'
-  '3688'      = '3688/3688'
-  '111'       = '111'
+  '3681'      = '3681/3681'
+  '112'       = '112'
   '18 chunk'  = '18\s*(个|個|chunks?|chunk)'
   '19 files'  = '19\s*(个文件|個のファイル|ファイル|files?|файл)'
-  '390-400'   = '390–400'
+  'size-signal' = 'file-size-check'
 }
 foreach ($f in 'README.md','README.en-US.md','README.ja.md','README.ru.md') {
   foreach ($k in $patterns.Keys) {
@@ -36,15 +36,16 @@ foreach ($f in 'README.md','README.en-US.md','README.ja.md','README.ru.md') {
 }
 ```
 
-- 通过标准：四份都出现 `375`、`4743`、`18 chunk`、`19 files`、`3688/3688`、`111`、`390–400` 的说明；
+- 通过标准：四份都出现 `375`、`4743`、`18 chunk`、`19 files`、`3681/3681`、`112` 与
+  「大小是信号不是死限（`file-size-check`）」的说明；
   章节编号一致（部署 / 插件源码 / 控制面板 / DSH 插件声明 / 文档 / 校验 / 开源协议与出处 / 文档索引）。
 - 同时反查旧说法是否还有残留：
 
 ```powershell
-Select-String -Path README*.md -Pattern '3676|16 个 chunk|15 个 chunk|正好 400|顶格 400'
+Select-String -Path README*.md -Pattern '3676|16 个 chunk|15 个 chunk|正好 400|顶格 400|每个 ≤400'
 ```
 
-  通过标准：无输出（"不靠顶格凑数"这类表述除外）。
+  通过标准：无输出。
 
 ---
 
@@ -63,8 +64,9 @@ $rows | Sort-Object Lines -Descending | Format-Table -AutoSize
 $rows | Where-Object { $_.Lines -gt 400 -or ($_.Lines -ge 390 -and $_.Lines -le 400) }
 ```
 
-- 通过标准：文件数 **19**、合计 **4743**、入口 375、无任何文件 >400 或落在 **390–400**。
-- `client-check.mjs` 的 D7 会逐文件数行并拒绝 390–400，跑第 6 步时会再钉一次。
+- 通过标准：文件数 **19**、合计 **4743**、入口 375；单文件超过 400 行会在体检报告里列**预警**（不判红）——
+  如果有人要拆，按 `CONVENTIONS §4` 的四问判断。
+- `client-check.mjs` 的 D7 只把行数**报告**出来（不判红）；`file-size-check.mjs` 的预警名单同理。
 
 ---
 
@@ -118,27 +120,29 @@ $env:DSH_APP_ASAR = '<DSH 安装>\resources\app.asar'   # 预设 / 宿主 schema
 node tests\run-all.mjs
 ```
 
-- 通过标准：`3688/3688 通过（112 套）`，退出码 0；结果落在 `tests/last-run.txt`。
+- 通过标准：`3681/3681 通过（112 套）`，退出码 0；结果落在 `tests/last-run.txt`。
 - 不设 `DSH_APP_ASAR` 时会有 3 条预置校验判红（环境面）；这类红要在 PR 里写明，不能当成通过。
 - 单套复跑：`node tests\client-check.mjs` / `node tests\panel-ui-check.mjs` /
   `node tests\panel-portal-check.mjs` / `node tests\panel-snapshot-check.mjs` /
   `node tests\panel-actions-check.mjs`，各自应分别 30/30、14/14、3/3、74/74、99/99。
+- 文件规模体检（只报告，不是死限）：`node tests\file-size-check.mjs` → **7/7**（永远全绿）。
 
 ---
 
-## 6b. 文件规模闸（CONVENTIONS §4/§5 的机器执行）
+## 6b. 文件规模体检（只报告，不是死限）
 
 ```powershell
 cd plugin/active
 node tests\file-size-check.mjs
 ```
 
-- 通过标准：**14/14**、退出码 0；输出里 `登记 88 项`；红项（未登记超限 / 未登记顶格 390–400 /
-  大文件增长 / 过期登记）必须为 0。
-- 修法（红项自带提示）：按职责拆文件；确有 §4 ①②③④ 必要性 ⇒ 在 `tests/file-size-exceptions.json`
-  登记并写 `why`（`maxLines` = 当前行数，只允许以后下调）；拆分后文件变小 ⇒ 顺手下调 `maxLines`。
-- 设计与存量债（88 个既有文件一次性登记、之后只降不升）：
-  [`plugin/active/design/conventions/01-文件规模闸.md`](../plugin/active/design/conventions/01-文件规模闸.md)。
+- 通过标准：**7/7**、退出码 0；输出里能看到扫描文件数、最大文件、以及"超过预警线 400 行的文件清单"。
+- **报告不是失败**：超过 400 行的文件只是被列出来 —— 作者/评审按 `CONVENTIONS §4`
+  的四问（单一改动原因 / 一句话命名 / 边界可见 / 并行不撞）判断拆不拆，**机器不替人做这个判断**。
+  这套件**不判红、不设基线、不建登记表、不阻塞任何东西**：为拆而拆没有意义。
+- 想观察某个文件是不是又变大了：看 `git diff` 与评审，比任何登记表都直接。
+- 设计（含为什么从"硬闸/基线"一路改成"只报告"、已知限制）：
+  [`plugin/active/design/conventions/01-文件规模体检.md`](../plugin/active/design/conventions/01-文件规模体检.md)。
 
 ---
 ## 7. 安装副本与仓库一致（装过的机器）

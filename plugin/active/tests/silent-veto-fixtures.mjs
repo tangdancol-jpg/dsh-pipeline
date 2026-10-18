@@ -2,7 +2,7 @@
  * dsh-pipeline · tests/silent-veto-fixtures.mjs
  * ============================================================================
  * ★★ **判据夹具**（与 `tests/silent-veto-check.mjs` 分开，只为行数纪律
- *    `CONVENTIONS.md` §4：单文件 ≤400 行）。
+ *    `CONVENTIONS.md` §4：单文件建议 ≤400 行（预警线，不是死限））。
  *
  * 这里只有**数据**，没有断言：
  *   · `PROMPT_CASES` —— 用户二分表 + 三条补测维度（`old` 列是**实测值**：

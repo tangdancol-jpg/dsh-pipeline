@@ -489,8 +489,10 @@ DSH 窗口右上角头部那一排里会出现一个**「多AI 协调」**按钮
 - `uiWorkspace` 服务拿不到时，面板只显示一行「打不开会话：…」的人话错误，**不影响**开关与其它功能。
 
 **客户端半边 = 入口 375 行 + 18 个 chunk。** 入口 `lib/client.js` **375 行**，面板实现拆在
-`lib/client.panel-<职责>.js` 共 **18 个**；入口 + chunk 共 **19 个文件、合计 4743 行**，每个 ≤400 行，
-且**没有任何文件落在 390–400**（不靠"顶格凑数"）。宿主按 `/plugins/dsh-pipeline/client.js?rev=…`
+`lib/client.panel-<职责>.js` 共 **18 个**；入口 + chunk 共 **19 个文件、合计 4743 行**。
+文件大小是**信号不是死限**：超过 400 行先按 `CONVENTIONS §4` 的四问自检（单一改动原因 /
+能否一句话命名 / 评审能否看出边界 / 并行改动是否撞车），拆不拆由人和评审判断；体检报告见
+`tests/file-size-check.mjs`。宿主按 `/plugins/dsh-pipeline/client.js?rev=…`
 把入口当**经典脚本**加载，入口自己 `window.__ModuleLoader__.load({ id, factory })` 注册；面板
 **第一次被渲染**时才用 `Promise.all` 逐个 `require.async('./client.<name>.js')` 把 18 个 chunk 取回来，
 交给 `shell` 按依赖序 `create(deps)` 组装（没打开过面板就不下载）。chunk 由宿主按
@@ -2222,11 +2224,11 @@ DSH 0.2.1 起官方带「智能体团队」：根会话是 Lead，可以 `spawn_
 ```powershell
 cd <插件目录>
 $env:DSH_APP_ASAR = '<DSH 安装>\resources\app.asar'   # 预设/宿主 schema 类判据要读宿主安装
-node tests\run-all.mjs            # 112 套一起跑（3688 项，含残留检查）
+node tests\run-all.mjs            # 112 套一起跑（3681 项，含残留检查）
 node tests\run-all.mjs --quiet    # 只打结论，不贴完整拒绝原文
 ```
 
-**当前口径**：设了 `DSH_APP_ASAR` 时 **3688/3688 通过（112 套）**；不设时会有 3 条
+**当前口径**：设了 `DSH_APP_ASAR` 时 **3681/3681 通过（112 套）**；不设时会有 3 条
 "读不到宿主安装"的预置校验判红（环境面，不是代码面）。单套清单与每套的判据写在
 `tests/run-all.mjs` 与 `tests/registry.mjs` 里（新增能力用新套 + registry 一行登记）。
 
@@ -2240,9 +2242,9 @@ node tests\run-all.mjs --quiet    # 只打结论，不贴完整拒绝原文
 | 守门 | `shell-guard-check.mjs`、`intercept-check.mjs`、`silent-veto-*.mjs`、`team-guard-check.mjs` | 越权/跳步/旁路；官方新工具（team 协作 / 委派 / 插件管理 / 会话搜索）拒绝；`terminal_send` 的 `text` 按 shell 检查 |
 | 流程各站 | `human-check`、`writers-check`、`ladder-check`、`security-check`、`relay-check`、`records-check`、`plan-check`、`review-check`、`gate-states-check`… | 人工介入、编写席位、升级梯、安全确认、继任、分权落档、计划/审核/状态机 |
 | 任务板镜像 | `team-board-check.mjs` | 开单/派活/关单三处镜像 + revision CAS 重试 + best-effort 降级 |
-| 自建面板 | `panel-snapshot-check.mjs`、`panel-actions-check.mjs`、`panel-ui-check.mjs`、`panel-portal-check.mjs`、`client-check.mjs` | 只读快照契约（任务/席位/待办/摘要截断，74 项）、坏 JSON 降级、`/panel` 与 `?view=archived` 路由、`/state` 不回归；动作/执行器/归档（allowed_actions、参数透传与 confirm 闸、`_trash` 恢复/删除、pins 写，99 项）；客户端入口与 18 个 chunk 的装载契约（经典脚本、`require.async`、`load({id,chunk,factory})`、每个 ≤400 行且不落在 390–400）与桩 React 渲染/点击（30 项）；面板头部「批量 / 归档」点击回归（`rootRef` 缺失不得关面板、按钮自身 stopPropagation，旧代码 8/11 → 现 11/11，14 项）；弹层 portal 到 `document.body` + fixed 落点与回退（3 项） |
+| 自建面板 | `panel-snapshot-check.mjs`、`panel-actions-check.mjs`、`panel-ui-check.mjs`、`panel-portal-check.mjs`、`client-check.mjs` | 只读快照契约（任务/席位/待办/摘要截断，74 项）、坏 JSON 降级、`/panel` 与 `?view=archived` 路由、`/state` 不回归；动作/执行器/归档（allowed_actions、参数透传与 confirm 闸、`_trash` 恢复/删除、pins 写，99 项）；客户端入口与 18 个 chunk 的装载契约（经典脚本、`require.async`、`load({id,chunk,factory})`、行数只作报告不判红）与桩 React 渲染/点击（30 项）；面板头部「批量 / 归档」点击回归（`rootRef` 缺失不得关面板、按钮自身 stopPropagation，旧代码 8/11 → 现 11/11，14 项）；弹层 portal 到 `document.body` + fixed 落点与回退（3 项） |
 | 预设与真机 | `p11-presets-check.mjs`、`p12-*`、`e-route-check.mjs` | 16 个角色预设与 shipped/schema 对形；需要 `DSH_APP_ASAR` |
-| 文件规模闸 | `file-size-check.mjs` | `CONVENTIONS §4/§5` 的机器执行：未登记超限 / 未登记顶格（390–400）/ 已登记大文件增长 / 过期登记 —— 登记表 `tests/file-size-exceptions.json`，设计见 `design/conventions/01-文件规模闸.md`（14 项） |
+| 文件规模体检 | `file-size-check.mjs` | `CONVENTIONS §4.1`：**只报告，不是闸** —— 列出超过预警线（400 行）的文件与最大文件，**永远全绿、不判红、不设基线/登记表**（为拆而拆没有意义；拆不拆按 §4 四问判断）。设计见 `design/conventions/01-文件规模体检.md`（7 项） |
 | 回归专项 | `f1`–`f23`、`p1`–`p16`、`m1`–`m11` 等 | 每轮缺陷的判据化回归（一个缺陷一个套件） |
 
 报告落到 `tests/last-run.txt`。
@@ -2286,7 +2288,7 @@ node examples\run-example.mjs
    在"已安装形态"下实测过是 67/67。
 8. **右上角那个按钮没有在真实浏览器里验过。** 本机没有截图能力，所以只验到了：
    装载契约（经典脚本 + `__ModuleLoader__.load`）、挂载契约（挂到哪个槽、带什么 spec）、
-   入口与 18 个 `client.panel-*.js` chunk 的一一对应及「120–350 为宜、上限 400、不落在 390–400」的拆分纪律，
+   入口与 18 个 `client.panel-*.js` chunk 的一一对应，以及「按职责拆、文件大小是信号不是死限」的拆分纪律，
    以及用**桩 React** 跑出来的渲染与点击行为（`tests/client-check.mjs`，30 项）。
    **没验**：真实排版与像素位置、真实点击、与宿主主题的视觉协调。
    组件用纯内联样式、不读宿主 CSS 变量，所以「长得不好看」的风险大于「不显示」的风险。

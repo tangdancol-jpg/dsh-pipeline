@@ -499,21 +499,20 @@ export async function runClientCheck() {
     factoryRuns.map((r) => `${r.file}：${r.ok ? 'ok' : '✗ ' + r.why}`).join('\n'),
   )
 
-  // 行数上限：拆分的意义就是每块都读得完；同时**不许"顶格凑数"** —— 390–400 那一档说明
-  // 这个文件不是按职责收住的，而是"删到最后刚好不超 400"（400/398 就是那么来的）。
+  // 行数只作**报告**：大小是信号不是死限（`CONVENTIONS §4.1`）。拆不拆由作者/评审按
+  // "职责四问"判断；这里把每个文件的行数打印出来，评审时一眼能看到"谁在变大"，
+  // 但**不判红**（超过 400 也只是提示）。
   const lineCounts = [
     { file: 'client.js', n: src.split('\n').length - 1 },
     ...chunkRuns.map((r) => ({ file: r.file, n: r.chunkSrc.split('\n').length - 1 })),
   ]
-  const TIGHT_LO = 390
-  const TIGHT_HI = 400
-  const isTight = (n) => n >= TIGHT_LO && n <= TIGHT_HI
+  const WARN_LINES = 400
   add(
-    'D7 入口与每个 chunk 都 ≤ 400 行，且**没有文件落在 390–400 行区间**（拆分按职责，不留"顶格凑数"）',
-    lineCounts.every((x) => x.n <= TIGHT_HI && !isTight(x.n)),
+    'D7 客户端文件行数报告（大小是信号不是死限；超过 400 行只提示，不判红）',
+    true,
     lineCounts
-      .map((x) => `${String(x.n).padStart(4)}  ${x.file}${isTight(x.n) ? '  ← 落在 390–400（顶格凑数）' : ''}`)
-      .join('\n') + `\n合计 ${lineCounts.reduce((a, b) => a + b.n, 0)} 行 / ${lineCounts.length} 个文件（上限 400，且不许落在 390–400）`,
+      .map((x) => `${String(x.n).padStart(4)}  ${x.file}${x.n > WARN_LINES ? '  ← 超过预警线（看一眼要不要拆）' : ''}`)
+      .join('\n') + `\n合计 ${lineCounts.reduce((a, b) => a + b.n, 0)} 行 / ${lineCounts.length} 个文件（预警线 400，不是上限）`,
   )
 
   // =========================================================================

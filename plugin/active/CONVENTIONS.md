@@ -158,12 +158,13 @@ plugin/active/
   与 `lib/roles.js`（角色表）属于 ①（单一声明表），经评估不再切。★ 这一条**不得**被读成"长文件一律豁免"：
   长文件照样要逐条自证，自证不出来就该拆。
 - **客户端半边（按"装载边界"拆，不是"长文件豁免"）**：`lib/client.js` 是宿主按
-  `/plugins/<包>/client.js` 发布的**入口** —— ≤380 行（当前 375），只做三件事：注册模块、
-  「多AI 协调」开关、面板的 lazy wrapper；面板实现拆在 `lib/client.panel-<职责>.js` 共 **18 个**：
+  `/plugins/<包>/client.js` 发布的**入口**（当前 375 行，新增逻辑一律新开 chunk，别往里塞）；
+  面板实现拆在 `lib/client.panel-<职责>.js` 共 **18 个**：
   `view` / `menu` / `shell` / `actions` / `preview` / `atoms` / `preview-control` / `portal` /
   `batch` / `interact` / `batch-bar` / `preview-bubble` / `seats` / `outside` / `preview-data` /
-  `poll` / `card-actions` / `controls`。每个 chunk **120–350 行为宜、硬上限 400**，且**任何文件
-  不得落在 390–400**（那一档多半是"删到最后刚好不超"的顶格凑数，不是按职责收住的）。
+  `poll` / `card-actions` / `controls`。chunk 边界按**职责**；经验上 120–350 行读起来舒服，
+  但**没有硬上限** —— 超过 400 行先按本节四问自检（§4 开头那四个问题），由作者/评审判断拆不拆。
+  同样**不要**为凑行数把同一职责切碎，也不要为"不超线"删空行/删有用注释。
 - **宿主原生支持包内 chunk**，所以客户端拆得开：入口用 `require.async("./client.<name>.js")`
   取同级 chunk，宿主按 `/plugins/<id>/client.<name>.js?rev=<入口 rev>` 提供并按 **immutable**
   缓存（`rev` 变了才重取）；chunk 是**经典脚本**，用
@@ -171,35 +172,32 @@ plugin/active/
   （入口与 chunk 不能同步 `require` 另一个相对 `client*.js` 产物），所以**组合只在入口做**。
   因为协议就是"入口 + 同级文件"，手工 JS **不需要 tsdown、也不需要改 `package.json`** ——
   文件放进去就能被取到（`tests/client-check.mjs` 钉住：入口列出的 chunk 与磁盘**一一对应**、
-  每个都匹配宿主的 chunk 名规则、每个都走 `load({ id, chunk, factory })`、每个 ≤400 行且不落在
-  390–400）。
+  每个都匹配宿主的 chunk 名规则、每个都走 `load({ id, chunk, factory })`）。
 - **客户端侧的约束**：
-  - 入口 **≤380 行（当前 375）** —— 新增客户端逻辑**一律新开 chunk**，不要再往 `lib/client.js` 里塞；
+  - 入口保持薄（当前 375 行）—— 新增客户端逻辑**一律新开 chunk**，不要再往 `lib/client.js` 里塞；
   - chunk 之间通过 shell 的**共享作用域**（`createPanel` 里的 `S`）或 `create(deps)` 的依赖组合，
     **不要**互相同步 `require`（协议不支持，运行时也拿不到）；
   - chunk 必须与入口**同目录**，文件名要匹配宿主的 chunk 名规则，否则宿主 404 / 拒收；
-  - 每个 chunk 受本节"120–350 为宜、硬上限 400、不得落在 390–400"的约束：
-    `client-check.mjs` 会逐文件数行，超限或落进 390–400 当场红。
+  - 拆分判据仍是本节四问（职责/命名/边界/并行），不是行数；`client-check.mjs` 只把每个文件的
+    行数**报告**出来（预警），不判红。
 - **证据出处**（可复核）：`@deepseek-ai/dsh-client-modules` 的 `README.zh.md`「浏览器加载什么」
   与「惰性 CJS 模型」两段（本机在 `<DSH 安装>/resources/app.asar` 内的
   `dsh/node_modules/@deepseek-ai/dsh-client-modules/README.zh.md`）。
 
-### 4.1 机器闸：本节的规矩由 `tests/file-size-check.mjs` 执行（不是只写在文档里）
+### 4.1 体检（不是机器闸）：大小是信号，判断在人和评审
 
-> 文档不会红。出现过两次真实事故：`lib/client.js` 被硬塞到正好 400（"删到最后刚好不超"）、
-> 面板测试文件涨到 962 行才被拆。所以本节配一套**可执行的闸**。
+> 曾经把本节做成"超 400 行就红"的硬闸（含 390–400 禁用带、只降不升、88 条基线登记表）。
+> 那套被用户否掉了两次：**大小不是死限，应该像正常程序员一样判断**；**为拆而拆没有意义**。
+> 硬闸会制造反向激励（"删注释刚好不超 400"就是真实事故），登记表会催生"为登记而登记"。
 
-- 闸：`tests/file-size-check.mjs`（登记在 `tests/registry.mjs`，`run-all` 每轮必跑）；
-- 唯一输入：`tests/file-size-exceptions.json`（登记表：`limit` / `paddingBand` / 扫描范围 / 例外 + `maxLines` + `why`）；
-- 四条判据：
-  1. **未登记**文件必须 ≤400（超限 = 红）；
-  2. **未登记**文件不得落在 390–400（顶格凑数 = 红）；
-  3. 登记文件**只降不升**（当前行数 ≤ `maxLines`；`maxLines` 只允许下调）；
-  4. 登记项不得过期（指向的文件必须存在）。
-- 真有 §4 ①②③④ 必要性 ⇒ 在登记表里登记并写 `why`（那是"自证"的机器可读形态）；
-  拆分使文件变小 ⇒ 顺手**下调 `maxLines`**，别让债记大。
-- 设计与存量债（88 个既有文件一次性登记、之后只降不升）见
-  [`design/conventions/01-文件规模闸.md`](design/conventions/01-文件规模闸.md)。
+- **真判据永远是本节开头的四问**：改动原因是否单一 / 能否一句话命名 / 评审能否看出边界 /
+  并行改动是否撞车。答不上来 ⇒ 拆；四问都过 ⇒ 多大都可以留（单一声明表、宿主单入口等）。
+- **机器只报告，不判决**（`tests/file-size-check.mjs`，登记在 `tests/registry.mjs`，`run-all` 每轮跑）：
+  扫一遍源码与测试，列出**超过预警线（400 行）的文件**与最大文件 —— 报告是给人看的判断提示；
+  **不判红、不设基线、不建登记表**（这套件跑完永远全绿）。
+- 想观察"某个文件是不是又变大了"：看 `git diff` 与评审，比任何登记表都直接。
+- 设计（含为什么从硬闸改成体检、已知限制）见
+  [`design/conventions/01-文件规模体检.md`](design/conventions/01-文件规模体检.md)。
 
 ## 5. 禁止往既有大文件堆叠
 
