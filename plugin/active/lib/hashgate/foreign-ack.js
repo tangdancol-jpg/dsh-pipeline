@@ -24,15 +24,21 @@
  * ---------------------------------------------------------------------------
  * 五条硬判据（全部满足才算"够格"；任一条不满足 ⇒ 整次提交被拒，并给可操作文案）
  * ---------------------------------------------------------------------------
- *   ① **本次真有变化**：路径必须出现在 `changeAudit` 的 `added` / `modified` 里。
- *      —— ack 是对"眼前这处变化"的署名，不是提前买保险；点了一堆没变化的路径 ⇒ 拒。
+ *   ① **本次真有变化**：路径必须出现在 `changeAudit` 的 `added` / `modified` / `removed`
+ *      （删除类）里。—— ack 是对"眼前这处变化"的署名，不是提前买保险；点了一堆没变化的路径 ⇒ 拒。
  *   ② **不是本席的分区**：路径落在本席 `writers.partitions[].scope_paths` 内 ⇒ 拒。
  *      —— 否则 ack 就是"把自己的改动洗成别人的"的万能洗白口，核心判据被掏空。
  *   ③ **是别的编写席位的分区**：必须落在**另一个在册编写席位**的 `scope_paths` 内 ⇒ 否则拒。
  *      —— 这让"归属给谁"有一个**具体对象**，而不是一句"反正不是我的"。
  *   ④ **不在越界清单里**：路径若进了 `changeAudit.unauthorized` ⇒ 拒。
  *      —— ack 只调整「声明对账」的归属，**一个字都不碰越界判据**：授权面之外的改动照旧拒。
- *   ⑤ **删除类不适用**：删除拿不到"当前内容哈希"，没有可核对的归属，不在本机制范围（照旧按未申报判）。
+ *   ⑤ **删除类允许，但如实标注证据弱**：删除拿不到"当前内容哈希"，所以删除类的确认
+ *      **没有哈希证据**（`evidence: 'deleted_no_hash'`），强度弱于新增/修改
+ *      （`evidence: 'changed_hash'`）。①②③④ 四条护栏对删除类**一条都不少**。
+ *
+ * ★ 删除类为什么要支持（P1-9 残余）：多席并行时别的席位**删掉**自己分区里的文件，
+ *   本席交 `dev_to_test` 时那条删除同样是"基线以来的变化" ⇒ 照样会被算成本席未申报。
+ *   没有这一支，前面那条修法只覆盖"新增/修改"，删除类的误报会把 streak 推到阈值。
  *
  * ---------------------------------------------------------------------------
  * ★ 为什么这不算放宽（三条可机械复核的论证）
@@ -122,17 +128,20 @@ const renderEntry = (x) =>
  * @param {string} [input.seat] - 本席的席位 id（`writer#2` …；缺省按在册第一席）
  * @param {string[]} input.seats - 本任务在册的编写席位（`writers.partitions[].seat`）
  * @param {(seat:string)=>object|null} input.partitionOf - 席位 → 分区（要 `scope_paths`）
- * @param {object} input.audit - `store.changeAudit()` 的结果（`added` / `modified` / `unauthorized`）
+ * @param {object} input.audit - `store.changeAudit()` 的结果（`added` / `modified` / `removed` / `unauthorized`；
+ *   `removed` 的兼容别名 `deleted` 也认）
  * @param {(p:string)=>string} input.absOfDeclared - 声明面路径 → 规范绝对键（授权面坐标系）
  * @param {(p:string)=>string} input.absOfTouched - 审计路径 → 规范绝对键（基线坐标系）
  * @param {(root:string,child:string)=>boolean} input.isInside - `util.isInside`
- * @returns {{ok:true, keys:string[], entries:object[]} | {ok:false, code:string, error:string}}
- *   `ok:true` 时：`keys` = 可排除出声明对账的规范绝对键；`entries` = 逐条可读记录
- *   （`path` 审计里的相对路径 · `reason` 编写的理由 · `owner_seat` 归属的别的席位 · `key`）。
+ * @returns {{ok:true, keys:string[], deletedKeys:string[], entries:object[]} | {ok:false, code:string, error:string}}
+ *   `ok:true` 时：`keys` = **有哈希证据**（新增/修改）且可排除出声明对账的规范绝对键；
+ *   `deletedKeys` = **删除类（无哈希证据）** 的同一集合；
+ *   `entries` = 逐条可读记录（`path` 审计里的相对路径 · `reason` 编写的理由 · `owner_seat` 归属的
+ *   别的席位 · `key` · `kind:'changed'|'deleted'` · `evidence:'changed_hash'|'deleted_no_hash'`）。
  */
 export function vetForeignPathsAck(input = {}) {
   const ack = Array.isArray(input.ack) ? input.ack : []
-  const empty = { ok: true, keys: [], entries: [] }
+  const empty = { ok: true, keys: [], deletedKeys: [], entries: [] }
   if (ack.length === 0) return empty
 
   // --- 装配检查：判据需要的三样东西缺一个都不能"猜" ---------------------------
@@ -188,17 +197,32 @@ export function vetForeignPathsAck(input = {}) {
       path: rel,
       keys,
       key: safe(absOfTouched, rel) || keys[0],
+      kind: 'changed',
       sha256: typeof x?.sha256 === 'string' && x.sha256.length > 0 ? x.sha256.toLowerCase() : null,
     })
+  }
+  /**
+   * ★★ P1-9 删除类：`changeAudit` 的删除清单（`removed`；兼容别名 `deleted`）。
+   * 删除拿不到"当前内容哈希" ⇒ 归属确认**没有哈希证据**，但授权面/分区/越界三条护栏照旧。
+   */
+  const deletedList = []
+  const removedRaw = Array.isArray(audit.removed) ? audit.removed : Array.isArray(audit.deleted) ? audit.deleted : []
+  for (const x of removedRaw) {
+    const rel = String(x?.path ?? '')
+    if (rel.length === 0) continue
+    const keys = uniq([safe(absOfTouched, rel), safe(absOfDeclared, rel)])
+    if (keys.length === 0) continue
+    deletedList.push({ path: rel, keys, key: safe(absOfTouched, rel) || keys[0], kind: 'deleted', sha256: null })
   }
   const unauthorizedKeys = new Set(
     (Array.isArray(audit.unauthorized) ? audit.unauthorized : []).flatMap((x) => uniq([safe(absOfTouched, x?.path), safe(absOfDeclared, x?.path)])),
   )
 
   // --- 逐条核（五条判据；错误**一次列全**，不让编写逐条试错）-------------------
-  const out = { ok: true, keys: [], entries: [] }
+  const out = { ok: true, keys: [], deletedKeys: [], entries: [] }
   const failed = []
   const seenKeys = new Set()
+  const seenDeletedKeys = new Set()
   /** 第一条失败判据的码（返回给调用方分流用；`null` = 还没有失败）。 */
   let firstCode = null
   for (const [i, raw] of ack.entries()) {
@@ -216,8 +240,9 @@ export function vetForeignPathsAck(input = {}) {
       const inOwn = cand.some((k) => ownKeys.some((sk) => isInside(sk, k)))
       // ③ 是别的编写席位的分区
       const owner = otherWithScope.find((o) => cand.some((k) => o.keys.some((sk) => isInside(sk, k))))
-      // ① 本次真有变化
-      const hit = changed.find((c) => c.keys.some((k) => cand.includes(k)))
+      // ① 本次真有变化（新增/修改优先；没有再看删除类）
+      const hitChanged = changed.find((c) => c.keys.some((k) => cand.includes(k)))
+      const hit = hitChanged === undefined ? deletedList.find((c) => c.keys.some((k) => cand.includes(k))) : hitChanged
       // ④ 不在越界清单里
       const hitKeys = hit === undefined ? [] : uniq([safe(absOfTouched, hit.path), safe(absOfDeclared, hit.path)])
       const outOfScope = hitKeys.some((k) => unauthorizedKeys.has(k))
@@ -236,10 +261,24 @@ export function vetForeignPathsAck(input = {}) {
         errors.push('它在**授权面之外**（越界改动）—— 外来路径确认**不能**给越界改动背书；越界只能撤回或拿到新授权。')
       } else {
         // 全部通过 —— 只把 **hit 那条审计路径的规范键**交给判定层（同一个坐标系）。
-        if (!seenKeys.has(hit.key)) {
-          seenKeys.add(hit.key)
-          out.keys.push(hit.key)
-          out.entries.push({ path: hit.path, reason, owner_seat: owner.seat, key: hit.key })
+        // ★ 删除类单独放 `deletedKeys`：它**没有哈希证据**，判定层要分开记、文案要如实标弱。
+        const kind = hitChanged === undefined ? 'deleted' : 'changed'
+        const seen = kind === 'deleted' ? seenDeletedKeys : seenKeys
+        if (!seen.has(hit.key)) {
+          seen.add(hit.key)
+          if (kind === 'deleted') out.deletedKeys.push(hit.key)
+          else out.keys.push(hit.key)
+          out.entries.push({
+            path: hit.path,
+            reason,
+            owner_seat: owner.seat,
+            key: hit.key,
+            kind,
+            evidence: kind === 'deleted' ? 'deleted_no_hash' : 'changed_hash',
+            ...(kind === 'deleted'
+              ? { why: '删除类拿不到"当前内容"的哈希 —— 这次归属确认**没有哈希证据**，强度弱于新增/修改类' }
+              : {}),
+          })
         }
         continue
       }
@@ -260,14 +299,15 @@ export function vetForeignPathsAck(input = {}) {
         shown.map(renderEntry).join('\n') +
         more +
         '\n\n★ 规则（五条，缺一不可）：\n' +
-        '  ① 路径必须**本次真有变化**（出现在改动审计的 added/modified 里，是"眼前这处变化"的署名，不是提前买保险）；\n' +
+        '  ① 路径必须**本次真有变化**（出现在改动审计的 added/modified/removed 里，是"眼前这处变化"的署名，不是提前买保险）；\n' +
         '  ② 路径**不能在本席自己的分区**里（否则就是把自己的改动洗成别人的）；\n' +
         '  ③ 路径必须是**别的编写席位的分区**（归属要有一个具体对象）；\n' +
         '  ④ 路径**不能是越界改动**（授权面之外的改动照旧拒，ack 不碰越界判据）；\n' +
-        '  ⑤ 删除类的改动拿不到哈希证据，不在本机制范围内（照旧按未申报判）。\n' +
+        '  ⑤ **删除类允许**确认，但删除拿不到当前内容哈希 ⇒ 它**没有哈希证据**、强度弱于新增/修改；\n' +
+        '     （①②③④ 对删除类一条都不少。）\n' +
         '下一步：\n' +
-        '  · 是你自己改的 ⇒ 补进 `change_manifest`（path / action / scope_id）；\n' +
-        '  · 确实是别的编写席位先写进工作区的 ⇒ 把**那条审计路径**原样点名，并写清理由（例如"属于 writer#1 的分区，本席未改动"）；\n' +
+        '  · 是你自己改的/删的 ⇒ 补进 `change_manifest`（path / action / scope_id）；\n' +
+        '  · 确实是别的编写席位先动的工作区 ⇒ 把**那条审计路径**原样点名，并写清理由（例如"属于 writer#1 的分区，本席未改动/未删除"）；\n' +
         '  · 只是想"先确认一片" ⇒ 不行：ack 不是通配，必须逐条点名本次真有变化的路径。',
     }
   }

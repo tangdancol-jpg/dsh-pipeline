@@ -94,11 +94,11 @@ export function seatCheckMethods(ctx) {
      * ★★ P1-9：核 `dev_to_test` 的「外来路径显式确认」（`foreign_paths_ack`）。
      *
      * 判据本体是**纯函数** `lib/hashgate/foreign-ack.js` 的 `vetForeignPathsAck`
-     * （五条硬判据：本次真有变化 / 不是本席分区 / 是别的编写席位分区 / 不是越界 / 删除类不适用）。
-     * 这里只做三件**接线**：
+     * （五条硬判据：本次真有变化 / 不是本席分区 / 是别的编写席位分区 / 不是越界 /
+     * **删除类允许但无哈希证据**）。这里只做三件**接线**：
      *   ① 从任务取本席与别的编写席位的分区范围（唯一事实来源是 `writerSeatsOf` / `seatPartitionOf`）；
      *   ② 给路径归一化器 —— **与哈希闸门同一套坐标系**（授权面用 `scopeAbsKey`、审计路径用 `baselineAbsKey`）；
-     *   ③ 把 `changeAudit()` 的结果原样传进去（判据 ①④ 要读它的 added/modified/unauthorized）。
+     *   ③ 把 `changeAudit()` 的结果原样传进去（判据 ①④ 要读它的 added/modified/removed/unauthorized）。
      *
      * ⚠️ 这是**闸门判定之前**的一道用法校验：不合格 ⇒ 整次提交被拒（码见 `FOREIGN_ACK_CODES`），
      *    不写台账、不进"连续不过"计数 —— 那是形状/用法错误，不是"改动面对不上"。
@@ -108,11 +108,12 @@ export function seatCheckMethods(ctx) {
      * @param {object[]} input.ack - 已过形状校验的 `foreign_paths_ack`
      * @param {string|null} [input.seat] - 本席（缺省按在册第一席，与 `checkSeatOwnership` 同口径）
      * @param {object} input.audit - `changeAudit()` 的结果
-     * @returns {{ok:true, keys:string[], entries:object[]} | {ok:false, code:string, error:string}}
+     * @returns {{ok:true, keys:string[], deletedKeys:string[], entries:object[]} | {ok:false, code:string, error:string}}
+     *   `keys` = 有哈希证据（新增/修改）；`deletedKeys` = 删除类（**无哈希证据**，证据强度单列）。
      */
     checkForeignPathsAck(task, input = {}) {
       const ack = Array.isArray(input.ack) ? input.ack : []
-      if (ack.length === 0) return { ok: true, keys: [], entries: [] }
+      if (ack.length === 0) return { ok: true, keys: [], deletedKeys: [], entries: [] }
       return vetForeignPathsAck({
         ack,
         seat: input.seat ?? null,

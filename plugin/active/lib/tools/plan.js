@@ -708,14 +708,17 @@ export function buildPlanTools(ctx) {
     mutating: true,
     description:
       '【计划 AI 专用】★ **授权面变更（amendment）** —— 只做一件事：追加/撤销计划的 ' +
-      '`change_scope`（这次允许改哪些文件）与 `forbidden`（这次不许做什么）。' +
+      '`change_scope`（这次允许改哪些文件）、`forbidden`（这次不许做什么），' +
+      '以及**P1-18 残余（本单）追加 `deferred_artifacts`（产物豁免）**。' +
       '★ 为什么需要它：用户已在需求层裁定"允许纳入"，但计划工具只在「计划中」能出计划 —— ' +
       '任务一旦进「待开发」，那条裁定就**做不了**，交付单元卡死。这条窄通道补的就是这一步。' +
       '★ **硬的边界**：只在**「待开发」(ready_dev)** 生效、**只有计划 AI** 能调；' +
       '**席位 / 角色清单 / 档位 / 调用顺序 / 层划分一个字都不许动** —— 入参里出现那些字段直接拒' +
       '（要改那些请走 pipeline_plan 重出计划，或 pipeline_roster_request → pipeline_roster_review）。' +
+      '★ `deferred_artifacts` **只追加不覆盖**、形状/判据与计划同源：why 必填、accepted_by 只能是 user/supervisor（supervisor 仅 L4+）、' +
+      '只能豁免本档可豁免的必需产物、测试/审核/安全类不可豁免、重复 kind 拒。' +
       '★ 计划那道"跳步"闸**没有被放宽**：plan 交接物仍然只能在「计划中」提交。' +
-      '每次变更都留痕（task.json 的 amendments[] + audit.jsonl 的 scope:amend），pipeline_status 可见。',
+      '每次变更都留痕（task.json 的 amendments[] + audit.jsonl 的 scope:amend），pipeline_status 可见（补登的豁免标 via amendment）。',
     parameters: {
       task_id: S('string', '任务 ID'),
       why: S('string', '★ **为什么非扩它不可**（必填）—— 与计划里的 change_scope[].why 是同一面照妖镜："顺手扩一点"写不出理由'),
@@ -723,6 +726,17 @@ export function buildPlanTools(ctx) {
       remove: S('array', '要撤销的授权条目 id（在现有授权面里找不到就拒）', { items: { type: 'string' } }),
       forbidden_add: S('array', '追加的**越界清单**条目（这次又多不许做什么）', { items: { type: 'string' } }),
       forbidden_remove: S('array', '撤销的越界清单条目（原文必须完全一致）', { items: { type: 'string' } }),
+      /**
+       * ★★ P1-18 残余（本单）：**分配后补产物豁免**。
+       * 形状 `[{ kind, why, accepted_by }]`，判据与 `pipeline_plan.deferred_artifacts` **同源**
+       * （`lib/tiers/product-matrix.js` 的 `validateDeferredArtifacts`）。
+       * **只追加**：已存在的 kind 再给 ⇒ 拒；不覆盖计划里那份理由/批准人。
+       */
+      deferred_artifacts: S(
+        'array',
+        '★ P1-18 残余：追加产物豁免 [{ kind, why, accepted_by }] —— **只追加不覆盖**；why 必填、accepted_by=user 或 supervisor（supervisor 仅 L4+）、只能豁免本档可豁免产物（L4+: 架构图/发布计划；L5: 再加文档/性能）；测试/审核/安全类不可豁免；重复 kind 拒',
+        { items: { type: 'object', additionalProperties: true } },
+      ),
       note: S('string', '备注（可选，会一起留痕）'),
       role_token: S('string', '角色令牌'),
     },
@@ -730,14 +744,15 @@ export function buildPlanTools(ctx) {
       ok: S('boolean', '是否成功'),
       summary: S('string', '给人看的摘要（变更前后 + 拒绝原文）'),
       amendment_id: S('string', '本次变更的 id（被拒时为空串）'),
-      /** ★ 更新后的授权面与越界清单 —— 调用方不用再去查一次。 */
+      /** ★ 更新后的授权面 / 越界清单 / 产物豁免 —— 调用方不用再去查一次。 */
       change_scope: S('array', '★ **变更后**的授权改动面 [{ id, path, action, why }]', { items: { type: 'object', additionalProperties: true } }),
       forbidden: S('array', '★ **变更后**的越界清单', { items: { type: 'string' } }),
+      deferred_artifacts: S('array', '★ **变更后**的产物豁免 [{ kind, why, accepted_by, via?, amendment_id? }]（计划声明的与 amendment 补登的都在；补登的带 via:"amendment"）', { items: { type: 'object', additionalProperties: true } }),
       amendments_total: S('number', '★ 本任务累计变更过几次（含本次）'),
     },
     async run(args, exec) {
       const actor = resolveActor(args, exec, deps)
-      const empty = { ok: false, amendment_id: '', change_scope: [], forbidden: [], amendments_total: 0 }
+      const empty = { ok: false, amendment_id: '', change_scope: [], forbidden: [], deferred_artifacts: [], amendments_total: 0 }
       if (actor.ok !== true) return { ...empty, summary: actor.error }
 
       const res = await store.amendScope({
@@ -749,6 +764,7 @@ export function buildPlanTools(ctx) {
         remove: args.remove,
         forbiddenAdd: args.forbidden_add,
         forbiddenRemove: args.forbidden_remove,
+        deferredArtifacts: args.deferred_artifacts,
         note: args.note,
         /**
          * ★ 把**原始入参**原样交给 store 做白名单核对（见 `findNonScopeKeys`）。
@@ -774,6 +790,7 @@ export function buildPlanTools(ctx) {
         amendment_id: res.amendment.amendment_id,
         change_scope: Array.isArray(t.change_scope) ? t.change_scope : [],
         forbidden: toStringArray(t.plan_forbidden),
+        deferred_artifacts: Array.isArray(t.deferred_artifacts) ? t.deferred_artifacts : [],
         amendments_total: Array.isArray(t.amendments) ? t.amendments.length : 0,
         summary: res.summary,
       }

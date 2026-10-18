@@ -22,6 +22,14 @@ import { writeJsonAtomic, appendJsonl } from './shared.js'
 // ★ 领域对象集中：改动基线记录的形状在 `lib/model/baseline.js`。
 import { makeBaselineRecord } from '../model/baseline.js'
 import { seatTouchedKeys, splitSelfTree } from '../hashgate/self-tree.js'
+// ★★ P2-13 残余：baseline 溢出归档（窗口 2 份；不删数据；按 id 可回查）。
+import {
+  BASELINE_ARCHIVE_WINDOW,
+  archiveBaselinesOverflow,
+  readArchivedBaseline,
+} from './baseline-archive.js'
+// ★ 写盘失败回滚时删掉"刚写出的归档文件"（与 history 归档同一个工具，不另写一份）。
+import { discardArchivedFile } from './archive.js'
 
 /**
  * 任务存储 · 改动基线与前后对比
@@ -109,8 +117,16 @@ export function baselineMethods(ctx) {
       await walk(root, '')
 
       const digest = fullHash(JSON.stringify(Object.keys(files).sort().map((k) => `${k}|${files[k].sha256}`)))
+      /**
+       * ★★ P2-13：baseline_id 的序号必须按**"历史第几份"**算（窗口 + 已归档），
+       *   不能直接拿 `task.baselines.length`：归档后窗口只剩 2 份，同一份清单再取一次
+       *   就会算出与旧基线**完全相同**的 id（撞 id ⇒ 归档里两条同 id、回查有歧义）。
+       *   没有归档时 `archivedTotal=0` ⇒ 与旧公式**逐字节一致**（向后兼容）。
+       */
+      const archivedTotal = Number.isInteger(task.baseline_archive?.archived_total) ? task.baseline_archive.archived_total : 0
+      const baselineOrdinal = (Array.isArray(task.baselines) ? task.baselines.length : 0) + archivedTotal
       // 基线记录的形状集中在 `lib/model/baseline.js`（本文件只给上下文值）。
-      const rec = makeBaselineRecord({ task, digest, files, bytes, now, input })
+      const rec = makeBaselineRecord({ task, digest, files, bytes, now, input, ordinal: baselineOrdinal })
       task.baselines = task.baselines ?? []
       task.baselines.push(rec)
       // ⚠️ 顺序：**先**按"新基线 id"清旧起点，**再**把基线指针指过去 ——
@@ -136,11 +152,54 @@ export function baselineMethods(ctx) {
       const file = join(taskDir(task.id), `baseline-${rec.baseline_id}.json`)
       await writeJsonAtomic(file, rec)
       rec.file = file
+      /**
+       * ★★ P2-13 残余：**窗口只留最近 2 份 baseline**，更早的按序 gzip 归档到
+       * `<任务目录>/archive/baselines-<seq>.jsonl.gz`（不删数据、逐条保序、可按 id 回查）。
+       *
+       * 三条纪律（实现都在 `store/baseline-archive.js`，这里只接线与留痕）：
+       *   ① 写成功之后才裁剪窗口；**写失败 ⇒ 一个字都不裁剪**（宁可不缩、不许丢）；
+       *   ② 失败**可见**：`task.baseline_archive.last_error` + `audit:baseline:archive_failed`；
+       *   ③ 归档先于 task.json 写盘 ⇒ 最终写盘失败时把刚写出的归档文件删掉（与 history 归档同口径）。
+       */
+      let baselineArchive = null
+      try {
+        baselineArchive = archiveBaselinesOverflow(task, { taskDir: taskDir(task.id), now })
+      } catch (err) {
+        baselineArchive = { ok: false, code: String(err?.code ?? 'BASELINE_ARCHIVE_THREW'), note: String(err?.message ?? err) }
+      }
+      if (baselineArchive.ok !== true) {
+        const prevMeta =
+          task.baseline_archive !== null && typeof task.baseline_archive === 'object' && !Array.isArray(task.baseline_archive)
+            ? task.baseline_archive
+            : null
+        task.baseline_archive = {
+          files: Array.isArray(prevMeta?.files) ? prevMeta.files : [],
+          archived_total: Number.isInteger(prevMeta?.archived_total) ? prevMeta.archived_total : 0,
+          window: Number.isInteger(prevMeta?.window) ? prevMeta.window : BASELINE_ARCHIVE_WINDOW,
+          last_at: typeof prevMeta?.last_at === 'string' ? prevMeta.last_at : null,
+          last_error: { at: nowIso(now()), code: baselineArchive.code ?? 'BASELINE_ARCHIVE_FAILED', note: String(baselineArchive.note ?? '') },
+        }
+        task.history.push(
+          await audit(task.id, rec.taken_by, 'baseline:archive_failed', {
+            baseline_id: rec.baseline_id,
+            code: baselineArchive.code ?? null,
+            note: baselineArchive.note ?? '',
+            baselines_length: Array.isArray(task.baselines) ? task.baselines.length : 0,
+            window: BASELINE_ARCHIVE_WINDOW,
+            why: 'baseline 归档失败 —— 按口径**不裁剪**（task.json 照旧保留全部 baselines，宁可不缩、不许丢）。',
+          }),
+        )
+      }
       const entry = await audit(task.id, rec.taken_by, 'baseline:take', {
         baseline_id: rec.baseline_id,
         file_count: rec.file_count,
         digest,
         plan_handoff_id: rec.plan_handoff_id,
+        /** ★ P2-13：这次归档了几份、落到哪个文件（没触发归档时为 null）。 */
+        baseline_archive:
+          baselineArchive?.ok === true && baselineArchive.skipped !== true
+            ? { file: baselineArchive.file, count: baselineArchive.archived, seq: baselineArchive.seq, archived_total: baselineArchive.archived_total }
+            : null,
       })
       task.history.push(entry)
       if (origin.changed) {
@@ -159,8 +218,37 @@ export function baselineMethods(ctx) {
           }),
         )
       }
-      await persist(task)
-      return { ok: true, task, baseline: rec, origin }
+      try {
+        await persist(task)
+      } catch (err) {
+        /**
+         * ★ P2-13：归档文件**先**写、task.json **后**写 ⇒ 最终写盘失败时把刚写出的归档文件删掉。
+         *   否则 `persist` 会把内存回滚成"未归档"（数据还在内存里），而归档文件留在盘上，
+         *   下一次归档会把同一批再写一份（重复但不算丢；这里干脆不留）。
+         */
+        if (baselineArchive?.ok === true && typeof baselineArchive.abs_file === 'string' && baselineArchive.abs_file.length > 0) {
+          discardArchivedFile(baselineArchive.abs_file)
+        }
+        throw err
+      }
+      return {
+        ok: true,
+        task,
+        baseline: rec,
+        origin,
+        /** ★ P2-13：本次是否触发了 baseline 归档（窗口 2 份之外的那些）。 */
+        baseline_archive:
+          baselineArchive?.ok === true && baselineArchive.skipped !== true
+            ? {
+                file: baselineArchive.file,
+                count: baselineArchive.archived,
+                seq: baselineArchive.seq,
+                archived_total: baselineArchive.archived_total,
+                window: BASELINE_ARCHIVE_WINDOW,
+                remaining: baselineArchive.remaining,
+              }
+            : null,
+      }
     },
 
     /** 取当前基线（读回记录）。 */
@@ -168,6 +256,50 @@ export function baselineMethods(ctx) {
       const id = task?.baseline_current ?? null
       if (id === null) return null
       return (task.baselines ?? []).find((b) => b.baseline_id === id) ?? null
+    },
+
+    /**
+     * ★★ **按 id 回查基线**（P2-13 残余）—— **窗口优先，归档兜底**。
+     *
+     * 为什么必须有它：baseline 归档后，旧 baseline 只在
+     * `<任务目录>/archive/baselines-<seq>.jsonl.gz` 里；而 `audit.jsonl` 的
+     * `baseline:take`、`task.hash_gate_checks[].baseline_id`、历史 `gate:hash` 都还
+     * 引着那些 id。任何"按 id 读旧基线"的判据（hash gate 复核 / 审计追溯）都必须走这里，
+     * 否则一次正常归档就会被误判成「基线缺失」。
+     *
+     * @param {string} taskId
+     * @param {string} baselineId
+     * @returns {Promise<{ok:true, task:object, baseline:object, source:'window'|'archive',
+     *   file?:string, seq?:number, archived_at?:string|null, damaged?:number}
+     *   |{ok:false, code:string, error:string}>}
+     */
+    async baselineById(taskId, baselineId) {
+      const id = String(baselineId ?? '').trim()
+      const task = await loadTask(taskId)
+      if (task === null) return deny('TASK_NOT_FOUND', `找不到任务 ${taskId}。`)
+      if (id.length === 0) return deny('BASELINE_ID_REQUIRED', '按 id 回查基线必须给 baseline_id（形如 BL-…）。')
+      const inWindow = (Array.isArray(task.baselines) ? task.baselines : []).find((b) => String(b?.baseline_id ?? '') === id)
+      if (inWindow !== undefined) return { ok: true, task, baseline: inWindow, source: 'window' }
+      const hit = readArchivedBaseline(taskDir(task.id), id)
+      if (hit.ok === true) {
+        return {
+          ok: true,
+          task,
+          baseline: hit.baseline,
+          source: 'archive',
+          file: hit.file,
+          seq: hit.seq,
+          archived_at: hit.archived_at ?? null,
+          damaged: hit.damaged,
+        }
+      }
+      return deny(
+        'BASELINE_NOT_FOUND',
+        `基线「${id}」在**窗口**（最近 ${BASELINE_ARCHIVE_WINDOW} 份）里没有，**归档**里也没有。\n` +
+          `${hit.note ?? ''}\n` +
+          '★ 这**不是**"归档后一律当基线缺失"：窗口与归档会一起查（归档不删数据）。\n' +
+          '  真查不到时请核对 id 是否属于本任务（`pipeline_status` 的 history_archive / audit.jsonl 里有每次 baseline:take 的 id）。',
+      )
     },
 
     // --- ★★ 席位级写入台账（选项 B）：「谁改的」按**归属**判，而不是只看路径形状 ---
@@ -308,7 +440,21 @@ export function baselineMethods(ctx) {
     async changeAudit(input) {
       const task = await loadTask(input.taskId)
       if (task === null) return deny('TASK_NOT_FOUND', `找不到任务 ${input.taskId}。`)
-      const base = this.currentBaseline(task)
+      /**
+       * ★★ P2-13 残余：**"窗口里没有" ≠ "基线缺失"**。
+       *   正常路径下当前基线一定在窗口里（窗口保留最近 2 份）；但旧任务 / 外部动过
+       *   task.json / 重取基线时若发生过归档，`baseline_current` 可能只在归档里。
+       *   这里**归档兜底**再判一次 —— 归档不删数据，所以它照旧读得到、照旧算得出前后对比。
+       */
+      let base = this.currentBaseline(task)
+      let baselineSource = 'window'
+      if (base === null && typeof task.baseline_current === 'string' && task.baseline_current.length > 0) {
+        const archived = readArchivedBaseline(taskDir(task.id), task.baseline_current)
+        if (archived.ok === true) {
+          base = archived.baseline
+          baselineSource = 'archive'
+        }
+      }
       if (base === null) {
         return deny(
           'NO_BASELINE',
@@ -432,7 +578,15 @@ export function baselineMethods(ctx) {
       return {
         ok: true,
         task,
-        baseline: { baseline_id: base.baseline_id, taken_at: base.taken_at, taken_by: base.taken_by, file_count: base.file_count, digest: base.digest },
+        baseline: {
+          baseline_id: base.baseline_id,
+          taken_at: base.taken_at,
+          taken_by: base.taken_by,
+          file_count: base.file_count,
+          digest: base.digest,
+          /** ★ P2-13：这版基线是从**窗口**读的，还是从**归档**回查的（`archive` ⇒ 窗口已裁剪，不是缺失）。 */
+          source: baselineSource,
+        },
         added,
         modified,
         removed,

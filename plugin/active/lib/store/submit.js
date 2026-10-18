@@ -411,8 +411,10 @@ export function submitMethods(ctx) {
               // ★★ 归属判据的两样输入：台账全部行 + 本单是谁（"只有别的单能豁免本单"由判据侧执法）
               writeLedger: ledgerRead.entries,
               writeLedgerTaskId: task.id,
-              // ★★ P1-9：本次提交里**已核过**的外来路径确认（规范绝对键 + 可读记录）
+              // ★★ P1-9：本次提交里**已核过**的外来路径确认（规范绝对键 + 可读记录）。
+              //    删除类单列 —— 删除拿不到哈希证据，判定层要分开计数、文案要如实标弱。
               foreignAckKeys: ackVet.keys,
+              foreignAckDeletedKeys: ackVet.deletedKeys,
               foreignAck: ackVet.entries,
             })
             // ★ 连续不过计数：**只有"闸门真过了"才归零**（撤回不归零，理由见 hashgate.js）
@@ -462,7 +464,9 @@ export function submitMethods(ctx) {
                 self_tree: auditRes.counts?.self_tree ?? null,
                 attributed_foreign: verdict.attributed_foreign.map((x) => `${x.path}→${x.attributed_to.task_id}`),
                 acknowledged_foreign: (verdict.acknowledged_foreign ?? []).map(
-                  (x) => `${x.path}→${x.owner_seat === null || x.owner_seat === undefined ? '?' : x.owner_seat}`,
+                  (x) =>
+                    `${x.path}→${x.owner_seat === null || x.owner_seat === undefined ? '?' : x.owner_seat}` +
+                    (x.evidence === 'deleted_no_hash' ? '（删除类·无哈希证据）' : ''),
                 ),
                 write_ledger: {
                   written: ledgerWrite.written,

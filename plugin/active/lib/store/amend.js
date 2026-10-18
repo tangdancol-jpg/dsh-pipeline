@@ -10,6 +10,8 @@
 import { validateChangeScope } from '../handoff.js'
 import { ST, STATE_LABEL } from '../states.js'
 import { ROLE, roleLabel } from '../roles.js'
+// ★ P1-18 残余（本单）：豁免的**形状 / 档位判据**与计划同源（`deferred_artifacts` 校验器唯一出处）。
+import { deferralLine, validateDeferredArtifacts } from '../tiers.js'
 import { nowIso, shortHash, toStringArray } from '../util.js'
 import { findNonScopeKeys } from './shared.js'
 
@@ -172,14 +174,18 @@ export function amendMethods(ctx) {
     //     一个只想扩一条路径的人就顺手拿到了改档位的权力。
 
     /**
-     * ★ **授权面变更（amendment）** —— 追加 / 撤销 `change_scope` 与 `forbidden`。
+     * ★ **授权面变更（amendment）** —— 追加 / 撤销 `change_scope` 与 `forbidden`，
+     *   **P1-18 残余（本单）起还可追加 `deferred_artifacts`（产物豁免，只追加不覆盖）**。
      *
-     * 三条硬判据，缺一不可：
+     * 四条硬判据，缺一不可：
      *   ① 调用方必须是**计划 AI**：授权面是计划的产物，谁定计划谁改授权面；
      *   ② 任务必须在**「待开发」**：授权面要在"计划已定稿、编写还没开工"那一刻改
      *      （再往后改，就是把已经发生过的越界洗成合规）；
-     *   ③ 入参**只许**出现授权面字段（白名单，见 `AMEND_ALLOWED_KEYS`）——
-     *      席位 / 角色清单 / 档位 / 调用顺序 / 层划分一个字都进不来。
+     *   ③ 入参**只许**出现授权面/豁免字段（白名单，见 `AMEND_ALLOWED_KEYS`）——
+     *      席位 / 角色清单 / 档位 / 调用顺序 / 层划分一个字都进不来；
+     *   ④ `deferred_artifacts` 的**形状与档位判据与计划同源**（`validateDeferredArtifacts`）：
+     *      why 必填、accepted_by 只能是 user / supervisor（supervisor 仅 L4+）、
+     *      只能豁免本档**可豁免**的必需产物、测试/审核/安全类不可豁免、同一 kind 重复拒。
      *
      * 全程留痕：`task.amendments[]`（含变更前后）+ `audit.jsonl` 的 `scope:amend`。
      *
@@ -192,6 +198,7 @@ export function amendMethods(ctx) {
      * @param {string[]} [input.remove] - 要撤销的 `change_scope` id
      * @param {string[]} [input.forbiddenAdd] - 追加的越界清单条目
      * @param {string[]} [input.forbiddenRemove] - 撤销的越界清单条目
+     * @param {object[]} [input.deferredArtifacts] - 追加的产物豁免 `[{kind, why, accepted_by}]`（只追加、不覆盖）
      * @param {object} [input.raw] - **原始入参**（白名单就查它）
      */
     async amendScope(input) {
@@ -229,7 +236,7 @@ export function amendMethods(ctx) {
       if (alien.length > 0) {
         return fail(
           'AMEND_SCOPE_VIOLATION',
-          `授权面变更**只许动授权面**（change_scope / forbidden）—— 但这次入参里带了：${alien.join('、')}。\n` +
+          `授权面变更**只许动授权面**（change_scope / forbidden / deferred_artifacts）—— 但这次入参里带了：${alien.join('、')}。\n` +
             '★ 席位、角色清单、档位、调用顺序、层划分都是**分配**：改它们要重出计划，' +
             '或走 pipeline_roster_request（提出）→ pipeline_roster_review（计划 AI 复核）—— 不是这条门。\n' +
             '★ 为什么这条闸这么硬：这条窄门之所以被允许存在，**恰恰因为它改不了那些东西**。\n' +
@@ -250,8 +257,70 @@ export function amendMethods(ctx) {
       const remove = toStringArray(input.remove)
       const forbiddenAdd = toStringArray(input.forbiddenAdd)
       const forbiddenRemove = toStringArray(input.forbiddenRemove)
-      if (add.length === 0 && remove.length === 0 && forbiddenAdd.length === 0 && forbiddenRemove.length === 0) {
-        return fail('BAD_ARGUMENT', '授权面变更至少要动一处：add / remove / forbidden_add / forbidden_remove 四选一（或更多）。')
+
+      /**
+       * ★★ **P1-18 残余（本单）：追加 `deferred_artifacts`（只追加、不覆盖）**。
+       *
+       * 形状 / 档位判据与 `pipeline_plan` **同一个校验器**（`validateDeferredArtifacts`）——
+       * 不在这里手抄第二套（那套判据已经在计划/分配两处各判一次，加第三份必然漂移）：
+       *   · why 必填（"这次为什么不交、凭什么"要能复核）；
+       *   · accepted_by 只能是 user / supervisor（supervisor 仅 L4+）—— 计划不能自己豁免自己；
+       *   · 只能豁免**本档可豁免的必需产物**（architecture_diagram / release_plan / docs_note / perf_report 按档位）；
+       *   · 测试 / 审核 / 安全类**不可豁免**（既有闸门照旧执法）；
+       *   · 同一 kind 只能出现一次；**已在计划里豁免过的也不许重复追加**（只追加，不改写计划那一份）。
+       */
+      const deferredRaw = input.deferredArtifacts
+      let deferredItems = []
+      if (deferredRaw !== undefined && deferredRaw !== null) {
+        const tier = typeof task.roster?.tier === 'string' ? task.roster.tier : ''
+        if (tier.length === 0) {
+          return fail(
+            'AMEND_NO_TIER',
+            '拒绝追加产物豁免：任务上没有档位（roster.tier 为空）—— 不知道本档要求什么/能豁免什么，**不能猜**。',
+          )
+        }
+        const dv = validateDeferredArtifacts(deferredRaw, { tier })
+        if (dv.ok !== true) {
+          return fail(
+            'BAD_DEFERRED_ARTIFACTS',
+            `拒绝追加产物豁免：形状 / 档位判据不通过（${dv.errors.length} 处）—— 任务**没有被改**。\n` +
+              dv.errors.map((e, i) => `  ${i + 1}) ${e}`).join('\n') +
+              '\n★ 判据与 `pipeline_plan` 的 `deferred_artifacts` **同源**（lib/tiers/product-matrix.js）：' +
+              'why 必填、accepted_by 只能是 user / supervisor（supervisor 仅 L4+）、' +
+              '只能豁免本档"可豁免"的必需产物、测试 / 审核 / 安全类不可豁免。',
+          )
+        }
+        // ★ 空数组 = 本次不补豁免（不报错，交给下面的"至少动一处"判据统一判）——
+        //   这样 `{ add: [...], deferred_artifacts: [] }` 这种组合不会被误拒。
+        if (!Array.isArray(dv.items)) {
+          return fail('BAD_DEFERRED_ARTIFACTS', '拒绝追加产物豁免：校验器没有返回条目（插件内部错误）。')
+        }
+        /** ★ 与**任务卡上已有**的豁免入口对账：重复 = 拒（只追加不覆盖）。 */
+        const existingList = Array.isArray(task.deferred_artifacts) ? task.deferred_artifacts : []
+        const existingKinds = new Set(existingList.map((x) => String(x?.kind ?? '').trim()).filter((k) => k.length > 0))
+        const dup = dv.items.filter((it) => existingKinds.has(it.kind))
+        if (dup.length > 0) {
+          return fail(
+            'DUPLICATE_DEFERRED_ARTIFACT',
+            `拒绝追加产物豁免：${dup.map((d) => `「${d.kind}」`).join('、')} **已经豁免过**（计划里或前一次 amendment 已登记）—— **只追加，不覆盖**。\n` +
+              '★ 为什么不做覆盖：豁免记录是"这次为什么可以不交、谁批的"的凭据；覆盖会把上一份理由与批准人抹掉。\n' +
+              '  确实要改理由 ⇒ 用一次新的 amendment 追加一个新的 kind（或由计划重出计划），不要原地改写。',
+          )
+        }
+        deferredItems = dv.items
+      }
+
+      if (
+        add.length === 0 &&
+        remove.length === 0 &&
+        forbiddenAdd.length === 0 &&
+        forbiddenRemove.length === 0 &&
+        deferredItems.length === 0
+      ) {
+        return fail(
+          'BAD_ARGUMENT',
+          '授权面变更至少要动一处：add / remove / forbidden_add / forbidden_remove / deferred_artifacts 五选一（或更多）。',
+        )
       }
 
       // ---- ⑤ 先在**副本**上算合并结果，全部通过才落到 task 上 ----------------
@@ -286,10 +355,22 @@ export function amendMethods(ctx) {
       ]
 
       // ---- ⑥ 落盘 + 留痕（task.amendments[] 与 audit.jsonl 两处都要有）-------
+      const currentDeferred = Array.isArray(task.deferred_artifacts) ? task.deferred_artifacts : []
       if (!Array.isArray(task.amendments)) task.amendments = []
+      const amendmentId = `AM-${shortHash(`${task.id}|${task.amendments.length}|${why}`)}`
+      const amendmentAt = nowIso(now())
+      /**
+       * ★ P1-18 残余：补登的豁免带**来源标记**（`via:'amendment'` + amendment_id + at）——
+       *   关单摘要 / status 靠它标注"这是计划之后补的"，而不是混进计划声明里看不出来。
+       *   ★ 只追加：`task.deferred_artifacts` 里计划那一份**原样保留**。
+       */
+      const deferredEntries =
+        deferredItems.length === 0
+          ? []
+          : deferredItems.map((it) => ({ kind: it.kind, why: it.why, accepted_by: it.accepted_by, via: 'amendment', amendment_id: amendmentId, at: amendmentAt }))
       const amendment = {
-        amendment_id: `AM-${shortHash(`${task.id}|${task.amendments.length}|${why}`)}`,
-        at: nowIso(now()),
+        amendment_id: amendmentId,
+        at: amendmentAt,
         by: ROLE.PLANNER,
         agent: input.actorAgentId ?? null,
         why,
@@ -299,11 +380,25 @@ export function amendMethods(ctx) {
         removed: remove,
         forbidden_added: forbiddenAdd,
         forbidden_removed: forbiddenRemove,
-        before: { change_scope: currentScope.map((e) => e?.id ?? null), forbidden: currentForbidden },
-        after: { change_scope: mergedScope.map((e) => e?.id ?? null), forbidden: mergedForbidden },
+        /** ★ 本单新增：这次补登的产物豁免（只追加；含理由/批准人/来源标记）。 */
+        deferred_added: deferredEntries,
+        before: {
+          change_scope: currentScope.map((e) => e?.id ?? null),
+          forbidden: currentForbidden,
+          deferred_artifacts: currentDeferred.map((x) => String(x?.kind ?? '')).filter((k) => k.length > 0),
+        },
+        after: {
+          change_scope: mergedScope.map((e) => e?.id ?? null),
+          forbidden: mergedForbidden,
+          deferred_artifacts: [
+            ...currentDeferred.map((x) => String(x?.kind ?? '')).filter((k) => k.length > 0),
+            ...deferredEntries.map((d) => d.kind),
+          ],
+        },
       }
       task.change_scope = mergedScope
       task.plan_forbidden = mergedForbidden
+      if (deferredEntries.length > 0) task.deferred_artifacts = [...currentDeferred, ...deferredEntries]
       task.amendments.push(amendment)
 
       const entry = await audit(task.id, ROLE.PLANNER, 'scope:amend', {
@@ -313,6 +408,7 @@ export function amendMethods(ctx) {
         removed: amendment.removed,
         forbidden_added: forbiddenAdd,
         forbidden_removed: forbiddenRemove,
+        deferred_added: deferredEntries.map((d) => d.kind),
         before: amendment.before,
         after: amendment.after,
         agent: input.actorAgentId ?? null,
@@ -334,8 +430,16 @@ export function amendMethods(ctx) {
           `越界清单（forbidden）：${currentForbidden.length} → ${mergedForbidden.length} 条` +
             (forbiddenAdd.length === 0 ? '' : `\n${forbiddenAdd.map((x) => `  + ${x}`).join('\n')}`) +
             (forbiddenRemove.length === 0 ? '' : `\n${forbiddenRemove.map((x) => `  − ${x}`).join('\n')}`),
+          // ★ P1-18 残余：补登的产物豁免（只追加；关单闸/status 会把它算进"已豁免"，并标注 via amendment）。
+          ...(deferredEntries.length === 0
+            ? []
+            : [
+                `产物豁免（deferred_artifacts）：${currentDeferred.length} → ${currentDeferred.length + deferredEntries.length} 条（本次**追加** ${deferredEntries.length} 条）`,
+                ...deferredEntries.map((d) => `  + ${deferralLine(d)}`),
+                '  ★ 只追加、不覆盖；重复的 kind 会被拒。关单闸与 pipeline_status 会把这些豁免标注为「分配后经 amendment 补登」。',
+              ]),
           '',
-          '★ 这条通道**只动授权面**：席位 / 角色清单 / 档位 / 调用顺序 / 层划分一个字没动。',
+          '★ 这条通道**只动授权面（含产物豁免）**：席位 / 角色清单 / 档位 / 调用顺序 / 层划分一个字没动。',
           '★ 计划那道"跳步"闸也没松 —— plan 交接物仍然只能在「计划中」提交。',
           '★ 留痕：task.json 的 amendments[] + audit.jsonl 的 scope:amend；pipeline_status 可见。',
         ].join('\n'),

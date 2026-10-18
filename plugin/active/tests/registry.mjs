@@ -326,4 +326,11 @@ export const EXTRA_SUITES = [
   { file: './f35-status-paging-check.mjs', exportName: 'runF35StatusPagingCheck', zh: '★ P2-13 status 分页与体积诊断（page/page_size 分页 handoffs/history/dispatch_slots；不传 page 逐字节不变；storage 块 + >1MiB 提示）' },
   // ★★ 2026-10-19 P2-13 第二步：history 超 500 条归档（不删数据；归档文件逐条保序可追溯）。
   { file: './f36-history-archive-check.mjs', exportName: 'runF36HistoryArchiveCheck', zh: '★ P2-13 history 归档（>700 触发、保留最近 500；归档 JSONL 逐条保序、零丢失；失败则不裁剪；audit 不动；status 显示归档摘要）' },
+  // ★★ 2026-10-19 收尾批（用户拍板 A/A/A/A/A/A）：六项残余全部落地。
+  { file: './f37-baseline-archive-check.mjs', exportName: 'runF37BaselineArchiveCheck', zh: '★ P2-13 baseline 归档（只留最近 2 份；更早 gzip 到 archive/baselines-*.jsonl.gz；失败不裁剪；按 id 回查不判缺失）' },
+  { file: './f38-ack-delete-check.mjs', exportName: 'runF38AckDeleteCheck', zh: '★ P1-9 删除类 ack（删除路径可确认、四条护栏不减；evidence=deleted_no_hash 如实标注；计数分开）' },
+  { file: './f39-snapshot-rehash-check.mjs', exportName: 'runF39SnapshotRehashCheck', zh: '★ P1-10 关单时重算快照（L3+ 逐文件重算；mismatch/missing/超时都拒；只写审计不改写历史；L0–L2 不强制）' },
+  { file: './f40-deferred-amend-check.mjs', exportName: 'runF40DeferredAmendCheck', zh: '★ P1-18 分配后补豁免（scope_amend 只追加 deferred_artifacts；同源判据；留痕与 status 标注 via amendment）' },
+  { file: './f41-main-shell-boundary-check.mjs', exportName: 'runF41MainShellBoundaryCheck', zh: '★ P0-3 主对话 shell 边界（环境级只读/探活/本单清理放行；写交付根/源码树、Start-Process、git 写拒绝；非 main 判据不动）' },
+  { file: './f42-supervisor-visible-check.mjs', exportName: 'runF42SupervisorVisibleCheck', zh: '★ supervisor 展示口径（hub.enabled || forcedSeat 且 L3+；L0–L2 不投幽灵主管；撤销后立刻收回）' },
 ]

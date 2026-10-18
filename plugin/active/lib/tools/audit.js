@@ -97,6 +97,10 @@ export function buildAuditTools(ctx) {
           summary:
             `已重新记录改动基线：${bl.baseline.baseline_id}\n` +
             `  ${bl.baseline.file_count} 个文件，清单指纹 ${bl.baseline.digest.slice(0, 16)}…（${bl.baseline.taken_at}）\n` +
+            // ★ P2-13 残余：窗口只留最近 2 份；更早的按序 gzip 归档（不删数据，可按 id 回查）。
+            (bl.baseline_archive === null || bl.baseline_archive === undefined
+              ? ''
+              : `★ 窗口只留最近 2 份基线 ⇒ 顺带归档 ${bl.baseline_archive.count} 份旧基线到 \`${bl.baseline_archive.file}\`（不删数据；可按 id 回查）。\n`) +
             '★ 从此往后的改动都按这一版基线比。重取会留痕（audit: baseline:take）。',
         }
       }

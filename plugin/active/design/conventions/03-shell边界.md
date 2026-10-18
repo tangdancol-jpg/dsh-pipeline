@@ -4,7 +4,7 @@
 > `Start-Process python -m http.server`、`Remove-Item -Recurse` 删 375 MB、`Invoke-WebRequest` 探活
 > —— 这些**全放行**；而它的设计目的是"不读代码正文、不写文件"。
 >
-> 状态：**P0-3 的口径设计**（先定边界，是否落判据另议；不在没定边界前把 shell 一律关死）。
+> 状态：**已按本口径落地判据**（2026-10-19，`lib/guard/shell.js` 的 `judgeMainShellBoundary`，默认启用，回归 `f41` 52/52）。
 
 ## 1. 为什么不能简单地说「主对话不许 shell」
 

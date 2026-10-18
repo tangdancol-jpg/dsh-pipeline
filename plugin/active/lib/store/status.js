@@ -138,6 +138,8 @@ export function statusMethods(ctx) {
             removed: a.removed ?? [],
             forbidden_added: a.forbidden_added ?? [],
             forbidden_removed: a.forbidden_removed ?? [],
+            // ★ P1-18 残余：分配后补登的产物豁免（只追加；带 via/amendment_id 来源标记）。
+            deferred_added: a.deferred_added ?? [],
             before: a.before ?? null,
             after: a.after ?? null,
           }))
@@ -157,6 +159,8 @@ export function statusMethods(ctx) {
             removed: a.removed ?? [],
             forbidden_added: a.forbidden_added ?? [],
             forbidden_removed: a.forbidden_removed ?? [],
+            // ★ P1-18 残余：最近一次 amendment 补登的产物豁免。
+            deferred_added: a.deferred_added ?? [],
           }
         })(),
         change_manifest: task.scope_conformance?.manifest ?? [],
@@ -546,6 +550,19 @@ export function statusMethods(ctx) {
           task.history_archive !== null && typeof task.history_archive === 'object' && !Array.isArray(task.history_archive)
             ? task.history_archive
             : null,
+        /**
+         * ★★ **P2-13 残余：baseline 归档账本（只读）**。
+         *   形状：`{ files:[{file,count,seq,bytes,from_id,to_id,from_taken_at,to_taken_at}],
+         *   archived_total, window, last_at[, last_error] }`；没触发过归档 ⇒ null。
+         *   `task.json` 只留最近 `window`（2）份；更早的**不删**，按序 gzip 在
+         *   `archive/baselines-<seq>.jsonl.gz` 里（store 的 `baselineById()` 可按 id 回查）。
+         */
+        baseline_archive:
+          task.baseline_archive !== null && typeof task.baseline_archive === 'object' && !Array.isArray(task.baseline_archive)
+            ? task.baseline_archive
+            : null,
+        /** ★ P2-13：task.json 窗口里还留着几份 baseline（归档后 = window，2）。 */
+        baselines_in_window: Array.isArray(task.baselines) ? task.baselines.length : 0,
       }
     },
   }

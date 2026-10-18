@@ -774,7 +774,10 @@ export function buildFlowTools(ctx) {
       indexTask(res.task.id, res.task)
       const n = tokens.revokeTask(res.task.id)
       // ★★ P1-18："已豁免不拒，但摘要要写清豁免" —— 关单成功时也必须看得到豁免了什么、凭什么。
+      //    ★ P1-18 残余（本单）：其中"分配后经 amendment 补登"的要单独点出来 ——
+      //      否则关单摘要读起来像"计划一开始就批了"，追溯时会误判。
       const waivedProducts = [...deferredArtifactsOf(res.task).values()]
+      const waivedViaAmendment = waivedProducts.filter((d) => d.via === 'amendment')
       return {
         ok: true,
         artifact_version: res.report.artifact_version ?? '',
@@ -787,6 +790,10 @@ export function buildFlowTools(ctx) {
             ? ''
             : `产物豁免（关单已放行，共 ${waivedProducts.length} 项 —— 理由与批准人都留痕在 task.json）：\n` +
               waivedProducts.map((d) => `  · ${deferralLine(d)}`).join('\n') +
+              (waivedViaAmendment.length === 0
+                ? ''
+                : `\n  ★ 其中 ${waivedViaAmendment.length} 项是**分配后经 amendment 补登**的（计划原文没有；` +
+                  `来源：${waivedViaAmendment.map((d) => d.amendment_id ?? '（无 id）').join('、')}）—— 见 task.amendments[] 与 audit.jsonl 的 scope:amend。`) +
               '\n') +
           `已回收本任务的角色令牌 ${n} 枚。`,
       }

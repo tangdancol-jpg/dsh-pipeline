@@ -34,7 +34,10 @@ import {
   tierAtLeast,
 } from '../tiers.js'
 // ★★ P1-10：当前有效制品的**快照状态**（与 `pipeline_status` 展示**同一份**派生）。
-import { describeArtifactSnapshot } from '../model/artifact.js'
+//    ★ P1-10 残余（本单）：关单时还要**重新读盘重算** —— 那份实现与 `verify` 同源，
+//      在 `lib/store/artifact-snapshot.js`（不在本文件手抄第二套哈希逻辑）。
+import { SNAPSHOT_MAX_FILES, artifactRecordOf, describeArtifactSnapshot, isSnapshotRecord } from '../model/artifact.js'
+import { SNAPSHOT_REHASH_TIMEOUT_MS, checkSnapshotAgainstDisk, renderSnapshotCheckLines } from './artifact-snapshot.js'
 // ★★ P4 接线（`WIRING.md` §W3）：DEMO 两个闸门的**名字**从闸门模块取，不手抄字符串。
 import { DEMO_GATE_GUARD, DEMO_ROUND_GUARD } from '../guard/demo-gate.js'
 
@@ -889,22 +892,23 @@ export function preconditionMethods(ctx) {
         }
 
         /**
-         * ★★ P1-10：**L3+ 关单要求当前有效制品带完整快照**。
+         * ★★ P1-10（设计档 `04-demo与制品模型.md` §3「推荐 B」）——
+         *   **L3+ 关单时重新读盘重算快照**（P1-10 残余）。
          *
-         * 现场（设计档 `04-demo与制品模型.md` §3）：三个编写席各登记 v1/v2/v3，
-         * `status` 说"制品 v3"、审核也绑 v3，但 v3 只是 writer#3 那份产物的版本号；
-         * 之后有没有人再改过那批文件，没有任何判据能回答。
+         * 改前的残余：关单只看**登记时**的 `snapshot.complete` —— 登记之后文件被改/被删，
+         * 关单闸看不见（"最后登记那一刻的证明"不是"关单这一刻的事实"）。
          *
-         * 判据（与 `pipeline_status` 展示**同一份**派生：`describeArtifactSnapshot`）：
+         * 判据（与 `pipeline_status` / `pipeline_artifact verify` **同一份**实现）：
          *   ① 仅 **L3+** 强制（L0–L2 轻量：不强制、不误伤）；
-         *   ② 当前有效制品在 `task.artifacts[]` 里必须有一份登记；
-         *   ③ 那份登记必须带 `snapshot`（`files` 落过、`snapshot_id` 算过）；
-         *   ④ `snapshot.complete === true`（无 missing 无 mismatch）。
+         *   ② 当前有效制品在 `task.artifacts[]` 里必须有登记，且带 `snapshot`（legacy 直接拒）；
+         *   ③ **关单这一刻**逐文件读盘算 sha256，与登记哈希比：missing / mismatch ⇒ 拒；
+         *   ④ 重算出的 `current_snapshot_id` 与登记 `snapshot_id` 不一致（但对得上文件哈希）⇒ 拒
+         *      （登记记录被手改过的证据）；
+         *   ⑤ 重算结果**只进审计**（`artifact:rehash`），**不回写登记记录** ——
+         *      "不把历史改写成通过"：登记时的历史留原样，关单这一眼的结论在 audit.jsonl 里。
          *
-         * 三条拒绝各有各的下一步（不合并成一句"快照不完整"）：
-         *   · 无登记 / 无快照（legacy）⇒ **重登记**带 files 的版本，再把流程绑过去；
-         *   · 有快照但不完整 ⇒ `pipeline_artifact { action: "verify" }` 看明细：
-         *     文件还原后重跑 verify 会把快照标回完整（verify 是修复入口）。
+         * 性能：登记上限是 `SNAPSHOT_MAX_FILES`（2000），超过 ⇒ 按登记上限判（拒，并说明）；
+         * 重算有时间预算 `SNAPSHOT_REHASH_TIMEOUT_MS`，超时**不静默放行**（拒并给处置）。
          */
         case 'artifact_snapshot_complete': {
           // 档位先归一（大小写 / 空白不敏感，与产物矩阵同一个 `normalizeTier`）。
@@ -913,14 +917,13 @@ export function preconditionMethods(ctx) {
           if (!tierAtLeast(tier, 'L3')) break
           const version = currentArtifactVersion(task)
           const view = describeArtifactSnapshot(task, version)
-          if (view.complete === true) break
 
           const nextSteps =
             '下一步（两条出路）：\n' +
             '  ① 先看明细：`pipeline_artifact { task_id, action: "verify"' +
             (version === null ? '' : `, version: "${version}"`) +
             ' }` —— 它会按盘上实际哈希重算，逐条给出 missing / mismatch；\n' +
-            '     **文件恢复成登记时的内容后重跑一次 verify，快照会被标回完整**（verify 就是修复入口）；\n' +
+            '     **把文件还原成登记时的内容后重跑一次 verify，快照会被标回完整**（verify 就是修复入口）；\n' +
             '  ② 内容确实要改：重新登记一版带 `files: [{ path, sha256? }]` 的制品（服务端会逐条核对磁盘、算 snapshot_id），' +
             '再让编写重交 dev_to_test / 测试重验 / 审核重绑新版本（审核绑定键仍是 artifact_version）。\n' +
             '★ L0–L2 不强制这条；本任务是 **' + (tier || '未编排') + '** 档（L3+）。'
@@ -929,7 +932,7 @@ export function preconditionMethods(ctx) {
             return deny(
               'ARTIFACT_SNAPSHOT_INCOMPLETE',
               `拒绝关单：本任务是 ${tier} 档（L3+ 要求**当前有效制品的完整快照**），但任务里**还没有当前有效制品**。\n` +
-                '判据：当前有效制品 = 最近一次 dev_to_test 的 artifact_version；它的登记必须带 complete:true 的快照。\n' +
+                '判据：当前有效制品 = 最近一次 dev_to_test 的 artifact_version；它的登记必须带完整快照。\n' +
                 nextSteps,
             )
           }
@@ -941,7 +944,9 @@ export function preconditionMethods(ctx) {
                 nextSteps,
             )
           }
-          if (view.has_snapshot !== true) {
+          const rec = artifactRecordOf(task, version)
+          const snap = isSnapshotRecord(rec?.snapshot) ? rec.snapshot : null
+          if (snap === null) {
             // ★ legacy：旧登记没有 snapshot —— 用户口径「L3+ 视为不完整」，拒绝时**说清**这是旧数据。
             return deny(
               'ARTIFACT_SNAPSHOT_INCOMPLETE',
@@ -951,18 +956,92 @@ export function preconditionMethods(ctx) {
                 nextSteps,
             )
           }
-          return deny(
-            'ARTIFACT_SNAPSHOT_INCOMPLETE',
-            `拒绝关单：当前有效制品 ${version} 的快照**不完整**（${view.file_count} 个文件里，缺失 ${view.missing_count} 个 / 哈希不一致 ${view.mismatch_count} 个）。\n` +
-              (view.missing_count > 0
-                ? `  · 缺失：${view.missing.slice(0, 10).map((f) => f.path).join('、')}${view.missing_count > 10 ? ' …' : ''}\n`
-                : '') +
-              (view.mismatch_count > 0
-                ? `  · 不一致：${view.mismatch.slice(0, 10).map((f) => f.path).join('、')}${view.mismatch_count > 10 ? ' …' : ''}\n`
-                : '') +
-              `★ 快照登记于 ${view.verified_at ?? '(未知时间)'}（snapshot_id ${String(view.snapshot_id).slice(0, 16)}…）。\n` +
-              nextSteps,
-          )
+          if (!Array.isArray(snap.files) || snap.files.length === 0) {
+            return deny(
+              'ARTIFACT_SNAPSHOT_INCOMPLETE',
+              `拒绝关单：当前有效制品 ${version} 的快照里**没有文件清单**（files 为空）—— 无法重算核对。\n` +
+                '★ 正常登记不会产生这种记录；盘上数据可能被手改过，请重新登记一份带 files 的快照。\n' +
+                nextSteps,
+            )
+          }
+          if (snap.files.length > SNAPSHOT_MAX_FILES) {
+            return deny(
+              'ARTIFACT_SNAPSHOT_TOO_LARGE',
+              `拒绝关单：当前有效制品 ${version} 的快照列了 ${snap.files.length} 个文件，超过登记上限 ${SNAPSHOT_MAX_FILES}。\n` +
+                '★ 关单时的重算要逐个文件读盘算 sha256 —— 超过登记上限的记录无法在可接受时间内核对完（也可能掩盖真实范围）。\n' +
+                '判据：快照描述的是**本次交付包含的文件**（不是整棵仓）；要核对全仓改动面，用 pipeline_change_audit。\n' +
+                nextSteps,
+            )
+          }
+
+          /**
+           * ★★ **关单这一刻重新读盘重算**（与 verify / 登记**同一份**实现）。
+           * ★ 只读：**不回写** task.artifacts 的 snapshot（"不把历史改写成通过"）。
+           */
+          const rehash = await checkSnapshotAgainstDisk(task, snap, now, { timeoutMs: SNAPSHOT_REHASH_TIMEOUT_MS })
+
+          /**
+           * ★ 重算结果写审计（**只在对关单事件**这一步写：closeGaps 的预览/失败清单不重复写）。
+           * ★ 审计只是事实记录，不改登记记录、不改状态。
+           */
+          if (input?.event === 'close') {
+            try {
+              const auditRole = typeof input?.actorRole === 'string' && input.actorRole.length > 0 ? input.actorRole : ROLE.MAIN
+              await this.recordAudit(task.id, auditRole, 'artifact:rehash', {
+                stage: 'close.precondition',
+                version,
+                files: snap.files.length,
+                checked: rehash.checked,
+                snapshot_id: snap.snapshot_id,
+                current_snapshot_id: rehash.currentSnapshotId,
+                same: rehash.same,
+                complete: rehash.complete,
+                timed_out: rehash.timedOut,
+                missing: rehash.missing.length,
+                mismatch: rehash.mismatch.length,
+                elapsed_ms: rehash.elapsedMs,
+              })
+            } catch {
+              /* 审计写失败不改变"重算结论"本身；与既有 audit 的 best-effort 口径一致（不静默放行判据） */
+            }
+          }
+
+          if (rehash.timedOut === true) {
+            return deny(
+              'ARTIFACT_SNAPSHOT_REHASH_TIMEOUT',
+              `拒绝关单：当前有效制品 ${version} 的快照**重算超时**（${SNAPSHOT_REHASH_TIMEOUT_MS}ms 预算，` +
+                `已核对 ${rehash.checked}/${rehash.total} 个文件）—— 关单**不因性能问题静默放行**。\n` +
+                '★ 为什么会有预算：关单是同步动作，快照可能有上千个大文件；超时继续跑会卡住整条流水线。\n' +
+                '处置（二选一）：\n' +
+                '  · 先用 `pipeline_artifact { action: "verify", version: "' + version + '" }` 预检（它不受关单预算限制），' +
+                '确认文件都对得上再关单；\n' +
+                '  · 快照确实太大 ⇒ 只列**本次交付的关键文件**重新登记一版快照（不是整棵仓），再走 dev_to_test/测试/审核。\n' +
+                nextSteps,
+            )
+          }
+          if (rehash.complete !== true) {
+            const lines = renderSnapshotCheckLines({ missing: rehash.missing, mismatch: rehash.mismatch }).join('\n')
+            return deny(
+              'ARTIFACT_SNAPSHOT_INCOMPLETE',
+              `拒绝关单：当前有效制品 ${version} 的快照在**关单时重新读盘重算**后**对不上**\n` +
+                `（登记时 complete=${snap.complete === true ? 'true' : 'false'}；本次核对 ${rehash.checked}/${rehash.total} 个文件）\n` +
+                (lines.length > 0 ? `${lines}\n` : '') +
+                `★ 登记哈希是审核绑定的那一版；登记之后文件被改/被删 ⇒ 审核结论不再代表盘上的东西。\n` +
+                '★ 本结果已记入审计（artifact:rehash），**登记记录本身没有被改写**（历史原样保留）。\n' +
+                nextSteps,
+            )
+          }
+          if (rehash.same !== true) {
+            return deny(
+              'ARTIFACT_SNAPSHOT_ID_MISMATCH',
+              `拒绝关单：当前有效制品 ${version} 的文件都与登记哈希**对得上**，但重算出的 snapshot_id 与登记值不同\n` +
+                `（登记 ${String(snap.snapshot_id).slice(0, 16)}… / 重算 ${String(rehash.currentSnapshotId).slice(0, 16)}…）—— ` +
+                '登记记录被手改过的证据。\n' +
+                '★ 文件内容没变却 id 不同 ⇒ 快照的"文件清单一栏"与 hash 不自洽。\n' +
+                nextSteps,
+            )
+          }
+          break
         }
 
         case 'rework_budget': {

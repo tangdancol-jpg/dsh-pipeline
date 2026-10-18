@@ -50,14 +50,17 @@ const HOW_ZH = {
  * @param {string[]} [opts.writerRoles] - 哪些角色算"编写席"（默认 `['writer']`；只影响
  *   机器产物豁免的**收回**方向，即只会更严）
  * @param {string[]} [opts.foreignAckKeys] - ★★ P1-9：**已被 store 核过**的「外来路径显式确认」
- *   （`dev_to_test.foreign_paths_ack`）的规范绝对键。命中的 touched 路径**不进本席的声明对账** ——
- *   因为它是**别的编写席位分区**里的本次变化，本席本来就不该为它背书。
+ *   （`dev_to_test.foreign_paths_ack`）里**有哈希证据**（新增/修改）那批的规范绝对键。命中的 touched
+ *   路径**不进本席的声明对账** —— 因为它是**别的编写席位分区**里的本次变化，本席本来就不该为它背书。
  *   ⚠️ 三道护栏（由 `lib/hashgate/foreign-ack.js` 在上游落实，这里再兜一次）：
  *   ① 只由 store 核过才进得来（本函数不读 payload、不认字符串声明）；
- *   ② 对 `unauthorized` **不生效**（越界照旧拒 —— 见循环里的 `unauthorizedAckBlocked`）；
- *   ③ 删除类（拿不到哈希）**不适用**。
- * @param {object[]} [opts.foreignAck] - 与 `foreignAckKeys` 同批的可读记录
- *   `[{ path, reason, owner_seat, key }]`（用于**可见**输出与文案，不参与判定）
+ *   ② 对 `unauthorized` **不生效**（越界照旧拒 —— 见循环里的 `unauthorizedAbsKeys`）。
+ * @param {string[]} [opts.foreignAckDeletedKeys] - ★★ P1-9 删除类：已核过的**删除类**归属确认的规范绝对键。
+ *   ★ 它与 `foreignAckKeys` 分开传，唯一原因是**证据强度不同**：删除拿不到"当前内容哈希"，
+ *   所以这类确认**没有哈希证据**（输出里标 `evidence:'deleted_no_hash'`，计数单列
+ *   `counts.foreign_paths_acked_deleted`）。①②护栏与新增/修改那一支**完全相同**，一个字没松。
+ * @param {object[]} [opts.foreignAck] - 与上面两批同源的可读记录
+ *   `[{ path, reason, owner_seat, key, kind, evidence, why? }]`（用于**可见**输出与文案，不参与判定）
  * @returns {{pass:boolean, violations:object[], counts:object, summary:string}}
  */
 export function hashGateVerdict(audit, manifest = [], opts = {}) {
@@ -105,6 +108,12 @@ export function hashGateVerdict(audit, manifest = [], opts = {}) {
    */
   const foreignAckKeys = new Set(
     (Array.isArray(opts.foreignAckKeys) ? opts.foreignAckKeys : [])
+      .map((k) => String(k ?? '').trim().toLowerCase())
+      .filter((k) => k.length > 0),
+  )
+  /** ★ P1-9 删除类：删除拿不到哈希 ⇒ 单独一集（证据强度不同、计数单列；护栏与上一集相同）。 */
+  const foreignAckDeletedKeys = new Set(
+    (Array.isArray(opts.foreignAckDeletedKeys) ? opts.foreignAckDeletedKeys : [])
       .map((k) => String(k ?? '').trim().toLowerCase())
       .filter((k) => k.length > 0),
   )
@@ -215,13 +224,30 @@ export function hashGateVerdict(audit, manifest = [], opts = {}) {
       continue
     }
     // ★★ P1-9：**本席显式确认过归属别的编写席位**的路径 ⇒ 不进本席的声明对账。
-    //    三道前提：拿到哈希（只对新增/修改；删除类不适用）、不在越界清单、在已核过的 ack 集合里。
-    if (item.sha256 !== null && tKey.length > 0 && foreignAckKeys.has(tKey) && !unauthorizedAbsKeys.has(tKey)) {
+    //    新增/修改走 `foreignAckKeys`（**有哈希证据**）；删除走 `foreignAckDeletedKeys`
+    //    （**无哈希证据** —— 删除拿不到"当前内容"，如实标 evidence，强度弱于前者）。
+    //    两条共同的硬前提：在已核过的 ack 集合里 + **不在越界清单里**（越界路径谁都不能排除）。
+    const ackEvidence =
+      tKey.length > 0 && !unauthorizedAbsKeys.has(tKey)
+        ? item.sha256 !== null
+          ? foreignAckKeys.has(tKey)
+            ? 'changed_hash'
+            : null
+          : foreignAckDeletedKeys.has(tKey)
+            ? 'deleted_no_hash'
+            : null
+        : null
+    if (ackEvidence !== null) {
       const acked = foreignAckByKey.get(tKey) ?? null
       acknowledgedForeign.push({
         path: p,
         reason: typeof acked?.reason === 'string' ? acked.reason : '',
         owner_seat: acked?.owner_seat ?? null,
+        kind: acked?.kind ?? (ackEvidence === 'deleted_no_hash' ? 'deleted' : 'changed'),
+        evidence: ackEvidence,
+        ...(ackEvidence === 'deleted_no_hash'
+          ? { why: '删除类拿不到"当前内容"的哈希 —— 这次归属确认**没有哈希证据**，强度弱于新增/修改类' }
+          : {}),
       })
       continue
     }
@@ -286,9 +312,16 @@ export function hashGateVerdict(audit, manifest = [], opts = {}) {
     attributed_foreign: attributedForeign.length,
     /** ★ 被**收回**机器产物豁免的条数（本单编写席按哈希认领过 —— 更严，也要看得见）。 */
     machine_artifacts_withdrawn: withdrawnMachineArtifacts.length,
-    /** ★★ P1-9：按 `foreign_paths_ack` 显式确认归属别的编写席位、因而不计入本席声明对账的条数。 */
-    foreign_paths_acked: acknowledgedForeign.length,
+    /** ★★ P1-9：按 `foreign_paths_ack` 确认归属别的编写席位、因而不计入本席声明对账的条数
+     *  —— **有哈希证据**（新增/修改）的那一半。 */
+    foreign_paths_acked: acknowledgedForeign.filter((x) => x.evidence !== 'deleted_no_hash').length,
+    /** ★★ P1-9 删除类：**无哈希证据**的归属确认条数（单列 —— 证据强度不同，不许混算）。 */
+    foreign_paths_acked_deleted: acknowledgedForeign.filter((x) => x.evidence === 'deleted_no_hash').length,
   }
+  /** 归属确认的合计与"其中删除类"的如实标注（summary 与文案共用，避免各写一份口径）。 */
+  const ackedTotal = counts.foreign_paths_acked + counts.foreign_paths_acked_deleted
+  const ackedDeletedNote =
+    counts.foreign_paths_acked_deleted > 0 ? `；其中 ${counts.foreign_paths_acked_deleted} 处是**删除类：无哈希证据**（强度弱于新增/修改）` : ''
   return {
     pass: violations.length === 0,
     violations,
@@ -297,7 +330,8 @@ export function hashGateVerdict(audit, manifest = [], opts = {}) {
     ignored_machine_artifacts: ignoredMachineArtifacts,
     /** ★★ 逐条列出**归属给别的单**的改动（谁归属给了谁、凭什么 —— 事后可核）。 */
     attributed_foreign: attributedForeign,
-    /** ★★ P1-9：逐条列出**本席显式确认归属别的编写席位**的路径（理由与归属席位一并留档）。 */
+    /** ★★ P1-9：逐条列出**本席显式确认归属别的编写席位**的路径（理由 / 归属席位 / 证据标记一并留档；
+     *  `evidence:'changed_hash'` = 新增/修改（有哈希）；`evidence:'deleted_no_hash'` = 删除类（无哈希证据，强度弱）。 */
     acknowledged_foreign: acknowledgedForeign,
     /** ★ 逐条列出**被收回豁免**的机器产物。 */
     withdrawn_machine_artifacts: withdrawnMachineArtifacts,
@@ -310,16 +344,16 @@ export function hashGateVerdict(audit, manifest = [], opts = {}) {
           (counts.attributed_foreign > 0
             ? `（另有 ${counts.attributed_foreign} 处改动**可证明是别的单的产物**，不计入本单：${attributedForeign.map((x) => `${x.path}→${x.attributed_to.task_id}`).join('、')}）`
             : '') +
-          (counts.foreign_paths_acked > 0
-            ? `（另有 ${counts.foreign_paths_acked} 处已按 foreign_paths_ack **显式确认归属别的编写席位**，不计入本席：${acknowledgedForeign.map((x) => `${x.path}→${x.owner_seat ?? '别的席位'}`).join('、')}）`
+          (ackedTotal > 0
+            ? `（另有 ${ackedTotal} 处已按 foreign_paths_ack **显式确认归属别的编写席位**，不计入本席${ackedDeletedNote}：${acknowledgedForeign.map((x) => `${x.path}→${x.owner_seat ?? '别的席位'}`).join('、')}）`
             : '')
         : `哈希对比**不通过**：越界 ${counts.unauthorized} 处 · 声明不实 ${counts.undeclared} 处` +
           (counts.machine_artifacts > 0 ? `（机器产物 ${counts.machine_artifacts} 条已排除在声明对账之外）` : '') +
           (counts.attributed_foreign > 0
             ? `（**已排除** ${counts.attributed_foreign} 处可证明是别的单的产物，未计入你头上）`
             : '') +
-          (counts.foreign_paths_acked > 0
-            ? `（**已排除** ${counts.foreign_paths_acked} 处按 foreign_paths_ack 确认归属别的编写席位的路径，未计入你头上）`
+          (ackedTotal > 0
+            ? `（**已排除** ${ackedTotal} 处按 foreign_paths_ack 确认归属别的编写席位的路径，未计入你头上${ackedDeletedNote}）`
             : '') +
           (counts.machine_artifacts_withdrawn > 0
             ? `（另有 ${counts.machine_artifacts_withdrawn} 条机器产物**豁免被收回** —— 它们其实是本单编写的产物：${withdrawnMachineArtifacts.map((x) => x.path).join('、')}）`
@@ -366,6 +400,8 @@ export function renderGateRejection({ verdict, audit, scope, baseline, streak = 
     L.push('    在本次 dev_to_test 的 payload 里加一次显式确认：')
     L.push('      `foreign_paths_ack: [{ path: "上面的路径", reason: "属于 writer#X 的分区，本席未改动" }]`')
     L.push('    它只对「**别的编写席位分区内** + **本次确实有变化**」的路径生效；本席自己分区的改动、越界改动都确认不了。')
+    L.push('    ★ **删除类也能这样确认**（别的席位删了它分区里的文件）—— 但删除拿不到"当前内容"的哈希，')
+    L.push('      这类确认**没有哈希证据**、强度弱于新增/修改，审计里会如实标 `evidence:"deleted_no_hash"`。')
   }
   // ★★ 归属判据的**可见面**：已经按席位级写入台账排除掉的那批（可证明是别的单的产物）。
   //    为什么必须列出来：不静默是这套机制的一贯要求 —— 编写要能看见"哪些**不是**它的活"，
@@ -385,10 +421,15 @@ export function renderGateRejection({ verdict, audit, scope, baseline, streak = 
     L.push('')
     L.push(`★ **已按你的 foreign_paths_ack 排除 ${verdict.acknowledged_foreign.length} 处**（显式确认属于别的编写席位，不计入本席的声明对账）：`)
     for (const x of verdict.acknowledged_foreign.slice(0, 10)) {
-      L.push(`  · ${x.path}${x.owner_seat === null || x.owner_seat === undefined ? '' : ` —— 属于 ${x.owner_seat} 的分区`}（理由：${x.reason || '(未写)'}）`)
+      L.push(
+        `  · ${x.path}${x.owner_seat === null || x.owner_seat === undefined ? '' : ` —— 属于 ${x.owner_seat} 的分区`}` +
+          `（理由：${x.reason || '(未写)'}）` +
+          (x.evidence === 'deleted_no_hash' ? '　★ **删除类：无哈希证据**（强度弱于新增/修改）' : ''),
+      )
     }
     if (verdict.acknowledged_foreign.length > 10) L.push(`  …（还有 ${verdict.acknowledged_foreign.length - 10} 处）`)
     L.push('  判据：路径**本次确实有变化**、落在**别的编写席位分区**内、且不在越界清单里（本席自己分区的改动确认不了）。')
+    L.push('  证据强度：新增/修改 = 有哈希（`evidence:"changed_hash"`）；**删除类 = 无哈希证据**（`evidence:"deleted_no_hash"`，弱一档）。')
   }
   // ★ 机器产物豁免**被收回**的那些（它们其实是本单编写的产物）—— 也要看得见。
   if (Array.isArray(verdict.withdrawn_machine_artifacts) && verdict.withdrawn_machine_artifacts.length > 0) {

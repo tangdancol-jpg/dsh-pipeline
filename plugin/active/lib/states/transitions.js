@@ -9,6 +9,8 @@
  */
 
 import { ROLE } from '../roles.js'
+// ★ 档位比较走 `tier-order`（依赖为零）：投影里判断"forcedSeat 算不算在册"要用档位。
+import { tierAtLeast } from '../tiers/tier-order.js'
 import {
   ROLES_CAN_ASK_CLARIFICATION,
   ROLES_CAN_RAISE_HUMAN,
@@ -350,7 +352,8 @@ export function availableTransitions(from) {
 //
 // 判据（**唯一出处就是本文件**，各调用点不许再各写一份）：
 //   · `main` / `human` 恒在（主对话与用户不是"被派的席位"）；
-//   · `supervisor` —— **hub 已启用 且 主管席位在册** 才展示（P2-17 点名的幽灵角色）；
+//   · `supervisor` —— **hub 已启用 或 主管席位"先设后撤"还在册**（`hub.enabled || hub.forcedSeat`）
+//     才展示（P2-17 点名的幽灵角色；2026-10-19 用户拍板补上"已先设主管、hub 未 initiate"这一档）；
 //   · `rule-engine` —— 只在 `roster.orchestrator_mode === 'rule-engine'`（L0）时展示；
 //   · 其它角色 —— 看 `roster.conversations`（**名单四槽面**＝"谁在册"的唯一事实来源，
 //     与 `store/precondition.js` 的 `hub_initiate_required` 同一份数据）；
@@ -395,10 +398,30 @@ export function projectedRoleVisible(task, role) {
   // ★ 主管是"只读角色"：`execution_roles` 里本来就没有它 ⇒ 必须单独按枢纽账本判。
   if (r === ROLE.SUPERVISOR) {
     const hub = hubFactsOf(task)
-    if (hub.enabled !== true) return false
+    /**
+     * ★★ P2-17 残余（2026-10-19）：**"已先设主管、hub 还没 initiate" 也是可见的**。
+     *
+     * 现场：开单时按裁定 1「先强制设主管」（`hub_requirement.forced=true`），
+     *   而 `hub.enabled` 要等主管 `pipeline_supervise action=initiate` 才为真。
+     *   这段时间里主管**确实在册**（`hubSeatPresent` 认它），投影却把它当幽灵角色藏起来 ——
+     *   主管照着 `pipeline_status` 找不到自己该点的动作。
+     *
+     * 口径（用户 2026-10-19 拍板，仅这一处）：`hub.enabled || hub.forcedSeat`。
+     *   · `forcedSeat` = `hub_requirement.forced === true` 且尚未撤销（与 `hubSeatPresent` 同源）；
+     *   · 只改**展示投影**：状态机的 `by` 名单、`applyTransition`、守门判据一个字节没动。
+     *
+     * ★ 2026-10-19 修正（f34 回归）：**forcedSeat 只在"档位真的需要主管"时才算在册**。
+     *   开单时所有任务都会先强制设主管（那一刻还没有 tier），若不加这道理，
+     *   L0–L2 的"根本不存在的主管"会被重新投影回来（P2-17 要消灭的幽灵角色）。
+     *   · tier 已知且 < L3 ⇒ 只有 `hub.enabled === true`（显式启用）才算在册；
+     *   · tier 未知（pending，还没做计划）⇒ 保留可见（主管确实已先被设上）。
+     */
+    const tier = task?.roster?.tier ?? task?.hub_requirement?.tier ?? null
+    const forcedSeatCounts = hub.forcedSeat && (tier === null || tierAtLeast(tier, 'L3'))
+    if (hub.enabled !== true && !forcedSeatCounts) return false
     if (convs !== null && convs.includes(ROLE.SUPERVISOR)) return true
     // 没写进名单、但枢纽账本里有"先设后撤"留下的席位 ⇒ 仍算在册（与 hubSeatPresent 同源）。
-    return hub.forcedSeat
+    return forcedSeatCounts
   }
   // L0 的规则引擎不是被派的角色，是"编排模式"。
   if (r === 'rule-engine') return task?.roster?.orchestrator_mode === 'rule-engine'

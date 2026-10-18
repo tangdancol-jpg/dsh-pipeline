@@ -12,7 +12,7 @@
  * 修法：判据收敛到**状态机投影一处**（`lib/states/transitions.js` 的
  * `projectedNextEvents`），`pipeline_status` 只消费它：
  *   · `main` / `human` 恒展示；
- *   · `supervisor` —— **hub 已启用 且 主管席位在册** 才展示；
+ *   · `supervisor` —— **hub 已启用 或 forcedSeat 保留**（先设后撤留下的席位）**且**主管在册 才展示；
  *   · `rule-engine` —— 只在 L0（`orchestrator_mode === 'rule-engine'`）；
  *   · 其余角色 —— 看 `roster.conversations`；roster 还没产出 ⇒ 不过滤；
  *   · `by` 过滤后为空的事件整条不展示。
@@ -139,9 +139,9 @@ export async function runF34GhostRoleCheck() {
       )
       rec.add(
         G,
-        '★ supervisor 席位在册、但 hub **未启用** ⇒ 仍不展示（P2-17 的"hub 启用且在册"两条缺一不可）',
+        '★ supervisor 席位在册、hub 未启用、档位 L2 ⇒ 即使 **forced=true** 也不展示（forcedSeat 只在 L3+ 算在册）',
         projectedRoleVisible({ ...noSup, roster: { ...noSup.roster, conversations: [...noSup.roster.conversations, 'supervisor'] }, hub_requirement: { forced: true } }, 'supervisor') === false,
-        `hub=${JSON.stringify(noSup.hub)}`,
+        `hub=${JSON.stringify(noSup.hub)} tier=${String(noSup.roster?.tier)}`,
       )
       rec.add(
         G,
@@ -161,9 +161,15 @@ export async function runF34GhostRoleCheck() {
       )
       rec.add(
         G,
-        '★ hub 未启用（同一份名单）⇒ supervisor 事件消失',
-        !hasRole(projectedNextEvents({ ...hub, hub: { enabled: false } }), 'supervisor'),
+        '★ hub 未启用但 forced=true ⇒ supervisor 事件**仍保留**（先设后撤阶段的调度入口）',
+        hasRole(projectedNextEvents({ ...hub, hub: { enabled: false } }), 'supervisor'),
         fmt(projectedNextEvents({ ...hub, hub: { enabled: false } })),
+      )
+      rec.add(
+        G,
+        '★ hub 未启用且 forced=false（已撤销）⇒ supervisor 事件消失（防止"幽灵主管"回来）',
+        !hasRole(projectedNextEvents({ ...hub, hub: { enabled: false }, hub_requirement: { forced: false, revoked_at: '2026-01-01T00:00:00Z' } }), 'supervisor'),
+        fmt(projectedNextEvents({ ...hub, hub: { enabled: false }, hub_requirement: { forced: false, revoked_at: '2026-01-01T00:00:00Z' } })),
       )
       rec.add(
         G,

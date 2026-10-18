@@ -95,8 +95,12 @@ export function checkAnswerShape(entry, input) {
  *
  * ⚠️ 与 `lib/tools.js` 的 `pipeline_scope_amend.parameters` **必须同源**：
  *    声明了却不在白名单里 ⇒ 正规调用会被自己拒掉；白名单里有而没声明 ⇒ 形同虚设。
+ *
+ * ★ P1-18 残余（本单）：加了 `deferred_artifacts` —— 它与 `change_scope` / `forbidden`
+ *   同属"计划声明面"（这次**要求什么 / 不许什么 / 哪些仪式性产物可以不交**），
+ *   仍然是**只追加不覆盖**；席位 / 档位 / 角色清单那些键依旧一律拒。
  */
-export const AMEND_ALLOWED_KEYS = ['task_id', 'role_token', 'why', 'note', 'add', 'remove', 'forbidden_add', 'forbidden_remove']
+export const AMEND_ALLOWED_KEYS = ['task_id', 'role_token', 'why', 'note', 'add', 'remove', 'forbidden_add', 'forbidden_remove', 'deferred_artifacts']
 
 /**
  * 从一次「授权面变更」调用的原始入参里，挑出**不属于授权面**的字段名。

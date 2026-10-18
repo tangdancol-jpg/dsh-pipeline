@@ -2225,15 +2225,15 @@ DSH 0.2.1 起官方带「智能体团队」：根会话是 Lead，可以 `spawn_
 ```powershell
 cd <插件目录>
 $env:DSH_APP_ASAR = '<DSH 安装>\resources\app.asar'   # 预设/宿主 schema 类判据要读宿主安装
-node tests\run-all.mjs            # 126 套一起跑（4098 项，含残留检查）
+node tests\run-all.mjs            # 132 套一起跑（4267 项，含残留检查）
 node tests\run-all.mjs --quiet    # 只打结论，不贴完整拒绝原文
 ```
 
-**当前口径**：设了 `DSH_APP_ASAR` 时 **4098/4098 通过（126 套）**；不设时会有 3 条
+**当前口径**：设了 `DSH_APP_ASAR` 时 **4267/4267 通过（132 套）**；不设时会有 3 条
 "读不到宿主安装"的预置校验判红（环境面，不是代码面）。单套清单与每套的判据写在
 `tests/run-all.mjs` 与 `tests/registry.mjs` 里（新增能力用新套 + registry 一行登记）。
 
-按能力分组（不逐一列 126 套）：
+按能力分组（不逐一列 132 套）：
 
 | 分组 | 代表套件 | 内容 |
 |---|---|---|
@@ -2255,7 +2255,8 @@ node tests\run-all.mjs --quiet    # 只打结论，不贴完整拒绝原文
 | backlog 批次（2026-10-19） | `f33-demo-request-check.mjs`、`f34-ghost-role-check.mjs` | DEMO 审阅请求的生产通道（`pipeline_demo round` 自动建 `demo_review` 请求 → relay/reply → confirm，显式 id 沿用旧判据）+ 状态机投影过滤（不在册角色不展示事件；supervisor 仅 hub 启用且在册；原始边表不变）（23 + 18 项） |
 | P2-13 第一步（2026-10-19） | `f35-status-paging-check.mjs` | `pipeline_status` 大对象分页（`page`/`page_size`；不传 page 逐字节不变；越界不报错）+ 只读 `storage` 体积诊断（task.json/baseline/artifacts，>1 MiB 提示分页/fields/detail=summary；顺带修好旧体积提示在生产里从不触发的坑）（27 项） |
 | P2-13 第二步（2026-10-19） | `f36-history-archive-check.mjs` | history 超 700 触发、`task.json` 只留最近 500 条；更早条目**原样逐条**归档到 `archive/history-<seq>.jsonl`（不删数据）；失败不裁剪并留 `archive:failed`；status 显示归档摘要（24 项） |
-| 回归专项 | `f1`–`f36`、`p1`–`p16`、`m1`–`m11` 等 | 每轮缺陷的判据化回归（一个缺陷一个套件） |
+| 收尾批（2026-10-19） | `f37`–`f42` | 六项残余：P0-3 主对话 shell 边界（`f41` 52）· baseline 归档（`f37` 32）· 关单重算快照（`f39` 20）· 删除类 foreign ack（`f38` 21）· 分配后补豁免（`f40` 26）· supervisor 展示口径（`f42` 17） |
+| 回归专项 | `f1`–`f42`、`p1`–`p16`、`m1`–`m11` 等 | 每轮缺陷的判据化回归（一个缺陷一个套件） |
 
 报告落到 `tests/last-run.txt`。
 
@@ -2294,6 +2295,13 @@ node examples\run-example.mjs
    其中仪式性产物现在可以用 `deferred_artifacts` 豁免（理由 + 人/主管批准，P1-18）。
 
 ### 旧单兼容（2026-10-18 这批改动之后）
+
+- **主对话 shell 有边界了（P0-3）**：环境级只读/探活/清理**本单** `reports/**` 或系统临时目录放行；
+  写/删交付根与源码树、相对路径写删、`Start-Process`、git 写操作会被拒 —— 要写文件请用 write/edit。
+- **baseline 归档（P2-13）**：`task.baselines` 只留最近 2 份，更早的 gzip 到
+  `archive/baselines-*.jsonl.gz`（不删数据，`pipeline_change_audit` 能按 id 回查）。
+- **分配后补豁免（P1-18）**：`pipeline_scope_amend` 可在关单前**追加** `deferred_artifacts`
+  （理由 + 批准人，planner-only），系统会标注 `via amendment`。
 
 - **DEMO 阶段（P1-7）**：只有**从「计划中」出发**的新单才可能进入 `demo_building/demo_review`；
   已经到 `ready_dev` 及之后的旧单不受影响（旧状态 `demo_confirm` 与旧事件保留兼容边）。

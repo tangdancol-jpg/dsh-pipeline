@@ -108,6 +108,9 @@ export {
   looksLikeSourcePath,
   extractCommandPaths,
   scanShellCommand,
+  // ★★ P0-3：主对话 shell 边界判据（**单一出处**：`lib/guard/shell.js`）。
+  //   测试与其它执法层从这里取，别处不许再写第二份"主对话能跑什么"。
+  judgeMainShellBoundary,
 } from './guard/shell.js'
 
 export {

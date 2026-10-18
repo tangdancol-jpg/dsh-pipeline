@@ -25,11 +25,16 @@ import { nowIso, shortHash } from '../util.js'
  * @param {number} spec.bytes - 总字节数
  * @param {() => Date} spec.now - 时钟
  * @param {object} spec.input - `takeBaseline()` 的原始入参（by / planHandoffId / note 从这里取）
+ * @param {number} [spec.ordinal] - ★ P2-13：这是**历史第几份**基线（0 起）。
+ *   归档之后 `task.baselines.length` 只等于"窗口大小"，直接拿它当序号会让新基线
+ *   与旧基线**撞 id** —— 所以调用方传"历史总数"（窗口 + 已归档）。不传 = 旧行为。
  * @returns {object}
  */
-export function makeBaselineRecord({ task, digest, files, bytes, now, input }) {
+export function makeBaselineRecord({ task, digest, files, bytes, now, input, ordinal = null }) {
+  /** 序号来源：显式 ordinal 优先（归档后仍保持 id 唯一）；否则沿用"窗口里的份数"（旧行为）。 */
+  const seq = Number.isInteger(ordinal) && ordinal >= 0 ? ordinal : (task.baselines ?? []).length
   return {
-    baseline_id: `BL-${shortHash(`${task.id}|${(task.baselines ?? []).length}|${digest}`)}`,
+    baseline_id: `BL-${shortHash(`${task.id}|${seq}|${digest}`)}`,
     taken_at: nowIso(now()),
     taken_by: String(input.by ?? ROLE.PLANNER),
     plan_handoff_id: typeof input.planHandoffId === 'string' ? input.planHandoffId : null,

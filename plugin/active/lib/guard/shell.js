@@ -4,10 +4,16 @@
  * 从 `lib/guard.js` 拆出来的一部分（代码原样搬过来，行为未改）；
  * 对外仍经 `lib/guard.js` 转出，调用方不需要改 import。
  *
+ * ★ 本文件超 400 行，按 `CONVENTIONS.md` §4 的「必要性 ①」不拆：它是一份**按顺序执行的
+ *   判据清单**（4a / 4b / 4c / 4e / 4f / 4g / 4h + P0-3 主对话边界），各段共享同一批
+ *   词表（写动词 / 只读命令 / 路径抽取 / 临时目录判定）。切开必须先把这些原语抽成
+ *   第三个模块，而抽取过程中最容易发生的正是"某一支的判据换了一份词表"——那会静默放宽。
+ *
  * @module dsh-pipeline/lib/guard/shell
  */
 
 import { existsSync, statSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
 import { classifyTestCommand, sameTestCommand } from '../testscope.js'
 import { isInside, pathKey } from '../util.js'
@@ -225,6 +231,325 @@ export function extractCommandPaths(text) {
   return out
 }
 
+// ---------------------------------------------------------------------------
+// ★★ P0-3（2026-10-19）：**主对话的 shell 边界**（口径：`design/conventions/03-shell边界.md`）
+// ---------------------------------------------------------------------------
+//
+// 口径一句话：**主对话可以动"环境"，不可以动"交付物"与"源码"**。
+//
+//   放行（本段不新增判据，按既有分类走）：
+//     · 环境级只读 / 探活：`Get-ChildItem` / `Get-Content`（非源码）/ `Test-Path` /
+//       `Select-String` / `Measure-Object` / `Get-Process` / `Test-NetConnection` /
+//       `Invoke-WebRequest`（无 `-OutFile`）/ `curl`（无 `-o`）/ `git status|log|diff` …
+//     · **清理本单临时残留**：`Remove-Item` 只允许落在
+//       ① 本单报告目录 `<taskSelfDir>/reports/**`（设计档 §2 的"清理本单测试残留"）；
+//       ② 系统临时目录（`$env:TEMP` / `%TEMP%` / `/tmp/`）。
+//   拒绝（本段**补既有 4a 漏掉的形态**；既有拒绝原文一个字不变）：
+//     · shell 写 / 删 / 改交付根与源码树 —— 目标点到项目根的照旧走 4a（既有文案）；
+//       相对路径 / 取不准目标的写与删由本段拒（4a 的 `mentionsProtectedPath` 有缝）；
+//     · `Start-Process`（及 `start-job` 等）启动任意程序 —— 只允许完全落在临时目录的形态；
+//     · `git` 写操作（checkout / reset / clean / add / commit / push …）—— 只读 git 照旧放行；
+//     · 删流水线台账（`task.json` / `handoffs/` / `audit.jsonl`）—— 清残留不等删证据。
+//
+// ★ 三条"不许变坏"的边界：
+//   ① **只对 `main` 生效** —— 非 main 席位的判据（4a / 4b / 4e / 4f …）一个字不动；
+//   ② **只放行限定路径的清理 / 临时写入** —— 目标必须能证明落在"本单 reports"或"临时目录"；
+//      证明不了（相对路径、变量拼接、取不到）一律不放行；
+//   ③ **只补漏、不抢既有文案** —— 目标落在项目根内的写/删让 4a/4c 先拒（既有测试钉着原文）。
+// ★ 默认启用（`cfg.guardMainShellBoundary !== false`）；**不改 `lib/config.js`**：
+//   不传这个键就是启用，只有显式传 false 才关。
+
+/** 删除类命令（与 4c 同一份词表；只用于"这条命令在删东西"的判断）。 */
+const MAIN_REMOVE_RE = /(^|[\s|;&(])(remove-item|rm|rmdir|del|erase|rd)\b/i
+/** 起进程类命令（只认**命令位置**上的；`Get-Process` 之类不受影响）。 */
+const MAIN_START_RE = /^(start-process|saps|start-job|start-threadjob)\b/i
+/**
+ * `git` 写操作（只认命令位置上的 git；`git -C <path> status` 这类只读照旧放行）。
+ * ★ 覆盖：改工作区 / 改索引 / 改远端 / 改分支。
+ */
+const MAIN_GIT_WRITE_RE =
+  /^git(?:\.exe)?(?:\s+(?:-[Cc]\s+\S+|--no-pager|--git-dir(?:=\S+)?|--work-tree(?:=\S+)?))*\s+(checkout|restore|apply|reset|clean|stash|am|rm|mv|add|commit|push|pull|merge|rebase|switch|tag|init|clone)\b/i
+/** `git stash list|show` 是**只读**查询 —— 别因为 `stash` 在写操作名单里就误伤。 */
+const MAIN_GIT_STASH_READONLY_RE =
+  /^git(?:\.exe)?(?:\s+(?:-[Cc]\s+\S+|--no-pager|--git-dir(?:=\S+)?|--work-tree(?:=\S+)?))*\s+stash\s+(list|show)\b/i
+/** URL 不是文件目标（探活命令里的地址不该参与"目标路径"判断）。 */
+const URL_TOKEN_RE = /^[a-z][a-z0-9+.-]*:\/\//i
+/** 命令里**提到**系统临时目录（不要求出现在开头；与 `TEMP_TARGET_RE` 的分工见调用处）。 */
+const MAIN_TEMP_MENTION_RE = /\$env:(?:temp|tmp)\b|%temp%|%tmp%|\$tmpdir|\$\{tmpdir\}|\/tmp\//i
+
+/** 系统临时目录（pathKey 归一化；取不到就空串）。 */
+function mainShellTempRoot() {
+  try {
+    return pathKey(tmpdir())
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * 把 `$env:TEMP\...` / `%TEMP%\...` / `/tmp/...` 展开成**真实路径键**（能展开就展开）。
+ *
+ * ★ 为什么要展开而不是直接当"临时目录"：`$env:TEMP\..\项目\src` 这种写法会**逃出**临时目录，
+ *   只看前缀就放行等于给了一条绕过口子（P0-3 的静态判据也不能自己挖洞）。
+ *   展开失败（环境变量缺失）时返回 `null`，由调用方按"证明不了"处理（不放行）。
+ *
+ * @param {string} raw
+ * @returns {string|null}
+ */
+function expandTempToken(raw) {
+  const s = String(raw ?? '').trim()
+  const re = /^(?:\$env:(temp|tmp)|%(temp|tmp)%|\$tmpdir|\$\{tmpdir\}|\/tmp\/)/i
+  const m = re.exec(s)
+  if (m === null) return null
+  const base =
+    typeof process.env.TEMP === 'string' && process.env.TEMP.length > 0
+      ? process.env.TEMP
+      : typeof process.env.TMP === 'string' && process.env.TMP.length > 0
+        ? process.env.TMP
+        : m[1] !== undefined || m[2] !== undefined || m[5] !== undefined
+          ? process.platform === 'win32'
+            ? ''
+            : '/tmp'
+          : ''
+  if (base.length === 0) return null
+  const rest = s.slice(m[0].length)
+  return pathKey(join(base, rest))
+}
+
+/**
+ * 把命令里的一个目标 token 归一成"可比较的绝对路径键"。
+ *
+ * @param {string} raw
+ * @param {object} task - 同步索引条目（要 `projectRoot`）
+ * @returns {string} `''` = 不是文件目标（URL / 空）；`'$TEMP'` = 明确写向系统临时目录（展开失败时的兜底）
+ */
+function mainShellTargetKey(raw, task) {
+  const s = String(raw ?? '').replace(/["']/g, '').trim().replace(/\\/g, '/')
+  if (s.length === 0) return ''
+  if (URL_TOKEN_RE.test(s)) return ''
+  const expanded = expandTempToken(s)
+  if (expanded !== null) return expanded
+  if (TEMP_TARGET_RE.test(s)) return '$TEMP'
+  const root = typeof task?.projectRoot === 'string' ? task.projectRoot : ''
+  if (isAbsolute(s)) return pathKey(s)
+  if (root.length === 0) return ''
+  return pathKey(join(root, s))
+}
+
+/** 这些目标是不是**全部**落在给定的根里（空列表 = 证明不了 = false）。 */
+function mainShellAllInside(targets, roots, task, opts = {}) {
+  const list = Array.isArray(targets) ? targets.filter((t) => typeof t === 'string' && t.length > 0) : []
+  const usableRoots = (Array.isArray(roots) ? roots : []).filter((r) => typeof r === 'string' && r.length > 0)
+  if (list.length === 0 || usableRoots.length === 0) return false
+  const projectKey = typeof task?.projectRoot === 'string' ? pathKey(task.projectRoot) : ''
+  const outsideProject = opts.outsideProject === true
+  return list.every((t) => {
+    const key = mainShellTargetKey(t, task)
+    if (key.length === 0) return false
+    if (key === '$TEMP') return true
+    return usableRoots.some((r) => {
+      if (!isInside(r, key)) return false
+      /**
+       * ★ 项目根**本身就在系统临时目录下**时（自测夹具都是这种形状），
+       *   "临时目录"这条豁免不能把项目里的文件也放进来 —— 否则 `src/` 也跟着被放行。
+       *   判据：根**在项目根之外**（临时目录）时，目标不许落进项目根；
+       *   根**在项目根之内**（本单 reports）时照常放行（那是显式允许的清理范围）。
+       */
+      if (outsideProject && projectKey.length > 0 && isInside(projectKey, key) && !isInside(projectKey, r)) return false
+      return true
+    })
+  })
+}
+
+/** 按"命令分隔符"切段（**不按管道切**：管道是数据流，不是另一条独立命令）。 */
+function mainShellSegments(unquoted) {
+  return String(unquoted ?? '')
+    .split(/;|\r?\n|&&|\|\|/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+}
+
+/** 目标 token 列表：命令里点名的路径（引号内 / 裸绝对路径）+ 真写文件的重定向目标。 */
+function mainShellTargets(text) {
+  const raw = extractCommandPaths(text)
+  /**
+   * ★ `extractCommandPaths` 对**引号内的相对路径**会给出两条：完整那条 + 裸正则从中间
+   *   再抓到的尾巴（`.pipeline/T/reports/x` → 还会多一条 `/T/reports/x`）。
+   *   尾巴那条按"相对路径"解析会落到别的目录，把合法清理判成越界 —— 这里去掉
+   *   "是另一条更长路径后缀"的重复项。只做去重，不改变任何单条路径的解析方式。
+   */
+  const norm = raw.map((p) => String(p ?? '').replace(/\\/g, '/'))
+  const out = raw.filter((p, i) => !norm.some((q, j) => j !== i && q.length > norm[i].length && q.endsWith(norm[i])))
+  const push = (v) => {
+    const s = String(v ?? '').trim()
+    if (s.length > 0 && !out.includes(s)) out.push(s)
+  }
+  // `$env:TEMP\...` / `%TEMP%\...` 这类目标不会被上面那两条正则抽到（它们不是以盘符 / `/` 开头），
+  // 但对 P0-3 很重要（"临时目录里的写/删"要能证明）。这里单独补一条。
+  const reTemp = /(?:\$env:(?:temp|tmp)|%temp%|%tmp%|\$tmpdir|\$\{tmpdir\})[\\/][^\s"';|&()]*/gi
+  let m = reTemp.exec(text)
+  while (m !== null) {
+    push(m[0])
+    m = reTemp.exec(text)
+  }
+  for (const t of shellRedirectTargets(text)) push(t)
+  return out
+}
+
+/** 拒绝文案里通用的"主对话该走哪条正路"（与 4a 同一份归因出处）。 */
+function mainShellAlternatives() {
+  return (
+    whyShellWriteRefused('main') +
+    '★ 允许的替代形态（主对话能动"环境"，不能动"交付物/源码"）：\n' +
+    '  · 写文件 → 用 **write / edit 工具**（受同一套角色与授权面规则约束；shell 是字符串匹配，相对路径会误伤）；\n' +
+    '  · 只检查 → 用**只读命令**（`Get-ChildItem` / `Test-Path` / `Get-Content` 非源码文件 / `Select-String`）或 `pipeline_status`；\n' +
+    '  · 清理本单残留 → 只允许删**本单报告目录** `<任务>/.pipeline/<任务id>/reports/**` 与**系统临时目录**；\n' +
+    '  · 收尾旧单 → 走 **pipeline_task_purge**（终态单的唯一具名入口，有审计留痕）。'
+  )
+}
+
+/** 主对话"用 shell 写文件"的拒绝文案。 */
+function mainShellWriteRefusal(text, task) {
+  return (
+    `${TAG} 拒绝：主对话不得用 shell 写 / 改文件（交付根与源码树尤其不行）。\n` +
+    `任务：${task?.taskId ?? '(未知)'}\n命令片段：${String(text ?? '').slice(0, 200)}\n` +
+    '★ 判据：主对话的 shell 只做**环境级**操作（只读 / 探活 / 清理本单残留）；写交付物与源码不是它的活。\n' +
+    mainShellAlternatives()
+  )
+}
+
+/** 主对话"清理范围越界"的拒绝文案。 */
+function mainShellCleanupRefusal(text, task) {
+  return (
+    `${TAG} 拒绝：主对话用 shell 删东西，**只允许删本单临时残留**。\n` +
+    `任务：${task?.taskId ?? '(未知)'}\n命令片段：${String(text ?? '').slice(0, 200)}\n` +
+    '★ 允许的清理范围（且路径要写**绝对路径** —— 相对路径取不准一律按拒处理）：\n' +
+    `  · 本单报告目录：${typeof task?.reportsDir === 'string' ? task.reportsDir : '<项目根>/.pipeline/<任务id>/reports'}/**\n` +
+    '  · 系统临时目录：`$env:TEMP` / `$env:TMP` / `/tmp/`；\n' +
+    '★ **流水线台账不能删**（task.json / handoffs / audit.jsonl 是可追溯凭据）—— 清残留不等于删证据。\n' +
+    mainShellAlternatives()
+  )
+}
+
+/** 主对话"起进程"的拒绝文案。 */
+function mainShellProcessRefusal(text, task) {
+  return (
+    `${TAG} 拒绝：主对话不得用 shell 启动任意程序（Start-Process / start-job …）。\n` +
+    `任务：${task?.taskId ?? '(未知)'}\n命令片段：${String(text ?? '').slice(0, 200)}\n` +
+    '★ 原因：起进程 = **任意代码执行**，等于用 shell 绕开"主对话不写交付面"这条边界；' +
+    '静态判据看不到新进程里会写哪里。\n' +
+    '★ 允许的替代形态：\n' +
+    '  · 探活 → 用**只读命令**（`Test-NetConnection` / `Invoke-WebRequest` 无 `-OutFile` / `Get-Process` / `curl` 无 `-o`）；\n' +
+    '  · 起服务 / 跑程序属于**环境级操作**：需要时让用户执行，或派执行席位做（它们有各自的能力边界）；\n' +
+    '  · 真要在本单临时目录里起一个短命进程 → 把路径写**绝对路径**且全部落在临时目录（本判据只放行这一种形态）。\n' +
+    mainShellAlternatives()
+  )
+}
+
+/** 主对话"git 写操作"的拒绝文案。 */
+function mainShellGitWriteRefusal(text, task) {
+  return (
+    `${TAG} 拒绝：主对话不得用 shell 做 **git 写操作**（checkout / reset / clean / add / commit / push …）。\n` +
+    `任务：${task?.taskId ?? '(未知)'}\n命令片段：${String(text ?? '').slice(0, 200)}\n` +
+    '★ 原因：git 写操作会改工作区 / 索引 / 分支 —— 那是交付面与源码树，不是"环境级只读"。\n' +
+    '★ 允许的替代形态：**只读 git**（`git status` / `git log` / `git diff` / `git show`）照旧放行；' +
+    '要提交/回滚/切分支 → 让用户执行，或由计划/编写走结构化交接物。\n' +
+    mainShellAlternatives()
+  )
+}
+
+/**
+ * ★★ **主对话 shell 边界判据**（P0-3 的唯一出处）。
+ *
+ * 返回三态（调用方按顺序决定）：
+ *   · `{ action: 'allow' }` —— 明确放行（只限"本单临时残留清理 / 临时目录写入 / 临时目录起进程"）；
+ *   · `{ action: 'deny', message }` —— 明确拒绝（本段补的是既有 4a 漏掉的形态，文案带替代形态）；
+ *   · `{ action: 'pass' }` —— 本段不表态，交给既有判据（**既有拒绝原文一个字不变**）。
+ *
+ * @param {string} cmd - shell 命令原文
+ * @param {object} task - 同步索引条目（`projectRoot` / `pipelineDir` / `reportsDir` / `taskId`）
+ * @returns {{action:'allow'|'deny'|'pass', message?:string}}
+ */
+export function judgeMainShellBoundary(cmd, task) {
+  const text = String(cmd ?? '')
+  if (text.trim().length === 0) return { action: 'pass' }
+
+  const unquoted = stripShellQuotes(text)
+  const segments = mainShellSegments(unquoted)
+  const lowerText = normText(text)
+  const lowerRoot = normText(task?.projectRoot ?? '')
+  const lowerPipeline = normText(task?.pipelineDir ?? '')
+  const mentionsProject =
+    (lowerRoot.length > 0 && lowerText.includes(lowerRoot)) || (lowerPipeline.length > 0 && lowerText.includes(lowerPipeline))
+
+  const tempRoot = mainShellTempRoot()
+  const reportsDir = typeof task?.reportsDir === 'string' ? pathKey(task.reportsDir) : ''
+  /** 清理允许的根：本单报告目录 + 系统临时目录（顺序无关）。 */
+  const cleanupRoots = [tempRoot, reportsDir].filter((r) => r.length > 0)
+  /** 写文件 / 起进程允许的根：**只有**系统临时目录（本单 reports 是"清理"，不是"写"）。 */
+  const tempRoots = [tempRoot].filter((r) => r.length > 0)
+
+  const targets = mainShellTargets(text)
+  const redirects = shellRedirectTargets(text).filter((t) => String(t ?? '').length > 0)
+  const tempMentioned = MAIN_TEMP_MENTION_RE.test(text) || (tempRoot.length > 0 && lowerText.includes(tempRoot))
+  const inlineWriteHidden = SHELL_INLINE_CODE_RE.test(text) && INLINE_WRITE_API_RE.test(text)
+
+  // ① 起进程：只允许**完全落在临时目录**的形态（其余一律拒 —— P0-3 的"任意程序"口子）。
+  if (segments.some((seg) => MAIN_START_RE.test(seg))) {
+    const confined =
+      targets.length > 0 &&
+      mainShellAllInside(targets, tempRoots, task, { outsideProject: true }) &&
+      tempMentioned &&
+      !mentionsProject &&
+      redirects.length === 0 &&
+      !inlineWriteHidden
+    if (confined) return { action: 'allow' }
+    return { action: 'deny', message: mainShellProcessRefusal(text, task) }
+  }
+
+  // ② git 写操作：只读 git 不在此列；写操作一律拒（它改的就是工作区/索引）。
+  if (segments.some((seg) => MAIN_GIT_WRITE_RE.test(seg) && !MAIN_GIT_STASH_READONLY_RE.test(seg))) {
+    return { action: 'deny', message: mainShellGitWriteRefusal(text, task) }
+  }
+  /**
+   * ★ 剩下的**纯 git 命令**都是只读查询（写操作上面已经拒了）——直接交给既有判据，
+   *   不要掉进 ④ 的"写动词"分支：`SHELL_WRITE_RE` 里 `git … stash` 会误命中
+   *   `git stash list` 这种查询（4a 只在"命令里点到了项目根"时才用它，本段不该放大它）。
+   */
+  if (segments.length > 0 && segments.every((seg) => /^git(?:\.exe)?\b/i.test(seg))) {
+    return { action: 'pass' }
+  }
+
+  // ③ 删除：只允许"只含删除命令 + 目标全部落在本单 reports / 系统临时目录"的清理形态。
+  if (MAIN_REMOVE_RE.test(unquoted)) {
+    const noPipes = !/\|/.test(unquoted)
+    const removeOnly = segments.length > 0 && segments.every((seg) => MAIN_REMOVE_RE.test(seg))
+    const cleanupForm = noPipes && removeOnly && redirects.length === 0 && !inlineWriteHidden
+    const targetsInside = targets.length > 0 && mainShellAllInside(targets, cleanupRoots, task, { outsideProject: true })
+    if (cleanupForm && targetsInside) return { action: 'allow' }
+    // 目标点在项目根里 ⇒ 让既有 4a / 4c 先拒（它们的原文被既有测试钉着，不许改写）。
+    if (mentionsProject) return { action: 'pass' }
+    // 相对路径 / 取不准的删除：既有 4a 不会拒（没有"受保护路径前缀"）—— 本段补上。
+    return { action: 'deny', message: mainShellCleanupRefusal(text, task) }
+  }
+
+  // ④ 其它写动词 / 文件重定向：目标证明不了落在临时目录 ⇒ 拒（4a 对"没有点名的写"有缝）。
+  const writeVerb = hasWriteVerbOutsideQuotes(text)
+  if (writeVerb || redirects.length > 0) {
+    const allTemp =
+      targets.length > 0 &&
+      mainShellAllInside(targets, tempRoots, task, { outsideProject: true }) &&
+      tempMentioned &&
+      !mentionsProject
+    if (allTemp) return { action: 'allow' }
+    if (mentionsProject) return { action: 'pass' }
+    return { action: 'deny', message: mainShellWriteRefusal(text, task) }
+  }
+
+  return { action: 'pass' }
+}
+
+
 /**
  * 扫一条 shell 命令。返回拒绝理由或 null。
  *
@@ -260,6 +585,20 @@ export function scanShellCommand(cmd, task, role, cfg = {}) {
     }),
   )
   const readsCode = codeTargets.length > 0
+
+  // ★★ P0-3（2026-10-19）：**主对话 shell 边界** —— 环境级放行 / 交付面拒绝。
+  //
+  //   ★ 为什么放在 4a 之前：清理**本单** `reports/**` 的命令目标也在项目根里，
+  //     4a 会把它们当"用 shell 改项目文件"拒掉；这里必须先按"限定路径的清理"放行。
+  //     ★ 但目标**不在**允许范围、又点在项目根里的写/删命令，这里只返回 `pass` ——
+  //       交给 4a / 4c 用**既有原文**拒（既有测试钉着那些原文，不许改写）。
+  //   ★ 只对 `main` 生效：非 main 席位的判据（4a/4b/4e/4f …）一个字节不动。
+  //   ★ 默认启用；显式 `cfg.guardMainShellBoundary === false` 才关（不改 lib/config.js）。
+  if (role === 'main' && cfg.guardMainShellBoundary !== false) {
+    const boundary = judgeMainShellBoundary(text, task)
+    if (boundary.action === 'allow') return null
+    if (boundary.action === 'deny') return boundary.message
+  }
 
   // 4a) ★**任何不写代码的角色**：不得用 shell 改项目文件
   //

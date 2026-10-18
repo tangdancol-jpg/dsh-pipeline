@@ -278,6 +278,19 @@ export function collectStorageInfo(input = {}) {
     handoff_count: Array.isArray(task?.handoffs) ? task.handoffs.length : 0,
     history_count: Array.isArray(task?.history) ? task.history.length : 0,
     audit_lines: auditLines,
+    /**
+     * ★★ P2-13 残余：**baseline 归档摘要**（只读）。
+     *   `task.json` 只留最近 `window`（2）份；更早的在 `archive/baselines-<seq>.jsonl.gz`
+     *   （不删数据）。这里给的是**算好的计数**，让 storage 一行能直接报出来。
+     */
+    baseline_window_count: Array.isArray(task?.baselines) ? task.baselines.length : 0,
+    baseline_archive_files: Array.isArray(task?.baseline_archive?.files) ? task.baseline_archive.files.length : 0,
+    baseline_archived_total: Number(task?.baseline_archive?.archived_total) || 0,
+    baseline_archive_window: Number(task?.baseline_archive?.window) || 0,
+    baseline_archive_last_error:
+      task?.baseline_archive?.last_error !== null && typeof task?.baseline_archive?.last_error === 'object'
+        ? task.baseline_archive.last_error
+        : null,
   }
 
   const big = []
@@ -287,7 +300,8 @@ export function collectStorageInfo(input = {}) {
   storage.hint =
     big.length === 0
       ? null
-      : `存储偏大（${big.join(' / ')}）。用 page=… 分页取 / fields=[…] 只取需要的字段 / detail="summary" 紧凑档；baseline 体积另见 P2-13 第二步。`
+      : `存储偏大（${big.join(' / ')}）。用 page=… 分页取 / fields=[…] 只取需要的字段 / detail="summary" 紧凑档；` +
+        'baseline 体积按窗口（2 份）算，更早的已归档到 archive/baselines-<seq>.jsonl.gz（不删数据）。'
   return storage
 }
 
@@ -310,6 +324,28 @@ export function renderArchiveBrief(archive) {
   )
 }
 
+/**
+ * ★★ P2-13 残余：baseline 归档的**一行摘要**（归档文件数 / 已归档份数 / 当前窗口）。
+ *   没触发过归档 ⇒ 空串（正文不多一行噪音）。计数来自 `collectStorageInfo`（已算好）。
+ *
+ * ⚠️ 措辞用"**份**"（不是"条"）：history 归档用的是"条"，两条摘要要能一眼分开
+ *    （f36 的 history 断言也认的是"条"）。
+ *
+ * @param {object|null} storage - `collectStorageInfo` 的产物
+ * @returns {string}
+ */
+export function renderBaselineArchiveBrief(storage) {
+  const s = storage ?? {}
+  const files = Number(s.baseline_archive_files) || 0
+  const total = Number(s.baseline_archived_total) || 0
+  if (files <= 0 && total <= 0) return ''
+  const err = s.baseline_archive_last_error !== null && typeof s.baseline_archive_last_error === 'object' ? s.baseline_archive_last_error : null
+  return (
+    `baseline 归档 ${files} 文件 / ${total} 份（窗口 ${Number(s.baseline_window_count) || 0}）` +
+    (err !== null ? `　⚠ 上次 baseline 归档失败：${String(err.code ?? '?')}（未裁剪，见 audit:baseline:archive_failed）` : '')
+  )
+}
+
 /** 存储诊断的**一行摘要**（全文档用；有 hint 时接在同一行末尾，不额外占行）。 */
 export function renderStorageLine(storage, archive = null) {
   const s = storage ?? {}
@@ -321,6 +357,8 @@ export function renderStorageLine(storage, archive = null) {
   parts.push(`审计 ${Number(s.audit_lines) || 0} 行`)
   const arc = renderArchiveBrief(archive)
   if (arc.length > 0) parts.push(arc)
+  const bArc = renderBaselineArchiveBrief(s)
+  if (bArc.length > 0) parts.push(bArc)
   return `${parts.join(' · ')}${s.hint ? `　★ ${s.hint}` : ''}`
 }
 
@@ -331,9 +369,11 @@ export function renderStorageLine(storage, archive = null) {
 export function renderStorageBriefLine(storage, archive = null) {
   const s = storage ?? {}
   const arc = renderArchiveBrief(archive)
+  const bArc = renderBaselineArchiveBrief(s)
   return (
     `存储：task.json ${formatBytes(s.task_json_bytes)} · 交接物 ${Number(s.handoff_count) || 0} / 历史 ${Number(s.history_count) || 0} / 审计 ${Number(s.audit_lines) || 0} 行` +
     (arc.length > 0 ? ` · ${arc}` : '') +
+    (bArc.length > 0 ? ` · ${bArc}` : '') +
     (s.hint ? '　★ 存储偏大：用 `page=` / `fields=` / `detail="summary"`（详见 `storage.hint`）' : '')
   )
 }
@@ -535,7 +575,11 @@ export function buildStatusTools(ctx) {
       `缺 ${products.missing.length}`,
     ]
     if (products.deferred.length > 0) {
-      parts.push(`豁免：${products.deferred.map((d) => `${productKindsText([d.kind])}——${clamp(d.why, 40)}（${d.accepted_by}）`).join('；')}`)
+      parts.push(
+        `豁免：${products.deferred
+          .map((d) => `${productKindsText([d.kind])}——${clamp(d.why, 40)}（${d.accepted_by}${d.via === 'amendment' ? '，via amendment' : ''}）`)
+          .join('；')}`,
+      )
     }
     if (products.missing.length > 0) parts.push(`缺：${productKindsText(products.missing)}`)
     return parts.join(' · ')
@@ -665,7 +709,13 @@ export function buildStatusTools(ctx) {
     }
     if (Array.isArray(res.amendments) && res.amendments.length > 0) {
       const a = res.last_amendment ?? res.amendments[res.amendments.length - 1]
-      L.push(`授权面变更：共 ${res.amendments.length} 次，最近一次 ${a.amendment_id}（${a.by}，${a.at}）—— 为什么：${clamp(a.why, 120)}`)
+      const deferredAdded = Array.isArray(a.deferred_added) ? a.deferred_added : []
+      L.push(
+        `授权面变更：共 ${res.amendments.length} 次，最近一次 ${a.amendment_id}（${a.by}，${a.at}）—— 为什么：${clamp(a.why, 120)}` +
+          (deferredAdded.length === 0
+            ? ''
+            : `　产物豁免补登：${deferredAdded.map((d) => `${d.kind}（via amendment，${d.accepted_by}）`).join('；')}`),
+      )
     }
     if (res.failure !== null && res.failure !== undefined) L.push(`⚠ 运行失败判词：${clamp(JSON.stringify(res.failure), 200)}`)
     L.push('')
@@ -852,6 +902,15 @@ export function buildStatusTools(ctx) {
        *   没触发过归档 ⇒ null。归档**不删数据**（原件逐条保序留在 `archive/history-<seq>.jsonl`）。
        */
       history_archive: SNullable('object', '★ history 归档账本 { files[], archived_total, window, last_at[, last_error] }（没触发过归档时为 null）', { additionalProperties: true }),
+      /**
+       * ★★ P2-13 残余：baseline 归档账本（只读）。
+       *   `{ files:[{file,count,seq,bytes,from_id,to_id,from_taken_at,to_taken_at}], archived_total, window, last_at[, last_error] }`；
+       *   没触发过归档 ⇒ null。`task.json` 只留最近 `window`（2）份，更早的**不删**：
+       *   按序 gzip 在 `archive/baselines-<seq>.jsonl.gz` 里，可按 id 回查（store.baselineById）。
+       */
+      baseline_archive: SNullable('object', '★ baseline 归档账本 { files[], archived_total, window, last_at[, last_error] }（没触发过归档时为 null；不删数据）', { additionalProperties: true }),
+      /** ★ P2-13：task.json 窗口里还留着几份 baseline（归档后 = window，2）。 */
+      baselines_in_window: S('number', '★ baseline 窗口份数（task.json 里保留最近 2 份）'),
       /** ★ 席位失联视图（`lib/liveness.js`）：派出去的席位还在不在。 */
       liveness: SNullable('object', '★ 席位失联视图 { ok, silence_ms, state, seats[], silent[] }', { additionalProperties: true }),
     },
@@ -1254,6 +1313,13 @@ export function buildStatusTools(ctx) {
        *   全文档：额外单独一行（`history 归档：…`），并作为结构化字段 `history_archive` 返回。
        */
       const archiveInfo = res.history_archive ?? null
+      /**
+       * ★ P2-13 残余：**baseline 归档账本**（只读）。
+       *   紧凑档：并进存储那一行（文件数 / 份数 / 窗口）；
+       *   全文档：额外单独一行（`baseline 归档：…`），并作为结构化字段 `baseline_archive` 返回。
+       *   ★ 归档**不删数据** —— 旧 baseline 按 id 可回查（`store.baselineById()`）。
+       */
+      const baselineArchiveInfo = res.baseline_archive ?? null
       const lines = isBrief
         ? [
             renderStatusBrief(res, live, { mode: briefMode, products }),
@@ -1282,7 +1348,9 @@ export function buildStatusTools(ctx) {
             `    加了：${(res.last_amendment.added ?? []).map((e) => `${e.id} ${e.action} ${e.path}`).join('；') || '（无）'}` +
             `${(res.last_amendment.removed ?? []).length > 0 ? `　撤销：${res.last_amendment.removed.join('、')}` : ''}` +
             `${(res.last_amendment.forbidden_added ?? []).length > 0 ? `　新增禁令：${res.last_amendment.forbidden_added.join('；')}` : ''}` +
-            '（★ 只动授权面：席位 / 角色清单 / 档位 / 顺序 / 层一个字没动）',
+            // ★ P1-18 残余：分配后补登的产物豁免（只追加；来源标 via amendment）
+            `${(res.last_amendment.deferred_added ?? []).length > 0 ? `\n    补登产物豁免（只追加，via amendment）：${(res.last_amendment.deferred_added ?? []).map((d) => deferralLine(d)).join('；')}` : ''}` +
+            '（★ 只动授权面（含产物豁免）：席位 / 角色清单 / 档位 / 顺序 / 层一个字没动）',
         res.scope_conformance === null || res.scope_conformance === undefined
           ? ''
           : `改动面（实际 ${(res.scope_conformance.manifest ?? []).length} 处）：核对结果 **${
@@ -1307,6 +1375,18 @@ export function buildStatusTools(ctx) {
                   ? `\n  文件：${archiveInfo.files.map((f) => `${f.file}（${f.count} 条，${f.seq}）`).join(' / ')}`
                   : '') +
                 (archiveInfo.last_error ? `\n  ⚠ **上次归档失败**（${archiveInfo.last_error.code ?? '?'}，${archiveInfo.last_error.at ?? '-'}）：${clamp(String(archiveInfo.last_error.note ?? ''), 300)}` : ''),
+            ]),
+        // ★★ P2-13 残余：baseline 归档（窗口只留最近 2 份；更早的不删、按序 gzip 在 archive/baselines-*.jsonl.gz）。
+        ...(baselineArchiveInfo === null
+          ? []
+          : [
+              `baseline 归档：${(Array.isArray(baselineArchiveInfo.files) ? baselineArchiveInfo.files : []).length} 个文件 / 共 ${Number(baselineArchiveInfo.archived_total) || 0} 份（task.json 窗口 ${Number(baselineArchiveInfo.window) || 0}；最近 ${baselineArchiveInfo.last_at ?? '-'}）` +
+                (Array.isArray(baselineArchiveInfo.files) && baselineArchiveInfo.files.length > 0
+                  ? `\n  文件：${baselineArchiveInfo.files.map((f) => `${f.file}（${f.count} 份，${f.seq}）`).join(' / ')}`
+                  : '') +
+                (baselineArchiveInfo.last_error
+                  ? `\n  ⚠ **上次 baseline 归档失败**（${baselineArchiveInfo.last_error.code ?? '?'}，${baselineArchiveInfo.last_error.at ?? '-'}）：${clamp(String(baselineArchiveInfo.last_error.note ?? ''), 300)}`
+                  : ''),
             ]),
         res.hash_gate === null || res.hash_gate === undefined
           ? ''
@@ -1487,6 +1567,10 @@ export function buildStatusTools(ctx) {
         storage,
         /** ★ P2-13 第二步：history 归档账本（只读；没触发过归档时为 null）。 */
         history_archive: archiveInfo,
+        /** ★★ P2-13 残余：baseline 归档账本（只读；没触发过归档时为 null；**不删数据**）。 */
+        baseline_archive: baselineArchiveInfo,
+        /** ★ P2-13：task.json 窗口里还留着几份 baseline（归档后 = window，2）。 */
+        baselines_in_window: Number.isInteger(res.baselines_in_window) ? res.baselines_in_window : null,
         /**
          * ★★ P2-13：**分页段 + 分页信封** —— 只在给了 `page` 时非 null。
          *   不传 page ⇒ 全部 null（与改前形状一致；正文也与改前逐字节一致）。

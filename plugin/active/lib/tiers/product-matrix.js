@@ -235,7 +235,16 @@ export function deferralLine(entry) {
   const zh = spec?.zh ?? String(entry?.kind ?? '(未知)')
   const why = String(entry?.why ?? '').trim()
   const by = String(entry?.accepted_by ?? '').trim()
-  return `${zh}（${String(entry?.kind ?? '')}）：${why}${by.length === 0 ? '' : `　—— 批准人：${by}`}`
+  /**
+   * ★ P1-18 残余：**分配后经 amendment 补登的豁免**要标注出来 ——
+   *   关单摘要与 status 读的就是这一行；不标的话"计划里写的"与"后来补的"看起来没有区别，
+   *   审计追溯时会误以为计划一开始就批了。
+   */
+  const via =
+    entry?.via === 'amendment'
+      ? `　（分配后经 amendment 补登${typeof entry?.amendment_id === 'string' && entry.amendment_id.length > 0 ? `：${entry.amendment_id}` : ''}）`
+      : ''
+  return `${zh}（${String(entry?.kind ?? '')}）：${why}${by.length === 0 ? '' : `　—— 批准人：${by}`}${via}`
 }
 
 /**
@@ -364,7 +373,18 @@ export function deferredArtifactsOf(task) {
     if (why.length === 0) continue
     if (acceptedBy !== 'user' && acceptedBy !== 'supervisor') continue
     if (acceptedBy === 'supervisor' && knownTier.length > 0 && tierAtLeast(knownTier, 'L4') !== true) continue
-    map.set(kind, { kind, why, accepted_by: acceptedBy })
+    /**
+     * ★ P1-18 残余（本单）：把"分配后经 amendment 补登"的来源字段带出来 ——
+     *   `pipeline_status` 与关单摘要要标注 `via amendment`（见 {@link deferralLine}）。
+     *   ★ 只透传**已受支持**的几个字段（不把任意手改字段泄露到展示层）。
+     */
+    const extra = {}
+    if (raw.via === 'amendment') {
+      extra.via = 'amendment'
+      if (typeof raw.amendment_id === 'string' && raw.amendment_id.length > 0) extra.amendment_id = raw.amendment_id
+      if (typeof raw.at === 'string' && raw.at.length > 0) extra.at = raw.at
+    }
+    map.set(kind, { kind, why, accepted_by: acceptedBy, ...extra })
   }
   return map
 }
