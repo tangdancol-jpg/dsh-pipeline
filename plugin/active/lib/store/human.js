@@ -14,6 +14,84 @@ import { clip, nowIso, randomId } from '../util.js'
 import { REPLY_CHANNELS, checkAnswerShape, buildHumanRequestEntry } from './shared.js'
 
 /**
+ * 把**字面转义序列**还原成真实字符（照抄块专用，**不改存盘数据**）。
+ *
+ * 现场（P2 文案小修）：请求里的多行文本有时是以**字面 `\n` 两个字符**存进来的
+ * （模型把 JSON 里的换行转义写成了值本身）。转告时原文照抄，用户看到的是
+ * 「…给你过一眼：`\n\n`1) 交付形态…」——那一行既不是换行、也不是人话。
+ * 这里只在**拼装转告文案**时还原；`task.human_requests[]` 里的原文一个字节不动。
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
+export function normalizeCopyText(value) {
+  return String(value ?? '')
+    .replace(/\\r\\n/g, '\n')
+    .replace(/\\n/g, '\n')
+    .replace(/\\r/g, '\n')
+}
+
+/**
+ * ★ 「照抄给用户看」的原文块（**唯一拼装处**）。
+ *
+ * 纪律：整块用**真实换行**拼（`lines.join('\n')`），不许出现字面 `\n`；
+ * 请求正文里的字面转义先经 {@link normalizeCopyText} 还原，再进文案。
+ *
+ * @param {object} entry - `task.human_requests[]` 的一条登记
+ * @returns {string}
+ */
+export function renderHumanRequestCopy(entry) {
+  const e = entry ?? {}
+  const question = normalizeCopyText(e.question_for_human)
+  const context = normalizeCopyText(e.context_for_human)
+  const recommended = normalizeCopyText(e.recommended)
+  const options = Array.isArray(e.options) ? e.options : []
+  const lines = [
+    '★ 转告给用户的内容（**照抄这段**，不要自己加技术判断）：',
+    '',
+    `  ${question}`,
+    ...(context.length > 0 ? ['', `  背景：${context}`] : []),
+    ...(options.length > 0
+      ? [
+          '',
+          '  可选方案：',
+          ...options.map((o, i) => `   ${i + 1}) ${normalizeCopyText(o?.label)} —— ${normalizeCopyText(o?.consequence)}`),
+        ]
+      : []),
+    ...(recommended.length > 0 ? ['', `  ${e.from_role} 的建议（仅供参考，不是决定）：${recommended}`] : []),
+    '',
+    `  确认码：${e.confirm_code}（把这一行也带上，用户答复时可以回带它作为凭据）`,
+  ]
+  return lines.join('\n')
+}
+
+/**
+ * ★ `pipeline_human_relay` 的整段摘要（**唯一拼装处**，判据不变、只拼文案）。
+ *
+ * @param {object} task
+ * @param {object} entry
+ * @returns {string}
+ */
+export function renderHumanRelaySummary(task, entry) {
+  const e = entry ?? {}
+  const blockedStage = normalizeCopyText(e.blocked_stage)
+  const lines = [
+    `请求：${e.request_id}（${e.from_role} 发起，${e.reason_zh}）`,
+    `阻塞：${e.blocking ? `是（卡在 ${blockedStage || '未说明'}）` : '否'}`,
+    `紧急度：${e.urgency}　需要用户给：${HUMAN_DECISION_KINDS[e.decision_kind] ?? e.decision_kind}`,
+    `无人回应时：${HUMAN_TIMEOUT_BEHAVIORS[e.timeout_behavior] ?? e.timeout_behavior}` +
+      (e.timeout_at ? `（截止 ${e.timeout_at}）` : ''),
+    '',
+    renderHumanRequestCopy(e),
+    '',
+    '主对话接下来只做两件事：把上面这段呈现给用户，然后把用户的答复原样记回来：',
+    `  pipeline_human_reply { task_id: "${task.id}", request_id: "${e.request_id}", user_quote: "<用户的原话>", ... }`,
+    '★ 不要替用户选，也不要把这条请求标成"已解决" —— 没有用户答复就恢复不了。',
+  ]
+  return lines.join('\n')
+}
+
+/**
  * 任务存储 · 人工介入请求
  * 返回的方法由 `createTaskStore` 原位展开进同一个对象，方法里的 `this` 仍指向那个对象。
  * @param {object} ctx - `createTaskStore` 闭包里本组用到的名字（由 `lib/store.js` 原位传入）
@@ -142,29 +220,8 @@ export function humanMethods(ctx) {
       task.history.push(aentry)
       await persist(task)
 
-      const tail = [
-        `请求：${entry.request_id}（${entry.from_role} 发起，${entry.reason_zh}）`,
-        `阻塞：${entry.blocking ? `是（卡在 ${entry.blocked_stage || '未说明'}）` : '否'}`,
-        `紧急度：${entry.urgency}　需要用户给：${HUMAN_DECISION_KINDS[entry.decision_kind] ?? entry.decision_kind}`,
-        `无人回应时：${HUMAN_TIMEOUT_BEHAVIORS[entry.timeout_behavior] ?? entry.timeout_behavior}` +
-          (entry.timeout_at ? `（截止 ${entry.timeout_at}）` : ''),
-        '',
-        '★ 转告给用户的内容（**照抄这段**，不要自己加技术判断）：',
-        '',
-        `  ${entry.question_for_human}`,
-        ...(entry.context_for_human ? ['', `  背景：${entry.context_for_human}`] : []),
-        ...(entry.options.length > 0
-          ? ['', '  可选方案：', ...entry.options.map((o, i) => `   ${i + 1}) ${o.label} —— ${o.consequence}`)]
-          : []),
-        ...(entry.recommended ? ['', `  ${entry.from_role} 的建议（仅供参考，不是决定）：${entry.recommended}`] : []),
-        '',
-        `  确认码：${entry.confirm_code}（把这一行也带上，用户答复时可以回带它作为凭据）`,
-        '',
-        '主对话接下来只做两件事：把上面这段呈现给用户，然后把用户的答复原样记回来：',
-        `  pipeline_human_reply { task_id: "${task.id}", request_id: "${entry.request_id}", user_quote: "<用户的原话>", ... }`,
-        '★ 不要替用户选，也不要把这条请求标成"已解决" —— 没有用户答复就恢复不了。',
-      ]
-      return { ok: true, task, request: { ...entry }, summary: tail.join('\n') }
+      // ★ 文案整块交给 `renderHumanRelaySummary`（唯一拼装处：真实换行 + 字面转义还原）。
+      return { ok: true, task, request: { ...entry }, summary: renderHumanRelaySummary(task, entry) }
     },
 
     /**

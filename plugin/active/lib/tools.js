@@ -54,6 +54,10 @@ import { buildDispatchTools } from './tools/dispatch.js'
 import { createHubSeatRespawner } from './tools/hub-seats.js'
 import { buildFlowTools } from './tools/flow.js'
 import { buildStatusTools } from './tools/status.js'
+// ★★ P2-11 接线：**等到状态/事件再返回**的长轮询（只读）。长单里主对话改前只能
+//    `pipeline_status` + `sleep` 轮询（实测 40+ 次），这里是那个成本的唯一替代出口。
+//    判定与实现都在 `lib/tools/wait.js`，本文件只接线（与其它 buildXxxTools 同形）。
+import { buildWaitTools } from './tools/wait.js'
 import { buildAdminTools } from './tools/admin.js'
 import { buildRecordTools } from './tools/records.js'
 import { buildSecurityTools } from './tools/security.js'
@@ -252,6 +256,10 @@ export function buildTools(deps) {
   // 状态查询与速查（pipeline_status） —— 见 `lib/tools/status.js`
   const { status } = buildStatusTools({ deps, store, indexTask, load, paginate, hubSeats })
 
+  // ★★ P2-11：等待到状态/事件的长轮询（pipeline_wait） —— 见 `lib/tools/wait.js`
+  //    只读：不改任务状态、不写文件；条件已满足时立刻返回。
+  const { wait } = buildWaitTools({ deps, store, load })
+
   // 角色变更、制品、自检、开关 —— 见 `lib/tools/admin.js`
   const {
     rosterRequest,
@@ -365,6 +373,10 @@ export function buildTools(deps) {
     rework,
     close,
     status,
+    // ★★ P2-11：**等到状态/事件再返回**的长轮询（只读）。主对话用它替代
+    //    「pipeline_status + sleep」轮询；任意角色也可用（只读查询不按角色细分）。
+    wait,
+
     rosterRequest,
     rosterReview,
     artifact,

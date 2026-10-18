@@ -62,7 +62,7 @@ export function buildDemoTools(ctx) {
       '【DEMO 阶段】复杂任务**先出可操作前端 DEMO**，**用户确认后才继续后端**（裁定 5/6）。\n' +
       '· `action: "plan"` —— 算档位策略：**L0–L1 可跳 / L2 询问 / L3+ 必须出**；tier 未知按 L2 保守，非法 tier 直接拒。\n' +
       '· `action: "round"` —— 交一轮 DEMO。**无轮次硬上限**；三条软约束：每轮必须是**新交付物**（原地重交被拒）、每轮挂**一条人工请求**、`cancel` 出口始终可用。\n' +
-      '· `action: "confirm"` —— 记下用户对**某一轮**的确认（那条请求必须已 `answered` —— 转告 ≠ 答复）。\n' +
+      '· `action: "confirm"` —— 记下用户对**某一轮**的确认（**必填 `round_index` + `human_request_id`**；那条请求必须已 `answered` —— 转告 ≠ 答复）。\n' +
       '· `action: "status"` —— 看账本与闸门现状（只读）。\n' +
       '★ 未获确认时，向 `ready_dev` 的推进会被闸门 `demo_confirmed` 拒绝（验收 A17）。',
     parameters: {
@@ -71,8 +71,12 @@ export function buildDemoTools(ctx) {
       tier: S('string', '★ 本单档位（`L0`…`L5`）；**不给** ⇒ 按最保守处理（等同 L2，发人工请求询问）'),
       deliverable_ref: S('string', '本轮 DEMO 的交付物引用（路径 / URL / 标识）'),
       deliverable_content: S('string', '本轮 DEMO 的正文（与 ref 一起算指纹，用来判"是不是原地重交"）'),
-      human_request_id: S('string', '★ 本轮挂上的人工请求 id（软约束②；没挂 ⇒ 这一轮不算数）'),
-      round_index: S('number', '`confirm` 用：要确认的是**第几轮**（必须存在于账本里）'),
+      human_request_id: S(
+        'string',
+        '★ 挂在这轮 DEMO 上的人工请求 id：`action:"round"` 时**必填**（软约束②；没挂 ⇒ 这一轮不算数）；' +
+          '`action:"confirm"` 时也**必填** —— 要确认的是哪一条请求（必须与那一轮挂的 id 一致，且已 `answered`）。',
+      ),
+      round_index: S('number', '`confirm` 动作**必填**：要确认的是**第几轮**（必须存在于账本里）'),
       answer: S('string', '`confirm` 用：用户答复的原话/摘要'),
       answer_source: S('string', '`confirm` 用：答复来源', { enum: ['user', 'timeout'] }),
       note: S('string', '备注（可空）'),

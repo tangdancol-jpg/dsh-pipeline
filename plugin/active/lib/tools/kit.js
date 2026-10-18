@@ -190,7 +190,8 @@ const renderSummary = (_args, value) => [{ type: 'text', text: String(value?.sum
  *   ② `fields` 给了 ⇒ 只回**点名的那些字段**（紧凑 JSON，零排版）；
  *      `ok` 永远保留（否则连"成没成"都看不见），`summary` 点名才给；
  *   ③ 点名了一个不存在的字段 ⇒ **不静默吞掉**：在 JSON 里用 `_unknown_fields`
- *      列出来，并把 `summary` 一并带上（承认"你要的我给不了"，而不是假装给了）。
+ *      列出来，**并附 `_available_fields` 可用键清单** + 一句怎么省字节的提示
+ *      （`_hint`）—— 只给"你要的我给不了"而不给"有哪些可选"，调用方还得再猜一轮。
  *
  * ★ 拒绝路径（`ok:false`）**不受投影影响**：拒绝原文永远原样给
  *   （投影是为了省字节，不是为了把拒绝理由藏起来）。
@@ -211,7 +212,19 @@ function renderProjected(args, value) {
     if (f === 'ok' || !known.has(f)) continue
     picked[f] = src[f]
   }
-  if (unknown.length > 0) picked._unknown_fields = unknown
+  if (unknown.length > 0) {
+    picked._unknown_fields = unknown
+    /**
+     * ★ P2 小修：`_unknown_fields` 只说"没有"，不说"有什么" —— 调用方还得再猜一轮。
+     *   这里把**本工具实际声明的全部字段**一并给出（`src` 已经被 `normalizeOutput`
+     *   补齐成声明形状 ⇒ 它的键就是可用键），并附一句省字节的正确姿势。
+     *   ★ 只增字段、不改任何已有字段的含义（`ok` / 点名命中的字段原样）。
+     */
+    picked._available_fields = Object.keys(src)
+    picked._hint =
+      '传了不存在的字段名：可用字段见 `_available_fields`。省字节的建议：fields 只点真正需要的字段，' +
+      '或（支持 detail 的工具）改用 `detail="summary"`。'
+  }
   try {
     return [{ type: 'text', text: JSON.stringify(picked) }]
   } catch (err) {

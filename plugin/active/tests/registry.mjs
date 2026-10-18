@@ -305,4 +305,9 @@ export const EXTRA_SUITES = [
   { file: './f24-browser-profile-guard-check.mjs', exportName: 'runF24BrowserProfileGuardCheck', zh: '★ P0-2 浏览器 Profile / 凭证数据卫生（写类工具 + shell 复制都拦；security_check 一等命中且不回显原文）' },
   { file: './f25-hashgate-attribution-check.mjs', exportName: 'runF25HashgateAttributionCheck', zh: '★ P1-9 hash 闸门归属（基线已有他人文件不误报；本次新增未声明仍报；foreign_paths_ack 只对点名路径生效）' },
   { file: './f26-liveness-approval-check.mjs', exportName: 'runF26LivenessApprovalCheck', zh: '★ P1-4 liveness 审批态（asked 无 decided ⇒ awaiting_approval，不冻结不改状态；真死活/读不到照旧判失联）' },
+  // ★★ 2026-10-18 第二批（P2 系列）：
+  //  · f27：`pipeline_wait` 只读长轮询（等到状态/事件；非法参数立刻拒、超时给完整状态、不改任务）；
+  //  · f28：P2 四处小修（human_relay 真实换行 / demo confirm 文档 / status fields 可用键+体积提示 / 拒绝文案替代形态）。
+  { file: './f27-pipeline-wait-check.mjs', exportName: 'runF27PipelineWaitCheck', zh: '★ P2-11 pipeline_wait（只读长轮询：到状态/事件立即返回；超时给状态与建议；非法参数 0ms 拒绝；不改任务）' },
+  { file: './f28-p2-polish-check.mjs', exportName: 'runF28P2PolishCheck', zh: '★ P2 小修批次（relay 真实换行 / demo confirm 文档 / status fields 可用键与体积提示 / 拒绝文案替代形态）' },
 ]

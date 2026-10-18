@@ -333,7 +333,7 @@ profile 配置里加条目、每个钩子起一个子进程、判据还得重写
 - [编写分工（1~3 席位）](#编写分工13-席位)
 - [架构图角色](#架构图角色)
 - [结构化交接物 schema](#结构化交接物-schema)
-- [工具面（36 个）](#工具面36-个)
+- [工具面（37 个）](#工具面37-个)
 - [落盘布局](#落盘布局)
 - [守门：哪些是真拦截，哪些只是约定](#守门哪些是真拦截哪些只是约定)
 - [通信通道（可插拔）](#通信通道可插拔)
@@ -421,7 +421,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -DryRun
 重启后在日志里找这一行确认装上了：
 
 ```
-[pipeline] dsh-pipeline 0.1.0 已加载：36 个 pipeline_* 工具已注册；守门已启用；通道=<auto|session|team|subagent|manual>（...）；工作区=...；多AI 协调开关=**开**（revision 0，默认值）。
+[pipeline] dsh-pipeline 0.1.0 已加载：37 个 pipeline_* 工具已注册；守门已启用；通道=<auto|session|team|subagent|manual>（...）；工作区=...；多AI 协调开关=**开**（revision 0，默认值）。
 [pipeline] 开关 UI 端点已挂载：GET/POST /.dsh-pipeline/state（右上角「多AI 协调」按钮走它）。
 ```
 
@@ -1948,9 +1948,9 @@ produced_by=self-provided 时 degraded 必须是 true。
 
 ---
 
-## 工具面（36 个）
+## 工具面（37 个）
 
-> 下表只列**常用/关键**的 20 个（它们覆盖 99% 的日常操作）；**完整清单（36 个）**以
+> 下表只列**常用/关键**的 20 个（它们覆盖 99% 的日常操作）；**完整清单（37 个）**以
 > `lib/tools.js` 的注册、`pipeline_boundaries` 的 `tool_face` 与 `tests/load-smoke.mjs`
 > 的计数断言为准（本轮已按 36 校准；`lib/tools/` 下按工具分组）。
 
@@ -1965,6 +1965,7 @@ produced_by=self-provided 时 degraded 必须是 true。
 | `pipeline_rework` | 测试 / 审核 / 安全 | 打回，带次数预算 |
 | `pipeline_close` | 主对话 | 关单。**必须已有有效审核 OK**；失败时附**完整缺口清单**（一次列全），支持 `dry_run:true` 只预演 |
 | `pipeline_status` | 任何人 | 查询状态、角色清单、制品、OK、打回计数、下一步合法事件、审计流水 |
+| `pipeline_wait` | 任何人 | ★ 只读长轮询：等到某状态/某历史动作（`until_state` / `until_event`，默认 60s 上限 120s）；超时给当前状态 + 最近动作 + 建议；不改状态、不写盘 —— 替代"主对话 sleep 轮询" |
 | `pipeline_roster_request` | 执行角色 | 提出角色增减申请 |
 | `pipeline_roster_review` | 编排 | 复核申请；批准即改写清单 |
 | `pipeline_artifact` | 编写 | 登记制品版本（v1、v2…）或回滚到历史版本 |
@@ -1977,7 +1978,7 @@ produced_by=self-provided 时 degraded 必须是 true。
 | `pipeline_human_relay` | **只有主对话** | ★ ② 把请求转告用户（不带 request_id = 收件箱）。不改状态 |
 | `pipeline_human_reply` | **只有主对话** | ★ ③④ 记录用户答复（原话+归属）并据它恢复状态 |
 
-（工具总数 **36**。上表里的 20 个是常用面；其余 16 个按分组在 `lib/tools/`：
+（工具总数 **37**。上表里的 20 个是常用面；其余 17 个按分组在 `lib/tools/`：
 分档编排/项目目录（`pipeline_demo` / `pipeline_project_init` / `pipeline_supervise`）、
 计划与授权面（`pipeline_plan` / `pipeline_scope_amend` / `pipeline_change_audit` / `pipeline_boundaries`）、
 分权落档（`pipeline_record_submit` / `pipeline_compile_requirement` / `pipeline_contacts`）、
@@ -2224,20 +2225,20 @@ DSH 0.2.1 起官方带「智能体团队」：根会话是 Lead，可以 `spawn_
 ```powershell
 cd <插件目录>
 $env:DSH_APP_ASAR = '<DSH 安装>\resources\app.asar'   # 预设/宿主 schema 类判据要读宿主安装
-node tests\run-all.mjs            # 116 套一起跑（3805 项，含残留检查）
+node tests\run-all.mjs            # 118 套一起跑（3875 项，含残留检查）
 node tests\run-all.mjs --quiet    # 只打结论，不贴完整拒绝原文
 ```
 
-**当前口径**：设了 `DSH_APP_ASAR` 时 **3805/3805 通过（116 套）**；不设时会有 3 条
+**当前口径**：设了 `DSH_APP_ASAR` 时 **3875/3875 通过（118 套）**；不设时会有 3 条
 "读不到宿主安装"的预置校验判红（环境面，不是代码面）。单套清单与每套的判据写在
 `tests/run-all.mjs` 与 `tests/registry.mjs` 里（新增能力用新套 + registry 一行登记）。
 
-按能力分组（不逐一列 116 套）：
+按能力分组（不逐一列 118 套）：
 
 | 分组 | 代表套件 | 内容 |
 |---|---|---|
 | 内核全流程 | `selftest.mjs` | 正例全流程 + 12 组反例 + 5 档分档验证（70 项） |
-| 装载/注册 | `load-smoke.mjs`、`schema-check.mjs` | 假 ctx 上调 `apply`，验注册 / 守门 / 开关路由 / 卸载 / 降级；工具定义计数（36 个） |
+| 装载/注册 | `load-smoke.mjs`、`schema-check.mjs` | 假 ctx 上调 `apply`，验注册 / 守门 / 开关路由 / 卸载 / 降级；工具定义计数（37 个） |
 | 通道 | `channel-check.mjs`、`dispatch-channel-check.mjs`、`team-transport-check.mjs` | 四条真实通道（session / team / subagent / manual）+ 选择点 + 官方 teammate 命名/复用/四槽证据/投递截断 |
 | 守门 | `shell-guard-check.mjs`、`intercept-check.mjs`、`silent-veto-*.mjs`、`team-guard-check.mjs` | 越权/跳步/旁路；官方新工具（team 协作 / 委派 / 插件管理 / 会话搜索）拒绝；`terminal_send` 的 `text` 按 shell 检查 |
 | 流程各站 | `human-check`、`writers-check`、`ladder-check`、`security-check`、`relay-check`、`records-check`、`plan-check`、`review-check`、`gate-states-check`… | 人工介入、编写席位、升级梯、安全确认、继任、分权落档、计划/审核/状态机 |
@@ -2247,7 +2248,8 @@ node tests\run-all.mjs --quiet    # 只打结论，不贴完整拒绝原文
 | 文件规模体检 | `file-size-check.mjs` | `CONVENTIONS §4.1`：**只报告，不是闸** —— 列出超过预警线（400 行）的文件与最大文件，**永远全绿、不判红、不设基线/登记表**（为拆而拆没有意义；拆不拆按 §4 四问判断）。设计见 `design/conventions/01-文件规模体检.md`（7 项） |
 | 文件规模提醒 | `size-reminder-check.mjs` | `CONVENTIONS §4.2`：文件 **>150 / >300 / ≥400** 三档由**程序自动发起**询问（注入成用户消息）——「有必要写这么大吗？顺手还是功能需求」→ 同一句再问 → 第三次要求「一定这个写法吗？有没有更优的写法」并实际调用 `web_search` / `web_fetch`。钉住阈值/文案/过滤/去重/注入形状（20 项） |
 | 修复批次（2026-10-18） | `f24-browser-profile-guard-check.mjs`、`f25-hashgate-attribution-check.mjs`、`f26-liveness-approval-check.mjs` | 长单实测反馈的三处判据缺口：①浏览器 Profile/凭证不得进工作区（写类工具 + shell 复制都拦，`security_check` 一等命中）；②hash 闸门区分「基线已有他人文件」与「本次新增未声明」（`foreign_paths_ack` 归属确认，不能洗自己/越界）；③liveness 识别「在等审批」而不是误判失联（`awaiting_approval`，不冻结；真死照旧判）（33 + 25 + 40 项） |
-| 回归专项 | `f1`–`f26`、`p1`–`p16`、`m1`–`m11` 等 | 每轮缺陷的判据化回归（一个缺陷一个套件） |
+| P2 批次（2026-10-18） | `f27-pipeline-wait-check.mjs`、`f28-p2-polish-check.mjs` | ①新增 `pipeline_wait` 只读长轮询（等到状态/事件，替代 sleep 轮询；非法参数立刻拒、超时给完整状态、不改任务，43 项）；②四级小修：`human_relay` 照抄块真实换行、`pipeline_demo confirm` 参数文档、`pipeline_status fields` 可用键清单 + 大体积提示、拒绝文案补"允许的替代形态"（27 项） |
+| 回归专项 | `f1`–`f28`、`p1`–`p16`、`m1`–`m11` 等 | 每轮缺陷的判据化回归（一个缺陷一个套件） |
 
 报告落到 `tests/last-run.txt`。
 

@@ -287,6 +287,11 @@ export function scanShellCommand(cmd, task, role, cfg = {}) {
           `${TAG} 拒绝：角色「${role}」不得通过 shell 修改项目文件。\n` +
           `任务：${task.taskId}\n命令片段：${text.slice(0, 200)}\n` +
           `${whyShellWriteRefused(role)}` +
+          // ★ P2 文案小修：把"能被放行的形态"直接写出来 —— 拒绝文案是调用方唯一的行动依据，
+          //   只说"不许"会让它反复换写法撞同一堵墙。**判据一个字没动**，只补一句出路。
+          '★ 允许的替代形态：**只读命令**不受这条限制（例如 `node --check -e "<代码>"` 校验语法、`git status`、' +
+          '列目录 / 读 `.pipeline/` 下的台账）；\n' +
+          '  真要写文件 → 用 **write / edit 工具**（受同一套角色与授权面规则约束，判据比 shell 字符串匹配更准）。\n' +
           '（说明：shell 侧是**字符串匹配**的 best-effort 判据，不是形式化保证；不写相对路径、不做变量拼接也拦得住，' +
           '但刻意混淆的写法可能绕过 —— 这一点在插件 README 里明确写了。）'
         )

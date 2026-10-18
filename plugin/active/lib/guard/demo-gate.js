@@ -91,7 +91,7 @@ export function demoGate(task, findHumanRequest) {
       `拒绝推进：任务 ${task?.id ?? '?'} 的 DEMO **还没获得用户确认**（已交 ${st.rounds.length} 轮，最新第 ${last.index} 轮）。\n` +
         '★ 验收 A17：未获用户确认时，向 `ready_dev` 的推进被拒。\n' +
         '下一步（二选一）：\n' +
-        `  · 用户看了满意 ⇒ 主对话调 \`pipeline_demo { action: "confirm", round_index: ${last.index}, request_id: "${last.human_request_id}" }\`；\n` +
+        `  · 用户看了满意 ⇒ 主对话调 \`pipeline_demo { action: "confirm", round_index: ${last.index}, human_request_id: "${last.human_request_id}" }\`；\n` +
         '  · 用户还要改 ⇒ 再交一轮（**没有轮次上限**，只要这一轮是新的东西）。',
       { demo: summarize(st) },
     )

@@ -293,6 +293,9 @@ export const PIPELINE_TOOL_ROLES = {
   pipeline_close: ['main'],
   pipeline_rework: ['tester', 'reviewer', 'security', 'human'],
   pipeline_status: null,
+  // ★ 2026-10-18 P2-11：只读长轮询（等到状态/事件），不写盘、不改状态 ——
+  //   与 `pipeline_status` 同一档：**所有角色可见/可用**（`null` = 不做角色收紧）。
+  pipeline_wait: null,
   pipeline_handoff: null,
   pipeline_roster_request: null,
   // ★ 角色变更复核 = 分配权的一部分 ⇒ 跟着 planner 走。

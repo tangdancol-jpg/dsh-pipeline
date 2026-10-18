@@ -9,6 +9,8 @@
 
 import { ROLE, ROLES, roleLabel } from '../roles.js'
 import { NO_CODE_READ_ROLES } from '../guard.js'
+// ★ task.json 体积提示（P2 文案小修）：只 stat 一次、只影响 `detail="full"` 的正文，不改任何判据。
+import { statSync } from 'node:fs'
 // ★ 会话身份（`exec.agent.id`）—— A 件的主对话身份自查要拿它与盘上记录逐字比。
 import { agentIdOf } from '../guard/seats.js'
 import { DEFAULT_SEAT_SILENCE_MS, describeApprovalWait, describeSilentSeats, nextActionsFor, seatLiveness, summarizeApprovalWait } from '../liveness.js'
@@ -22,6 +24,32 @@ import { isEnabled } from '../switch/gate.js'
 // ★★ 主管枢纽的**席位补派**（缺位自愈）：判据与实现都在它里面，这里只触发。
 import { HUB_SEAT_RESPAWN_HEAD } from './hub-seats.js'
 import { S, SNullable, tool, resolveActor } from './kit.js'
+
+/**
+ * ★ P2 文案小修：`task.json` 超过这个体积就提醒"全文很大、建议用紧凑档"。
+ *   取 1 MiB 的理由：5.3 MB 的实测单要提示，但正常单（几十 KB）不该多一行噪音；
+ *   这个值只影响**正文提示**，不影响任何判据与返回字段。
+ */
+export const TASK_JSON_WARN_BYTES = 1024 * 1024
+
+/**
+ * `task.json` 体积提示（**纯函数**：给字节数，返回一行提示或空串）。
+ *
+ * 现场（P2）：`pipeline_status { detail: "full" }` 在一张 5.3 MB 的单上照旧倒全文，
+ * 既不提示"为什么慢/贵"，也不给更省的取法 —— 主对话只能自己意识到。
+ *
+ * @param {unknown} bytes
+ * @returns {string} 空串 = 不需要提示
+ */
+export function taskJsonSizeHint(bytes) {
+  const n = Number(bytes)
+  if (!Number.isFinite(n) || n < TASK_JSON_WARN_BYTES) return ''
+  const mb = (n / (1024 * 1024)).toFixed(1)
+  return (
+    `★ 提示：本任务的 task.json 已有 **${mb} MB** —— 全文输出会又大又慢。` +
+    '建议改用 `detail="summary"`（紧凑档）或 `fields=[…]`（只取需要的字段）。'
+  )
+}
 
 /**
  * 状态查询与速查（pipeline_status）
@@ -291,8 +319,8 @@ export function buildStatusTools(ctx) {
        * 铁律：**不传 = 与改前逐字节相同**（既有调用方与断言一条都不许破）。
        * `summary` / `count` 都必须**自己把数算好**，不许让调用方去数。
        */
-      detail: S('string', '★ 输出档（**不传 = 与改前逐字节相同**）：summary = 紧凑档（状态 + 卡点 + 下一步该谁 + 算好的计数）｜count = 只回结论与计数｜full = 现状全文', { enum: ['summary', 'count', 'full'] }),
-      fields: S('array', '★ 只回**点名的字段**（投影，省字节）：如 ["state","hash_gate","liveness"]；`ok` 永远保留。不传 = 回人读摘要', { items: { type: 'string' } }),
+      detail: S('string', '★ 输出档（**不传 = 与改前逐字节相同**）：summary = 紧凑档（状态 + 卡点 + 下一步该谁 + 算好的计数）｜count = 只回结论与计数｜full = 现状全文（task.json 过大时会附体积提示）', { enum: ['summary', 'count', 'full'] }),
+      fields: S('array', '★ 只回**点名的字段**（投影，省字节）：如 ["state","hash_gate","liveness"]；`ok` 永远保留。不传 = 回人读摘要。**未知字段名会回 `_unknown_fields` + `_available_fields` 可用键清单**', { items: { type: 'string' } }),
       page: S('number', '★ 分段取长清单（1 起；不传 = 不分页，与改前一致）。截断时摘要里会写明 page/total 与下一段怎么取'),
       role_token: S('string', '角色令牌（查询也建议带上，便于按角色脱敏）'),
     },
@@ -520,6 +548,18 @@ export function buildStatusTools(ctx) {
         return { ok: false, summary: res.error }
       }
       indexTask(taskId, await load(taskId))
+
+      /**
+       * ★ P2 文案小修：`task.json` 的体积（**只 stat 一次**）。
+       *   取不到就 null（不给提示好过给错提示）；提示只出现在 `detail:"full"`
+       *   （含"不传 detail"的全文路）那一段正文里，紧凑档本来就在省字节、不重复劝。
+       */
+      let taskJsonBytes = null
+      try {
+        if (typeof store.taskFile === 'function') taskJsonBytes = statSync(store.taskFile(taskId)).size
+      } catch {
+        taskJsonBytes = null
+      }
 
       /**
        * ★★ **待领事件**（唤醒投递失败的兜底出口，2026-10-16 补）：
@@ -796,6 +836,10 @@ export function buildStatusTools(ctx) {
         lines.push('', '（主对话看到的是脱敏摘要：补丁正文、失败日志正文、运行命令正文已隐去。）')
       }
 
+      // ★ P2 文案小修：全文路才提示体积（紧凑档与 fields 投影不会走到这里）。
+      const sizeHint = isBrief ? '' : taskJsonSizeHint(taskJsonBytes)
+      if (sizeHint.length > 0) lines.push('', sizeHint)
+
       return {
         ok: true,
         summary: lines.filter((l) => l !== '').join('\n'),
@@ -873,11 +917,16 @@ export function buildStatusTools(ctx) {
   const PIPELINE_HELP_TOPICS = Object.freeze({
     tools: [
       '主对话：pipeline_task_open / pipeline_orchestrate / pipeline_plan / pipeline_dispatch / pipeline_transition /',
-      '        pipeline_human_relay / pipeline_human_reply / pipeline_status / pipeline_contacts',
+      '        pipeline_human_relay / pipeline_human_reply / pipeline_status / pipeline_wait / pipeline_contacts',
+      // ★ P2 文案小修：`pipeline_demo` 原先在速查里**完全没提**，confirm 的必填参数只能靠猜。
+      '主对话 · DEMO 阶段：pipeline_demo（action: plan / round / confirm / status）；',
+      '        `confirm` **必填** `round_index` + `human_request_id`（请求必须已 answered）。',
       '执行角色：pipeline_bind_role / pipeline_handoff / pipeline_artifact / pipeline_record_submit /',
       '        pipeline_clarify_request / pipeline_clarify_reply / pipeline_human_request / pipeline_roster_request /',
       '        pipeline_context_report / pipeline_succession / pipeline_compile_requirement',
       '★ 给**既有席位**传话（催办 / 叫醒 / 停手）没有单独的工具：用 pipeline_dispatch { notify_only: true }。',
+      '★ 等状态别 sleep 轮询：pipeline_wait { task_id, until_state?, until_event?, timeout_ms? } —',
+      '        只读长轮询，到状态/历史动作立刻返回；超时给当前状态 + 最近动作 + 建议（不改任务、不写盘）。',
       '★ 拿不准就 pipeline_status：它给的是脱敏摘要 + **下一步合法事件**，比翻文档准。',
     ].join('\n'),
     flow: [
